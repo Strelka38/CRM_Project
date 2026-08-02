@@ -9,7 +9,7 @@ brew services start postgresql@16
 cd web
 cp .env.example .env   # при первом запуске
 npm install
-npx prisma db push
+npx prisma migrate deploy
 npm run db:seed
 npm run dev
 ```

@@ -1,4 +1,0 @@
--- AlterEnum
-ALTER TYPE "NotificationType" ADD VALUE 'EVENT_CREATED';
-ALTER TYPE "NotificationType" ADD VALUE 'EVENT_ASSIGNED';
-ALTER TYPE "NotificationType" ADD VALUE 'CHAT_MESSAGE';
