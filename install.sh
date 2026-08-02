@@ -5,7 +5,25 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT"
 
 if ! command -v docker >/dev/null 2>&1; then
-  echo "Нужен Docker. Установите Docker и повторите." >&2
+  cat >&2 <<'EOF'
+Не найден Docker. Установите и повторите:
+
+  curl -fsSL https://get.docker.com | sh
+  systemctl enable --now docker
+
+EOF
+  exit 1
+fi
+
+if ! docker info >/dev/null 2>&1; then
+  cat >&2 <<'EOF'
+Docker установлен, но демон не запущен или нет прав.
+
+  systemctl start docker
+  # либо добавьте пользователя в группу docker и перелогиньтесь:
+  # usermod -aG docker "$USER"
+
+EOF
   exit 1
 fi
 
@@ -14,7 +32,15 @@ if docker compose version >/dev/null 2>&1; then
 elif command -v docker-compose >/dev/null 2>&1; then
   COMPOSE=(docker-compose)
 else
-  echo "Нужен Docker Compose (docker compose)." >&2
+  cat >&2 <<'EOF'
+Не найден Docker Compose plugin. Установите и повторите:
+
+  apt-get update
+  apt-get install -y docker-compose-plugin
+
+Проверка: docker compose version
+
+EOF
   exit 1
 fi
 
