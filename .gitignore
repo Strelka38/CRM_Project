@@ -8,5 +8,6 @@ dist/
 .env.local
 .env*.local
 web/.env
+web/uploads/
 _extracted_catalog.json
 .vercel

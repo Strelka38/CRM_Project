@@ -1,0 +1,13 @@
+**/node_modules
+**/.next
+**/uploads
+**/.env
+**/.env.*
+!**/.env.example
+.git
+.gitignore
+**/*.md
+**/.DS_Store
+**/agent-transcripts
+**/.cursor
+web/README.md

@@ -61,31 +61,7 @@ const DEFAULT_SPECIALTIES: Array<{
   { name: "Звукотехник", hourlyRate: 1200, shiftRate: 10000 },
 ];
 
-async function ensureManager() {
-  const email = process.env.BOOTSTRAP_MANAGER_EMAIL || "manager@local.test";
-  const password = process.env.BOOTSTRAP_MANAGER_PASSWORD || "manager123";
-  const name = process.env.BOOTSTRAP_MANAGER_NAME || "Стрельченко Артем";
-  await prisma.user.upsert({
-    where: { email },
-    update: {
-      firstName: "Артем",
-      lastName: "Стрельченко",
-      patronymic: "Романович",
-    },
-    create: {
-      email,
-      name,
-      firstName: "Артем",
-      lastName: "Стрельченко",
-      patronymic: "Романович",
-      passwordHash: await bcrypt.hash(password, 10),
-      role: Role.MANAGER,
-    },
-  });
-  console.log(`Manager: ${email} / ${password}`);
-}
-
-async function ensureSpecialtiesAndEmployee() {
+async function ensureSpecialties() {
   for (let i = 0; i < DEFAULT_SPECIALTIES.length; i++) {
     const s = DEFAULT_SPECIALTIES[i];
     await prisma.specialty.upsert({
@@ -104,6 +80,44 @@ async function ensureSpecialtiesAndEmployee() {
       },
     });
   }
+}
+
+async function ensureManager() {
+  const email = process.env.BOOTSTRAP_MANAGER_EMAIL || "manager@local.test";
+  const password = process.env.BOOTSTRAP_MANAGER_PASSWORD || "manager123";
+  const name = process.env.BOOTSTRAP_MANAGER_NAME || "Стрельченко Артем";
+  const passwordHash = await bcrypt.hash(password, 10);
+  const useDemoProfile = email === "manager@local.test";
+  await prisma.user.upsert({
+    where: { email },
+    update: useDemoProfile
+      ? {
+          name,
+          firstName: "Артем",
+          lastName: "Стрельченко",
+          patronymic: "Романович",
+          passwordHash,
+        }
+      : { name, passwordHash },
+    create: {
+      email,
+      name,
+      passwordHash,
+      role: Role.MANAGER,
+      ...(useDemoProfile
+        ? {
+            firstName: "Артем",
+            lastName: "Стрельченко",
+            patronymic: "Романович",
+          }
+        : {}),
+    },
+  });
+  console.log(`Manager: ${email}`);
+}
+
+async function ensureSpecialtiesAndEmployee() {
+  await ensureSpecialties();
 
   const email = "employee@local.test";
   const password = "employee123";
@@ -327,6 +341,25 @@ async function importCatalog() {
 }
 
 async function main() {
+  // Docker/prod install: create admin + specialties + catalog once, never wipe data.
+  if (process.env.BOOTSTRAP_MODE === "prod") {
+    const users = await prisma.user.count();
+    const items = await prisma.catalogItem.count();
+    if (users > 0 && items > 0) {
+      console.log("Already initialized — skip bootstrap");
+      return;
+    }
+    if (users === 0) {
+      await ensureManager();
+    }
+    await ensureSpecialties();
+    if (items === 0) {
+      await importCatalog();
+    }
+    console.log("Production bootstrap complete");
+    return;
+  }
+
   await ensureManager();
   await ensureSpecialtiesAndEmployee();
   await clearCatalog();

@@ -2,10 +2,34 @@
 
 Веб-CRM для проката ивент-оборудования: сметы, каталог со складом, комплекты, календарь, роли.
 
-## Локальный запуск
+## Установка на сервер (Docker)
+
+Нужны только Docker и Docker Compose. Скрипт спросит домен (для HTTPS-сертификата) и данные первого администратора — больше ничего настраивать не нужно.
 
 ```bash
-brew services start postgresql@16
+./install.sh
+```
+
+После установки сайт будет доступен по `https://ВАШ_ДОМЕН`.
+
+Требования:
+- свободные порты **80** и **443**
+- домен с A/AAAA-записью на IP сервера (Let's Encrypt через Caddy)
+
+Управление:
+
+```bash
+docker compose ps
+docker compose logs -f app
+docker compose down
+```
+
+## Локальный запуск (без Docker-приложения)
+
+```bash
+docker compose -f docker-compose.dev.yml up -d
+# или: brew services start postgresql@16
+
 cd web
 cp .env.example .env   # при первом запуске
 npm install
@@ -16,11 +40,12 @@ npm run dev
 
 Откройте [http://localhost:3000](http://localhost:3000).
 
+**Демо (локальный seed):**  
 **Менеджер:** `manager@local.test` / `manager123`  
 **Сотрудник:** `employee@local.test` / `employee123`
 
 Сиды каталога берутся из  
-`Пример исходников/Каталог выгрузка с golova.xlsx` (путь в столбце «Путь в каталоге»).
+`Пример исходников/Каталог выгрузка с golova.xlsx`.
 
 ## Возможности
 
