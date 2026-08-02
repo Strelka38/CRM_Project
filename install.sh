@@ -27,22 +27,60 @@ EOF
   exit 1
 fi
 
-if docker compose version >/dev/null 2>&1; then
-  COMPOSE=(docker compose)
-elif command -v docker-compose >/dev/null 2>&1; then
-  COMPOSE=(docker-compose)
-else
-  cat >&2 <<'EOF'
-Не найден Docker Compose plugin. Установите и повторите:
+ensure_compose() {
+  if docker compose version >/dev/null 2>&1; then
+    COMPOSE=(docker compose)
+    return 0
+  fi
+  if command -v docker-compose >/dev/null 2>&1; then
+    COMPOSE=(docker-compose)
+    return 0
+  fi
 
-  apt-get update
-  apt-get install -y docker-compose-plugin
+  echo "==> Docker Compose не найден — скачиваю бинарник..."
+  local arch
+  arch="$(uname -m)"
+  case "$arch" in
+    x86_64|amd64) arch="x86_64" ;;
+    aarch64|arm64) arch="aarch64" ;;
+    *)
+      echo "Неподдерживаемая архитектура: $arch" >&2
+      exit 1
+      ;;
+  esac
 
-Проверка: docker compose version
+  local plugin_dir="/usr/local/lib/docker/cli-plugins"
+  local url="https://github.com/docker/compose/releases/download/v2.36.2/docker-compose-linux-${arch}"
+  mkdir -p "$plugin_dir"
+  if ! curl -fsSL "$url" -o "${plugin_dir}/docker-compose"; then
+    cat >&2 <<'EOF'
+Не удалось скачать Docker Compose. Установите Docker с официального репозитория:
+
+  curl -fsSL https://get.docker.com | sh
+  systemctl enable --now docker
 
 EOF
-  exit 1
-fi
+    exit 1
+  fi
+  chmod +x "${plugin_dir}/docker-compose"
+
+  # Fallback path for older docker CLI layouts
+  if ! docker compose version >/dev/null 2>&1; then
+    ln -sf "${plugin_dir}/docker-compose" /usr/local/bin/docker-compose
+  fi
+
+  if docker compose version >/dev/null 2>&1; then
+    COMPOSE=(docker compose)
+  elif command -v docker-compose >/dev/null 2>&1; then
+    COMPOSE=(docker-compose)
+  else
+    echo "Compose установлен, но docker его не видит. Проверьте: docker compose version" >&2
+    exit 1
+  fi
+  echo "    OK: $("${COMPOSE[@]}" version)"
+}
+
+ensure_compose
 
 echo "=========================================="
 echo "  Установка Event Rental CRM"
