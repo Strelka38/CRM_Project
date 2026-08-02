@@ -1,0 +1,12 @@
+node_modules/
+.next/
+out/
+dist/
+.DS_Store
+*.log
+.env
+.env.local
+.env*.local
+web/.env
+_extracted_catalog.json
+.vercel

@@ -1,0 +1,534 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  MANAGER
+  EMPLOYEE
+}
+
+enum CategoryKind {
+  EQUIPMENT
+  PERSONNEL
+  OTHER
+}
+
+enum ItemKind {
+  EQUIPMENT
+  PERSONNEL
+  SERVICE
+  CONSUMABLE
+  COMPONENT
+  OTHER
+}
+
+enum DayMode {
+  HALF_EXTRA
+  FULL_DAYS
+  FIXED1
+  FIXED2
+}
+
+/// Владелец оборудования: Шоу-Мастер / Диаком / НеИвент
+enum CatalogOwner {
+  SHOW_MASTER
+  DIAKOM
+  NE_EVENT
+}
+
+enum QuoteLifecycle {
+  CALCULATED
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+}
+
+enum BlockType {
+  SECTION
+  ITEM
+  NOTE
+  KIT_HEADER
+}
+
+enum NotificationType {
+  INVOICE_DUE
+  SYSTEM
+  EVENT_CREATED
+  EVENT_ASSIGNED
+  CHAT_MESSAGE
+}
+
+enum PayMode {
+  SHIFT
+  HOURLY
+}
+
+/// Режим распределения строки в калькуляции
+enum CalcLineMode {
+  SHARE
+  AMOUNT
+}
+
+enum SpecOverrideAction {
+  HIDE
+  SET_QTY
+  RENAME
+}
+
+enum SpecExtraType {
+  SECTION
+  ITEM
+}
+
+model User {
+  id            String           @id @default(cuid())
+  email         String           @unique
+  name          String
+  firstName     String           @default("")
+  lastName      String           @default("")
+  patronymic    String           @default("")
+  phone         String           @default("")
+  comment       String           @default("")
+  passwordHash  String
+  role          Role             @default(EMPLOYEE)
+  active        Boolean          @default(true)
+  monthlySalary Float            @default(0)
+  /// К каким фирмам относится сотрудник (ШМ / ДК / НИ) — для учёта ЗП в доходности
+  owners        CatalogOwner[]   @default([])
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  quotes             Quote[]
+  quoteTemplates     QuoteTemplate[]
+  notifications      Notification[]
+  specialties        UserSpecialty[]
+  assignments        QuoteAssignment[]
+  quoteComments      QuoteComment[]
+  quoteAttachments   QuoteAttachment[]
+}
+
+model Specialty {
+  id         String           @id @default(cuid())
+  name       String           @unique
+  sortOrder  Int              @default(0)
+  hourlyRate Float            @default(0)
+  shiftRate  Float            @default(0)
+  active     Boolean          @default(true)
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+  users      UserSpecialty[]
+  assignments QuoteAssignment[]
+}
+
+model UserSpecialty {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  specialtyId String
+  specialty   Specialty @relation(fields: [specialtyId], references: [id], onDelete: Cascade)
+  hourlyRate  Float     @default(0)
+  shiftRate   Float     @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([userId, specialtyId])
+  @@index([specialtyId])
+}
+
+model QuoteAssignment {
+  id           String    @id @default(cuid())
+  quoteId      String
+  quote        Quote     @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  specialtyId  String
+  specialty    Specialty @relation(fields: [specialtyId], references: [id], onDelete: Restrict)
+  payMode      PayMode   @default(SHIFT)
+  hours        Float?
+  rateOverride Float?
+  /// Премиальные за мероприятие (в калькуляции)
+  bonus        Float     @default(0)
+  /// Монтажные по факту (в калькуляции, на сотрудника)
+  montageAmount Float    @default(0)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([quoteId, userId, specialtyId])
+  @@index([userId])
+  @@index([specialtyId])
+}
+
+model CatalogCategory {
+  id            String            @id @default(cuid())
+  name          String
+  path          String            @unique
+  parentId      String?
+  parent        CatalogCategory?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children      CatalogCategory[] @relation("CategoryTree")
+  kind          CategoryKind      @default(EQUIPMENT)
+  subtotalLabel String            @default("")
+  sortOrder     Int               @default(0)
+  active        Boolean           @default(true)
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  items         CatalogItem[]
+  kits          Kit[]
+
+  @@index([parentId])
+}
+
+model CatalogItem {
+  id               String          @id @default(cuid())
+  categoryId       String
+  category         CatalogCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  name             String
+  model            String?
+  manufacturer     String?
+  basePrice        Float           @default(0)
+  cashlessOverride Float?
+  estimatedValue   Float?
+  stockQty         Int             @default(0)
+  width            Float?
+  height           Float?
+  depth            Float?
+  power            Float?
+  weight           Float?
+  comment          String?
+  photoPath        String?
+  /// Один или несколько владельцев (общая покупка — 2–3 тега)
+  owners           CatalogOwner[]  @default([])
+  dayMode          DayMode         @default(HALF_EXTRA)
+  itemKind         ItemKind        @default(EQUIPMENT)
+  active           Boolean         @default(true)
+  sortOrder        Int             @default(0)
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  quoteBlocks      QuoteBlock[]
+  kitComponents    KitComponent[]
+
+  @@index([categoryId])
+  @@index([itemKind])
+  @@index([name])
+}
+
+model Kit {
+  id          String           @id @default(cuid())
+  name        String
+  description String?
+  categoryId  String?
+  category    CatalogCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  basePrice   Float?
+  active      Boolean          @default(true)
+  sortOrder   Int              @default(0)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  components  KitComponent[]
+  quoteBlocks QuoteBlock[]
+}
+
+model KitComponent {
+  id            String      @id @default(cuid())
+  kitId         String
+  kit           Kit         @relation(fields: [kitId], references: [id], onDelete: Cascade)
+  catalogItemId String
+  catalogItem   CatalogItem @relation(fields: [catalogItemId], references: [id], onDelete: Cascade)
+  qty           Float       @default(1)
+
+  @@unique([kitId, catalogItemId])
+  @@index([catalogItemId])
+}
+
+model Client {
+  id           String   @id @default(cuid())
+  companyName  String
+  contactName  String   @default("")
+  phone        String   @default("")
+  email        String   @default("")
+  comment      String   @default("")
+  inn          String   @default("")
+  legalAddress String   @default("")
+  legalDetails String   @default("")
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  quotes       Quote[]
+
+  @@index([companyName])
+  @@index([inn])
+}
+
+model Venue {
+  id        String       @id @default(cuid())
+  name      String
+  address   String       @default("")
+  mapUrl    String       @default("")
+  comment   String       @default("")
+  active    Boolean      @default(true)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  photos    VenuePhoto[]
+  quotes    Quote[]
+
+  @@index([name])
+  @@index([address])
+}
+
+model VenuePhoto {
+  id          String   @id @default(cuid())
+  venueId     String
+  venue       Venue    @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  filename    String
+  mimeType    String
+  size        Int
+  storagePath String
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  @@index([venueId])
+}
+
+model Quote {
+  id              String            @id @default(cuid())
+  proposalNumber  String            @default("90")
+  eventName       String            @default("")
+  date            String            @default("")
+  eventDate       DateTime?
+  time            String            @default("")
+  place           String            @default("")
+  venueId         String?
+  venueRef        Venue?            @relation(fields: [venueId], references: [id], onDelete: SetNull)
+  client          String            @default("")
+  clientId        String?
+  clientRef       Client?           @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  managerName     String            @default("")
+  cashless        Boolean           @default(true)
+  durationDays    Int               @default(1)
+  notes           String[]          @default([])
+  brief           String            @default("")
+  discountPercent Float             @default(0)
+  lifecycle       QuoteLifecycle    @default(CALCULATED)
+  invoiceRequired Boolean           @default(false)
+  invoiceSent     Boolean           @default(false)
+  paid            Boolean           @default(false)
+  paymentComment  String            @default("")
+  /// true = доли компаний заданы вручную (QuoteCalcShare), иначе — авто из владельцев позиций
+  sharesCustom    Boolean           @default(false)
+  ownerId         String
+  owner           User              @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  blocks          QuoteBlock[]
+  zones           QuoteZone[]
+  notifications   Notification[]
+  assignments     QuoteAssignment[]
+  specOverrides   SpecOverride[]
+  specExtras      SpecExtraBlock[]
+  comments        QuoteComment[]
+  attachments     QuoteAttachment[]
+  calcShares         QuoteCalcShare[]
+  extraExpenses      QuoteExtraExpense[]
+  calcLineOverrides  QuoteCalcLineOverride[]
+
+  @@index([ownerId])
+  @@index([eventDate])
+  @@index([lifecycle])
+  @@index([clientId])
+  @@index([venueId])
+}
+
+/// Доля компании в калькуляции сметы (когда sharesCustom = true)
+model QuoteCalcShare {
+  id        String       @id @default(cuid())
+  quoteId   String
+  quote     Quote        @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  company   CatalogOwner
+  percent   Float        @default(0)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@unique([quoteId, company])
+  @@index([quoteId])
+}
+
+/// Переопределение владельцев / сумм по строке сметы в калькуляции
+model QuoteCalcLineOverride {
+  id           String       @id @default(cuid())
+  quoteId      String
+  quote        Quote        @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  blockId      String
+  mode         CalcLineMode @default(SHARE)
+  /// true = owners заданы вручную; иначе берём из каталога
+  ownersCustom Boolean      @default(false)
+  owners       CatalogOwner[] @default([])
+  amountShowMaster Float    @default(0)
+  amountDiakom     Float    @default(0)
+  amountNeEvent    Float    @default(0)
+  /// Монтажные по факту калькуляции (отдельно от суммы позиции)
+  montageAmount    Float    @default(0)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  @@unique([quoteId, blockId])
+  @@index([quoteId])
+  @@index([blockId])
+}
+
+/// Доп. расходы проекта (транспорт, питание и т.п.)
+model QuoteExtraExpense {
+  id        String        @id @default(cuid())
+  quoteId   String
+  quote     Quote         @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  name      String
+  amount    Float         @default(0)
+  /// SHARE: owners пусто = по долям выручки; owners заданы = поровну между ними.
+  /// AMOUNT: натуральные суммы в amount*
+  mode      CalcLineMode  @default(SHARE)
+  /// @deprecated используйте owners; оставлено для совместимости
+  company   CatalogOwner?
+  owners    CatalogOwner[] @default([])
+  amountShowMaster Float  @default(0)
+  amountDiakom     Float  @default(0)
+  amountNeEvent    Float  @default(0)
+  sortOrder Int           @default(0)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@index([quoteId])
+}
+
+model QuoteZone {
+  id        String       @id @default(cuid())
+  quoteId   String
+  quote     Quote        @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  name      String
+  sortOrder Int          @default(0)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  blocks    QuoteBlock[]
+
+  @@index([quoteId])
+}
+
+model QuoteTemplate {
+  id              String   @id @default(cuid())
+  name            String
+  ownerId         String
+  owner           User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  discountPercent Float    @default(0)
+  cashless        Boolean  @default(true)
+  notes           String[] @default([])
+  payload         Json
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([ownerId])
+  @@index([name])
+}
+
+model SpecOverride {
+  id        String             @id @default(cuid())
+  quoteId   String
+  quote     Quote              @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  deriveKey String
+  action    SpecOverrideAction
+  qty       Float?
+  name      String?
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+
+  @@unique([quoteId, deriveKey, action])
+  @@index([quoteId])
+}
+
+model SpecExtraBlock {
+  id            String        @id @default(cuid())
+  quoteId       String
+  quote         Quote         @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  type          SpecExtraType
+  sortOrder     Int           @default(0)
+  title         String?
+  name          String?
+  qty           Float         @default(0)
+  catalogItemId String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@index([quoteId])
+}
+
+model QuoteComment {
+  id        String   @id @default(cuid())
+  quoteId   String
+  quote     Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  body      String
+  createdAt DateTime @default(now())
+
+  @@index([quoteId, createdAt])
+  @@index([authorId])
+}
+
+model QuoteAttachment {
+  id          String   @id @default(cuid())
+  quoteId     String
+  quote       Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  uploaderId  String
+  uploader    User     @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
+  filename    String
+  mimeType    String
+  size        Int
+  storagePath String
+  createdAt   DateTime @default(now())
+
+  @@index([quoteId])
+  @@index([uploaderId])
+}
+
+model QuoteBlock {
+  id               String       @id @default(cuid())
+  quoteId          String
+  quote            Quote        @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  zoneId           String?
+  zone             QuoteZone?   @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+  type             BlockType
+  sortOrder        Int          @default(0)
+  title            String?
+  name             String?
+  qty              Float        @default(0)
+  unitPrice        Float        @default(0)
+  cashlessOverride Float?
+  dayMode          DayMode      @default(HALF_EXTRA)
+  dayCoefOverride  Float?
+  catalogItemId    String?
+  catalogItem      CatalogItem? @relation(fields: [catalogItemId], references: [id], onDelete: SetNull)
+  kitId            String?
+  kit              Kit?         @relation(fields: [kitId], references: [id], onDelete: SetNull)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  @@index([quoteId])
+  @@index([zoneId])
+  @@index([catalogItemId])
+  @@index([kitId])
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  quoteId   String?
+  quote     Quote?           @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  type      NotificationType @default(SYSTEM)
+  title     String
+  body      String
+  read      Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  @@index([userId, read])
+  @@index([quoteId])
+}

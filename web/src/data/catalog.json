@@ -1,0 +1,1320 @@
+{
+  "version": 1,
+  "source": "newCP_Shablon_2026.xlsm",
+  "defaultManager": "Стрельченко Артем",
+  "notes": [
+    "Внимание: данное предложение не является офертой. Бронирование оборудования на вашу дату производится только после заключения договора или внесения предоплаты",
+    "* Первый день - 100% стоимости оборудования, 2-й и последующий, а также отдельный день для репетиций тарифицируются по 50% от стоимости оборудования"
+  ],
+  "categories": [
+    {
+      "id": "cat-1",
+      "name": "Звуковое оборудование",
+      "subtotalLabel": "Итого звук:",
+      "items": [
+        {
+          "id": "item-14",
+          "name": "KS Audio TRIAKS T10-L - акустическая система, 1600 Вт, 2x12”/ 1x2”/ 1x1”, 30°x20°, 72x58x66cm, 80кг",
+          "price": 3500.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-15",
+          "name": "Комплект акустического оборудования от площадки (заказчик заказывает его напрямую у площадки)",
+          "price": 1.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-16",
+          "name": "KS Audio TRIAKS T10-F - акустическая система, 1600 Вт, 2x12”/ 1x2”/ 1x1”, 60°x40°, 72x58x66cm, 65кг",
+          "price": 3500.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-17",
+          "name": "Микшерный пульт Pioneer DJM-900 + проигрыватели  CDJ-2000NXS2 x2",
+          "price": 3500.0,
+          "priceCashlessOverride": 20000.0,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-18",
+          "name": "DAS AUDIO ACTION - активный звуковой комплект 4200 Вт: 2 x DAS AUDIO ACTION 215A - активная АС 500 Вт (RMS), 2 x 15\"+1,75 \", 2 x DAS AUDIO ACTION 218A - активный саб 1600 Вт (RMS), 2 x 18''",
+          "price": 15000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-19",
+          "name": "DB TECHNOLOGIES OPERA - активный звуковой комплект 1200 Вт, 2 активных АС по 200 Вт - OPERA LIVE 210, 1 активный сабвуфер, 800 Вт - OPERA SUB 15, 2 акустических стойки",
+          "price": 6000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-20",
+          "name": "DB TECHNOLOGIES OPERA LIVE 210 - активная акустическая система, 200 Вт, 10\"+1\"",
+          "price": 2000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-21",
+          "name": "MACKIE THUMP-15A - Активная акустическая система/монитор, 1000 Вт",
+          "price": 1500.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-22",
+          "name": "Electro-Voice ZLX 12 активная акустическая система",
+          "price": 3000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-23",
+          "name": "Electro-Voice ZxA5-90B - активная акустическая система/монитор, 15\" + 2\", 90°x50°, 1000Вт  НЧ / 250Вт ВЧ",
+          "price": 3000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-24",
+          "name": "LD Maui комплект",
+          "price": 18000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-25",
+          "name": "Behringer FLOW8 - цифровой микшерный пульт, 8 каналов.",
+          "price": 1500.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-26",
+          "name": "Behringer XR16 - цифровой микшерный пульт, 16 каналов, планшет",
+          "price": 2000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-27",
+          "name": "Behringer XR18 - цифровой микшерный пульт, 18 каналов, планшет, 18-канальный USB-интерфейс для многоканальной записи",
+          "price": 4000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-28",
+          "name": "Behringer X32 - цифровой микшерный пульт, 32 канала, 16 шин, 32 х 32 интерфейс USB",
+          "price": 5000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-29",
+          "name": "Behringer S32 - стейдж бокс для Behringer X32, 32 входа, 16 выходов",
+          "price": 3000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-30",
+          "name": "YAMAHA MG82CX - микшерный пульт, 2 мик./лин. моноканала, 2 мик./лин. стереоканала, 1 стереопара, процессор эффектов, компрессоры на двух микрофонных каналах",
+          "price": 1000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-31",
+          "name": "Конференц система Beyerdynamic MCS 521 до 60 микрофонов",
+          "price": 1200.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-32",
+          "name": "Конференц система JTS до 30 микрофонов",
+          "price": 1200.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-33",
+          "name": "SHURE BLX24E/SM58 - радиосистема с ручным вокальным микрофоном",
+          "price": 1500.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-34",
+          "name": "SHURE SLXD24/B58/SM58 - радиосистема с ручным вокальным микрофоном",
+          "price": 3000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-35",
+          "name": "SHURE SLX14/SM35 - радиосистема с головным микрофоном SM35, цвет черный",
+          "price": 3000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-36",
+          "name": "Sennheiser XSW 1-825 - радиосистема с ручным вокальным микрофоном",
+          "price": 1000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-37",
+          "name": "SHURE PGX14/PG30 - радиосистема с головным микрофоном, цвет черный",
+          "price": 1500.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-38",
+          "name": "Sennheiser EW IEM G4 - система персонального мониторинга",
+          "price": 3000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-39",
+          "name": "SHURE SM58-LCE - динамический кардиоидный вокальный микрофон",
+          "price": 500.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-40",
+          "name": "AKG C1000S - микрофон `Швейцарский нож` электретный кардиоид./суперкард., внутр./внешн. питание",
+          "price": 1500.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-41",
+          "name": "SHURE CVG18-B/C - настольный конденсаторный микрофон на гибком держателе, кардиоида, черный, длина 45 см.",
+          "price": 2500.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-42",
+          "name": "OnStage SSP7900 - стойка для акустических систем",
+          "price": 250.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-43",
+          "name": "Ноутбук звукорежиссера",
+          "price": 3000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-44",
+          "name": "Услуги технического персонала (звукооператор)",
+          "price": 10000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "full_days"
+        },
+        {
+          "id": "item-45",
+          "name": "Услуги технического персонала (Программный диджей)",
+          "price": 10000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "full_days"
+        },
+        {
+          "id": "item-46",
+          "name": "Монтажники, чел",
+          "price": 4000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "fixed1"
+        },
+        {
+          "id": "item-47",
+          "name": "Доставка",
+          "price": 1500.0,
+          "priceCashlessOverride": null,
+          "dayMode": "fixed1"
+        }
+      ]
+    },
+    {
+      "id": "cat-2",
+      "name": "Световое оборудование",
+      "subtotalLabel": "Итого свет:",
+      "items": [
+        {
+          "id": "item-50",
+          "name": "ASM Lighting BSW-470B - вращающаяся голова типа \"3 в 1\": WASH/ BEAM/ SPOT, 470 Вт, 14 цветов, 2 колеса гобо, 16/19 каналов",
+          "price": 2500.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-51",
+          "name": "ASM Lighting K10BE - вращающаяся голова WASH BEE EYE, 285 Вт, режимы WASH/BEAM/Калейдоскоп, цвет белый",
+          "price": 2500.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-52",
+          "name": "ASM Lighting K15BE - вращающаяся голова WASH BEE EYE, 285 Вт, режимы WASH/BEAM/Калейдоскоп, цвет черный",
+          "price": 3500.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-53",
+          "name": "ASM Lighting BM-230W- вращающаяся голова BEAM, 7R, 230 Вт, 16 каналов, цвет черный",
+          "price": 2500.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-54",
+          "name": "ASM Lighting  LW-450W - вращающаяся голова, 450 Вт, 36x12 Вт RGBW, цвет черный",
+          "price": 1500.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-55",
+          "name": "ASM Lighting LED PAR 108 - светодиодный прожектор, 108 Вт, светодиоды: 36 шт. по 3 Вт, угол раскрытия: 25°, цвет корпуса: черный, 7 каналов",
+          "price": 750.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-56",
+          "name": "ASM Lighting LED COB PAR 108 - светодиодный прожектор, 108 Вт, ,белый свет,  светодиоды: 4 шт. по 25 Вт, угол раскрытия: 45°, цвет корпуса: черный",
+          "price": 750.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-57",
+          "name": "ASM Lighting SLIM LEDPAR120 - LED прожектор, 120 Вт,  светодиоды: 12 шт.(4 в 1, RGBW) по 10 Вт, угол раскрытия: 25°, цвет: черный, 8 каналов",
+          "price": 1000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-58",
+          "name": "EURO DJ LED PAR 64 - светодиодный прожектор, 108 Вт, светодиоды: 36 шт. по 3 Вт, угол раскрытия: 15°, цвет корпуса: серебристый, 8 каналов",
+          "price": 750.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-59",
+          "name": "EURO DJ PAR 64 - галогеновый прожектор, 1000 Вт, цвет корпуса: серебристый",
+          "price": 500.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-60",
+          "name": "ASM Lighting LED PAR 120WP - светодиодный влагозащищенный прожектор, 12 светодиодов (4 в 1, RGBW) по 10 Вт, угол раскрытия: 25°, черный, 8 каналов, абсолютно бесшумная работа",
+          "price": 750.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-61",
+          "name": "ASM Lighting LEDBAR-360 - светодиодный влагозащищенный линейный прожектор, 24 светодиода (5 в 1, RGBWA) по 15 Вт,  угол раскрытия: 15°, черный, 5/9 каналов, абсолютно бесшумная работа",
+          "price": 1250.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-62",
+          "name": "ASM Lighting LEDBAR-210PXL - светодиодный влагозащищенный линейный прожектор, 14 светодиодов (5 в 1, RGBWA) по 15 Вт, pixel line, 86 каналов, абсолютно бесшумная работа",
+          "price": 1500.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-63",
+          "name": "ASM Lighting LAZERBAR-8 - моторизированная лазерная линейка, 8 светодиодов по 500мВт, 12 DMX каналов, диапазон вращения TILT: 180°, длина 1 м",
+          "price": 3000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-64",
+          "name": "ASM Lighting MATRIX-RGB - матрица светодиодная, 25 светодиодов RGB, 58х58 см",
+          "price": 3000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-65",
+          "name": "ASM Lighting MATRIX-W - матрица светодиодная, 36 белых теплых светодиодов, 50х50х19 см",
+          "price": 3000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-66",
+          "name": "ASM Lighting LEDBAR-W - линейный прожектор, 14 белый теплых светодиода, 100х5х12 см",
+          "price": 1500.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-67",
+          "name": "ASM Lighting BL-200 - блиндер, 2 x 100Вт, 4/8 DMX каналов",
+          "price": 1500.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-68",
+          "name": "EURO DJ MEGA STROBE - стробоскоп, 1500 Вт",
+          "price": 1500.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-69",
+          "name": "ASM Lighting STORM STROBE - светодиодный стробоскоп, 1000 Вт",
+          "price": 1500.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-70",
+          "name": "ASM Lighting HAZER-600 - генератор тумана, 600 Вт",
+          "price": 2000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-71",
+          "name": "ASM Lighting LOWFOG-2000 - генератор тяжелого дыма, 2000 Вт",
+          "price": 8000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-72",
+          "name": "ASM Lighting ColorFog-1200 - вертикальная дым-машина со светодиодной подсветкой, 1200 Вт, подвес или напольная установка",
+          "price": 2000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-73",
+          "name": "Euro DJ F-1500M - дым-машина, 1500 Вт, DMX управление",
+          "price": 2000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-74",
+          "name": "Euro DJ F-900M - дым-машина, 900 Вт",
+          "price": 1500.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-75",
+          "name": "EURO DJ S-1000 - генератор снега, имитация снежных хлопьев с помощью специальной пены, расстояние выброса хлопьев - 6 м",
+          "price": 2000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-76",
+          "name": "ASM Lighting FIRE-1 - генератор пламени, 1 сопло, DMX",
+          "price": 3000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-77",
+          "name": "ASM Lighting FIRE-3 - генератор пламени, 3 сопла, DMX",
+          "price": 5000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-78",
+          "name": "Эффект \"Холодный фонтан\"(sparkular), высота до 6 метров, DMX управление",
+          "price": 3500.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-79",
+          "name": "ASM Lighting CO2-DMX - генератор CO2(углекислого газа), комплект - 1 пара, высота струи 6-8 метров, DMX управление 2 канала, + баллоны с CO2",
+          "price": 12500.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-80",
+          "name": "ASM Lighting E-SHOT4 - конфетти-установка, 4-зарядная, электроподжиг 220В, DMX-управление, за 1 заряд",
+          "price": 2000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-81",
+          "name": "ASM Lighting AIR-SHOT - пневматическая конфетти-пушка, 1-зарядная, клапан 220В, радиобрелок для управления, + расходные материалы",
+          "price": 2000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-82",
+          "name": "Снег-машина",
+          "price": 4000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-83",
+          "name": "ASM Lighting LED KONFETTI - выдувная пушка конфетти со светодиодной подсветкой для средних залов,",
+          "price": 3500.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-84",
+          "name": "ASM Lighting KABUKI-DMX - система сброса занавеса, DMX-управление, 1 шт на 0,7 метра длины занавеса",
+          "price": 2000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-85",
+          "name": "Фермовые конструкции, метр",
+          "price": 500.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-86",
+          "name": "OnStage SSP7900 - стойка для акустических систем, прожекторов",
+          "price": 250.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-87",
+          "name": "Roxtone LS030 - T-стойки для светового оборудования, выс 1,3-3 м",
+          "price": 500.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-88",
+          "name": "Тотем-2 - конструкция для установки светового оборудования, 2 м",
+          "price": 1000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-89",
+          "name": "Тотем-3 - конструкция для установки светового оборудования, 3 м",
+          "price": 1500.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-90",
+          "name": "Тотем-4 - конструкция для установки светового оборудования, 4 м",
+          "price": 2000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-91",
+          "name": "U-Frame - конструкция для подвеса прожекторов, вращающихся голов, высота 3 метра, на 4 прибора",
+          "price": 1000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-92",
+          "name": "HEAD BOX - короб для использования вращающихся голов при отрицательных температурах и при осадках",
+          "price": 1000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-93",
+          "name": "Световой пульт на базе ПК + MaLighting Fader wing",
+          "price": 3000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-94",
+          "name": "Световой пульт на базе ПК + MaLighting Сommand wing",
+          "price": 5000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-95",
+          "name": "Услуги технического персонала (светооператор)",
+          "price": 10000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "full_days"
+        },
+        {
+          "id": "item-96",
+          "name": "Монтажники, чел",
+          "price": 3000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "fixed1"
+        },
+        {
+          "id": "item-97",
+          "name": "Доставка",
+          "price": 3000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "fixed1"
+        }
+      ]
+    },
+    {
+      "id": "cat-3",
+      "name": "LED Экраны, фотозона",
+      "subtotalLabel": "Итого экраны:",
+      "items": [
+        {
+          "id": "item-100",
+          "name": "Светодиодный экран  высокого разрешения, внутренний, угловой 4х2,5  метра, шаг 2,97 мм, угол обзора 160 градусов, кв м.",
+          "price": 70000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-101",
+          "name": "Светодиодный экран  высокого разрешения, уличный, 5,76  х 3,45 метра, шаг 6 мм, угол обзора 160 градусов, кв.м",
+          "price": 6000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-102",
+          "name": "Аппаратно програмный комплекс для вывода изображения с предустановленным ПО для воспроизведения контента высокого разрешения(до 6K),  коррекции геометрических искажений, коррекции цветопередачи, сшивки изображений",
+          "price": 5000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-103",
+          "name": "Фермовый конструктив для светодиодного экрана м",
+          "price": 500.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-104",
+          "name": "Ноутбук (контент,zoom)",
+          "price": 2500.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-105",
+          "name": "Услуги технического персонала (Видеоинженер)",
+          "price": 10000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "full_days"
+        },
+        {
+          "id": "item-106",
+          "name": "Монтажники, чел",
+          "price": 4000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "fixed1"
+        },
+        {
+          "id": "item-107",
+          "name": "Доставка",
+          "price": 3000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "fixed1"
+        }
+      ]
+    },
+    {
+      "id": "cat-4",
+      "name": "Видео оборудование",
+      "subtotalLabel": "Итого видео:",
+      "items": [
+        {
+          "id": "item-110",
+          "name": "Панель суфлер\\дублер 42\"",
+          "price": 5000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-111",
+          "name": "Панель суфлер\\дублер 55\"",
+          "price": 7500.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-112",
+          "name": "Панель суфлер\\дублер 65\"",
+          "price": 10000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-113",
+          "name": "Панель суфлер\\дублер 75\"",
+          "price": 15000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-114",
+          "name": "Панель суфлер\\дублер 75\"",
+          "price": 6000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-115",
+          "name": "Монитор дублер для президиума и трибуны",
+          "price": 2500.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-116",
+          "name": "Кликер Logitech Spotlight с цифровой указкой (пульт управления презентацией)",
+          "price": 1200.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-117",
+          "name": "Кликер Logitech r400 с цифровой указкой (пульт управления презентацией)",
+          "price": 1000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-118",
+          "name": "Услуги технического персонала (видеоинженер)",
+          "price": 10000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "full_days"
+        },
+        {
+          "id": "item-119",
+          "name": "Услуги технического персонала (техник)",
+          "price": 8000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "full_days"
+        },
+        {
+          "id": "item-120",
+          "name": "Монтажники, чел",
+          "price": 3000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "fixed1"
+        },
+        {
+          "id": "item-121",
+          "name": "Доставка",
+          "price": 3000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "fixed1"
+        }
+      ]
+    },
+    {
+      "id": "cat-5",
+      "name": "Синхронный перевод",
+      "subtotalLabel": "Итого синхронный перевод:",
+      "items": [
+        {
+          "id": "item-124",
+          "name": "Кабина для переводчика",
+          "price": 3000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-125",
+          "name": "Пультовая синхронного перевода (головной блок, пульт переводчика, поканальные передатчики)",
+          "price": 20000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-126",
+          "name": "Дополнительные пульты переводчика",
+          "price": 2000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-127",
+          "name": "Дополнительные поканальные передатчики",
+          "price": 2000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-128",
+          "name": "Приемники по количеству слушателей",
+          "price": 750.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-129",
+          "name": "Услуги технического персонала (техник)",
+          "price": 8000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "full_days"
+        }
+      ]
+    },
+    {
+      "id": "cat-6",
+      "name": "Сопровождение",
+      "subtotalLabel": "Итого сопровождение:",
+      "items": [
+        {
+          "id": "item-132",
+          "name": "Микшерный пульт Behringer XR18 + X-air Touch",
+          "price": 4000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-133",
+          "name": "Микшерный пульт Behringer X32 RACK + X-air Touch",
+          "price": 5000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-134",
+          "name": "Микшерный пульт Behringer FLOW 8",
+          "price": 3000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-135",
+          "name": "Behringer SD16 - стейдж бокс для Behringer X32",
+          "price": 3000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-136",
+          "name": "SHURE SLXD24/SM58 - радиосистема с ручным вокальным микрофоном",
+          "price": 3000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-137",
+          "name": "Кликер Logitech Spotlight с цифровой указкой(пульт управления презентацией)",
+          "price": 1200.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-138",
+          "name": "Микрофон-Пушка Sennheiser MKE 600",
+          "price": 3000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-139",
+          "name": "Микрофон-пушка Rode VideoMic NTG накамерный",
+          "price": 2000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-140",
+          "name": "Радиосистема RODE Wireless GO II",
+          "price": 2500.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-141",
+          "name": "Цифровая видеокамера на штативе",
+          "price": 2350.0,
+          "priceCashlessOverride": null,
+          "dayMode": "fixed2"
+        },
+        {
+          "id": "item-142",
+          "name": "Видеопультовая",
+          "price": 15000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-143",
+          "name": "Видеомикшер Atem Television Studio Pro HD",
+          "price": 3000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-144",
+          "name": "Ноутбук (контент,zoom)",
+          "price": 3000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-145",
+          "name": "Ноутбук (контент,zoom)",
+          "price": 2350.0,
+          "priceCashlessOverride": null,
+          "dayMode": "fixed1"
+        },
+        {
+          "id": "item-146",
+          "name": "Беспроводной видеолинк Hollyland C1",
+          "price": 4500.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-147",
+          "name": "Беспроводной видеолинк Hollyland Mars 450",
+          "price": 4500.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-148",
+          "name": "Беспроводной видеолинк Hollyland M1",
+          "price": 4500.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-149",
+          "name": "Беспроводной видеолинк DJI Transmitter",
+          "price": 4500.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-150",
+          "name": "Беспроводной видеолинк Hollyland Cosmo 400",
+          "price": 4500.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-151",
+          "name": "Видеорекордер Atomos Ninja V",
+          "price": 2500.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-152",
+          "name": "Монитор дублер для президиума и трибуны",
+          "price": 2000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-153",
+          "name": "Moma 1000 - реж связь, интерком на 8 чел",
+          "price": 8000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-154",
+          "name": "Режиссерская связь Naya BS400 (Дуплексная связь, до 4 абонентов)",
+          "price": 3000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-155",
+          "name": "Услуги технического персонала (Звукооператор)",
+          "price": 10000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "full_days"
+        },
+        {
+          "id": "item-156",
+          "name": "Услуги технического персонала (Видеорежиссер эфира)",
+          "price": 10000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "full_days"
+        },
+        {
+          "id": "item-157",
+          "name": "Услуги технического персонала (Звукорежиссер эфира)",
+          "price": 10000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "full_days"
+        },
+        {
+          "id": "item-158",
+          "name": "Услуги технического персонала (Видеоинженер)",
+          "price": 11250.0,
+          "priceCashlessOverride": null,
+          "dayMode": "full_days"
+        },
+        {
+          "id": "item-159",
+          "name": "Услуги технического персонала (Видеооператор)",
+          "price": 12000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "full_days"
+        },
+        {
+          "id": "item-160",
+          "name": "Услуги технического персонала (Видеооператор SteadiCam)",
+          "price": 12000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "full_days"
+        },
+        {
+          "id": "item-161",
+          "name": "Услуги технического персонала (Техник)",
+          "price": 11250.0,
+          "priceCashlessOverride": null,
+          "dayMode": "full_days"
+        },
+        {
+          "id": "item-162",
+          "name": "Лицензия ZOOM professional (100 подключений,перевод, SIP, без ограничения по времени)",
+          "price": 3000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-163",
+          "name": "Лицензия FaceCast",
+          "price": 11000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "fixed1"
+        },
+        {
+          "id": "item-164",
+          "name": "Настройка канала Facecast",
+          "price": 8000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "fixed1"
+        },
+        {
+          "id": "item-165",
+          "name": "Пусконаладка",
+          "price": 3000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "fixed1"
+        }
+      ]
+    },
+    {
+      "id": "cat-7",
+      "name": "Сценический комплекс 16х10 м с порталами 3 м",
+      "subtotalLabel": "Итого сцена 16х10 м:",
+      "items": [
+        {
+          "id": "item-168",
+          "name": "Сценический комплекс для массовых мероприятий, ширина 17 метров + 2 портала по 3 метра, высота столбов 10 м, глубина 11 м, с электролебедками 2 т, двускатная крыша, зеркало сцены 16,2х7 м, ферма 40 x 40 см, труба 50/3 мм (башни и стропилы), 40 x 60 см, труба 50/3 мм (несущий периметр), конические соединители, с монтажом",
+          "price": 180000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-169",
+          "name": "Подиум 14,64 м  x  9,76 м, высота 0,83 м, + 2 лестницы",
+          "price": 98400.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-170",
+          "name": "Бетонный блок для расчаливания сценического комплекса, вес 2 т",
+          "price": 1500.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-171",
+          "name": "Доставка бетонных блоков в пределах Иркутска",
+          "price": 18000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-172",
+          "name": "Доставка сценического комплекса в пределах г. Иркутска",
+          "price": 8000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        }
+      ]
+    },
+    {
+      "id": "cat-8",
+      "name": "Сценический комплекс 10х6 м с порталами 3 м",
+      "subtotalLabel": "Итого сцена 10х6 м:",
+      "items": [
+        {
+          "id": "item-175",
+          "name": "Сценический комплекс для массовых мероприятий, ширина 10 метров + 2 портала по 3 метра, высота столбов 8,5 м, глубина 10 м, с электролебедками 2 т, двускатная крыша, зеркало сцены 9,2х5,5 м, ферма 40 x 40 см, труба 50/3 мм (башни и стропилы), 40 x 60 см, труба 50/3 мм (несущий периметр), конические соединители, с монтажом",
+          "price": 130000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-176",
+          "name": "Подиум 8,54 м  x  6,1 м, высота 0,83 м, + 2 лестницы, цена за куб 1,22х1,22 м",
+          "price": 37400.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-177",
+          "name": "Бетонный блок для расчаливания сценического комплекса, вес 2 т",
+          "price": 1500.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-178",
+          "name": "Доставка бетонных блоков в пределах Иркутска",
+          "price": 18000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-179",
+          "name": "Доставка сценического комплекса в пределах г. Иркутска",
+          "price": 8000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        }
+      ]
+    },
+    {
+      "id": "cat-9",
+      "name": "Сценический конструктив",
+      "subtotalLabel": "Итого сценический конструктив:",
+      "items": [
+        {
+          "id": "item-182",
+          "name": "Электролебедка, 1 т, цепь 23 м",
+          "price": 3000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-183",
+          "name": "Ферма 40х40/150 - ферма 40х40 см, длина 1,5 м",
+          "price": 750.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-184",
+          "name": "Ферма 40х60/200 - ферма 40х60 см, длина 2 м",
+          "price": 1000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-185",
+          "name": "Ферма 35х35/300 - 35х35см, длина 3 м",
+          "price": 1500.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-186",
+          "name": "Доставка бетонных блоков кранбортом  в пределах Иркутска",
+          "price": 15000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-187",
+          "name": "Доставка сценического комплекса в пределах г. Иркутска",
+          "price": 8000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        }
+      ]
+    },
+    {
+      "id": "cat-10",
+      "name": "Подиум",
+      "subtotalLabel": "Итого подиум:",
+      "items": [
+        {
+          "id": "item-190",
+          "name": "Подиум, 6х1м высота (50 см)",
+          "price": 1000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-191",
+          "name": "Подиум воздух ы",
+          "price": 2000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-192",
+          "name": "Монтажники, чел",
+          "price": 3000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "fixed1"
+        }
+      ]
+    },
+    {
+      "id": "cat-11",
+      "name": "Разное",
+      "subtotalLabel": "Итого разное:",
+      "items": [
+        {
+          "id": "item-195",
+          "name": "Транспортные расходы",
+          "price": 7000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "fixed1"
+        },
+        {
+          "id": "item-196",
+          "name": "Трибуна (белая, с возможностью брендирования)",
+          "price": 4000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-197",
+          "name": "Коммутация сигнальная\\силовая",
+          "price": 6000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-198",
+          "name": "Кабель-канал напольный резиновый, для мест скопления людей и автомобилей, высота 5 см, длина 90 см",
+          "price": 250.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-199",
+          "name": "Рация Baofeng BF-888S, 400–470 мГц, 16 каналов, 1,5 км, с ушной гарнитурой",
+          "price": 500.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-200",
+          "name": "Дистрибьютор электропитания, 125А",
+          "price": 3000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-201",
+          "name": "Электролебедка, 1 т, цепь 23 м",
+          "price": 3000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-202",
+          "name": "FUBAG TI3000 - бензиновый инверторный генератор, ном. мощн 2,8 кВт, Время работы 50% нагрузки: 6 часов, бензин АИ-92, бак 13 л., вес 60 кг, бензин считается отдельно",
+          "price": 3500.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-203",
+          "name": "Hyundai HHY 10050FE ATS - бензиновый инверторный генератор, ном. мощн 7,5 кВт, Время работы 50% нагрузки: 14 часов, бензин АИ-92, бак 25 л., вес 99 кг, для звука для кавер-групп и нормального комплекта света, бензин считается отдельно",
+          "price": 7000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-204",
+          "name": "Охрана сценического комплекса (сут)",
+          "price": 8000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-205",
+          "name": "Тепловая пушка, напольная, 220В, 3 кВт",
+          "price": 1000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-206",
+          "name": "Инфракрасный обогреватель, 2 кВт, потолочный",
+          "price": 1500.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-207",
+          "name": "Инфракрасный обогреватель, 1,5 кВт, напольный",
+          "price": 1000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-208",
+          "name": "Палатка, 6-угольная, быстросборная, 10 кв.м",
+          "price": 5000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        },
+        {
+          "id": "item-209",
+          "name": "Палатка, 6-угольная, быстросборная, 6 кв.м",
+          "price": 3000.0,
+          "priceCashlessOverride": null,
+          "dayMode": "half_extra"
+        }
+      ]
+    }
+  ]
+}
