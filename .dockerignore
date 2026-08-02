@@ -11,3 +11,8 @@
 **/agent-transcripts
 **/.cursor
 web/README.md
+web/tsconfig.tsbuildinfo
+**/*.test.ts
+**/*.test.tsx
+**/__tests__
+.github
