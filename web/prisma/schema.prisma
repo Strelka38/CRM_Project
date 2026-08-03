@@ -297,6 +297,10 @@ model Quote {
   eventName       String            @default("")
   date            String            @default("")
   eventDate       DateTime?
+  /// День монтажа (ДД.ММ.ГГГГ), отдельно от дат мероприятия
+  mountDate       String            @default("")
+  /// День демонтажа (ДД.ММ.ГГГГ)
+  demountDate     String            @default("")
   time            String            @default("")
   place           String            @default("")
   venueId         String?

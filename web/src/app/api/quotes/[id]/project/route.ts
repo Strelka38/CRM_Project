@@ -24,6 +24,8 @@ export async function GET(
         eventName: true,
         date: true,
         eventDate: true,
+        mountDate: true,
+        demountDate: true,
         time: true,
         place: true,
         client: true,
@@ -31,6 +33,14 @@ export async function GET(
         brief: true,
         lifecycle: true,
         durationDays: true,
+        owner: {
+          select: {
+            id: true,
+            name: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
         assignments: {
           include: {
             user: {

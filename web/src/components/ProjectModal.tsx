@@ -19,6 +19,8 @@ type Project = {
   proposalNumber: string;
   eventName: string;
   date: string;
+  mountDate: string;
+  demountDate: string;
   time: string;
   place: string;
   client: string;
@@ -26,6 +28,12 @@ type Project = {
   brief: string;
   lifecycle: string;
   durationDays: number;
+  owner: {
+    id: string;
+    name: string;
+    firstName: string;
+    lastName: string;
+  } | null;
   assignments: Assignment[];
   isManager: boolean;
 };
@@ -59,9 +67,18 @@ function formatBytes(n: number) {
   return `${(n / (1024 * 1024)).toFixed(1)} МБ`;
 }
 
-function personName(u: Assignment["user"]) {
+function personName(u: {
+  name: string;
+  firstName?: string | null;
+  lastName?: string | null;
+}) {
   const full = [u.lastName, u.firstName].filter(Boolean).join(" ");
   return full || u.name;
+}
+
+function projectManagerName(p: Project) {
+  if (p.owner) return personName(p.owner);
+  return p.managerName?.trim() || "";
 }
 
 function isImage(mime: string) {
@@ -248,6 +265,8 @@ export function ProjectModal({
   const fileUrl = (a: Attachment) =>
     `/api/quotes/${quoteId}/attachments/${a.id}/file`;
 
+  const managerLabel = project ? projectManagerName(project) : "";
+
   return (
     <>
       <div
@@ -281,6 +300,23 @@ export function ProjectModal({
                     {" · "}
                     {LIFE_LABEL[project.lifecycle] || project.lifecycle}
                   </p>
+                  {(project.mountDate || project.demountDate) && (
+                    <p className="mt-0.5 text-sm text-[var(--muted)]">
+                      {project.mountDate
+                        ? `Монтаж: ${project.mountDate}`
+                        : null}
+                      {project.mountDate && project.demountDate ? " · " : null}
+                      {project.demountDate
+                        ? `Демонтаж: ${project.demountDate}`
+                        : null}
+                    </p>
+                  )}
+                  {managerLabel && (
+                    <p className="mt-0.5 text-sm text-[var(--ink)]">
+                      <span className="text-[var(--muted)]">Менеджер: </span>
+                      {managerLabel}
+                    </p>
+                  )}
                 </>
               ) : (
                 <p className="text-[var(--danger)]">{error || "Ошибка"}</p>

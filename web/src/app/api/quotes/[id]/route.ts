@@ -56,6 +56,8 @@ const patchSchema = z.object({
   proposalNumber: z.string().optional(),
   eventName: z.string().optional(),
   date: z.string().optional(),
+  mountDate: z.string().optional(),
+  demountDate: z.string().optional(),
   time: z.string().optional(),
   place: z.string().optional(),
   venueId: z.string().nullable().optional(),

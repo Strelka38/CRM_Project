@@ -10,7 +10,10 @@ import {
 import { CatalogQuickSearch } from "@/components/CatalogQuickSearch";
 import { ClientQuickSearch } from "@/components/ClientQuickSearch";
 import { VenueQuickSearch } from "@/components/VenueQuickSearch";
-import { DateRangePicker } from "@/components/DateRangePicker";
+import {
+  DateRangePicker,
+  SingleDatePicker,
+} from "@/components/DateRangePicker";
 import { ExportQuoteModal } from "@/components/ExportQuoteModal";
 import { QuoteAssignments } from "@/components/QuoteAssignments";
 import { QuoteSummary } from "@/components/QuoteSummary";
@@ -48,6 +51,8 @@ type QuoteMeta = {
   proposalNumber: string;
   eventName: string;
   date: string;
+  mountDate: string;
+  demountDate: string;
   time: string;
   place: string;
   venueId: string | null;
@@ -131,6 +136,8 @@ export function QuoteEditor({
         proposalNumber: data.proposalNumber,
         eventName: data.eventName,
         date: data.date,
+        mountDate: data.mountDate || "",
+        demountDate: data.demountDate || "",
         time: data.time,
         place: data.place,
         venueId: data.venueId ?? null,
@@ -316,6 +323,8 @@ export function QuoteEditor({
           proposalNumber: nextMeta.proposalNumber,
           eventName: nextMeta.eventName,
           date: nextMeta.date,
+          mountDate: nextMeta.mountDate,
+          demountDate: nextMeta.demountDate,
           time: nextMeta.time,
           place: nextMeta.place,
           venueId: nextMeta.venueId,
@@ -693,16 +702,36 @@ export function QuoteEditor({
               onChange={(e) => updateMeta("eventName", e.target.value)}
             />
           </label>
-          <DateRangePicker
-            date={meta.date}
-            durationDays={meta.durationDays}
-            disabled={!isManager}
-            onChange={(date, durationDays) => {
-              setMeta((prev) =>
-                prev ? { ...prev, date, durationDays } : prev,
-              );
-            }}
-          />
+          <div className="grid gap-3 sm:col-span-2 sm:grid-cols-2">
+            <DateRangePicker
+              date={meta.date}
+              durationDays={meta.durationDays}
+              disabled={!isManager}
+              onChange={(date, durationDays) => {
+                setMeta((prev) =>
+                  prev ? { ...prev, date, durationDays } : prev,
+                );
+              }}
+            />
+            <div className="grid gap-3 content-start">
+              <SingleDatePicker
+                label="День монтажа"
+                date={meta.mountDate}
+                disabled={!isManager}
+                onChange={(mountDate) =>
+                  setMeta((prev) => (prev ? { ...prev, mountDate } : prev))
+                }
+              />
+              <SingleDatePicker
+                label="День демонтажа"
+                date={meta.demountDate}
+                disabled={!isManager}
+                onChange={(demountDate) =>
+                  setMeta((prev) => (prev ? { ...prev, demountDate } : prev))
+                }
+              />
+            </div>
+          </div>
           <label className="text-sm">
             <span className="text-[var(--muted)]">Время</span>
             <input
