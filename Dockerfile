@@ -27,8 +27,10 @@ ENV DATABASE_URL="postgresql://crm:crm@db:5432/crm_event?schema=public"
 ENV AUTH_SECRET="build-time-placeholder-not-used-at-runtime"
 ENV AUTH_URL="http://localhost:3000"
 
+# Turbopack production build is often 5–10× slower inside Docker/VPS;
+# Webpack is the reliable path for image builds (local `next build` can stay default).
 # prisma generate already done; package.json "build" would re-run it
-RUN npx next build
+RUN npx next build --webpack
 
 FROM node:22-bookworm-slim AS runner
 WORKDIR /app
