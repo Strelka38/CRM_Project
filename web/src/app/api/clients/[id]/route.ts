@@ -3,7 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { calcAssignmentPay } from "@/lib/payroll";
 import { calcByZones } from "@/lib/quote-calc";
-import { requireManager } from "@/lib/session";
+import { requireDatabaseAccess } from "@/lib/session";
 
 const clientSelect = {
   id: true,
@@ -25,7 +25,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    await requireManager();
+    await requireDatabaseAccess();
     const { id } = await params;
 
     const client = await prisma.client.findUnique({
@@ -81,9 +81,10 @@ export async function GET(
         q.discountPercent,
       );
       const laborCost = q.assignments.reduce((sum, a) => {
-        const rates = a.user.specialties.find(
-          (s) => s.specialtyId === a.specialtyId,
-        );
+        const isFreelancer = a.isFreelancer || !a.userId;
+        const rates = isFreelancer
+          ? null
+          : a.user?.specialties.find((s) => s.specialtyId === a.specialtyId);
         return (
           sum +
           calcAssignmentPay({
@@ -153,7 +154,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    await requireManager();
+    await requireDatabaseAccess();
     const { id } = await params;
     const body = patchSchema.parse(await req.json());
 

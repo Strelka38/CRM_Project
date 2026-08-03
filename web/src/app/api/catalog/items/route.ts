@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { parseEventDate } from "@/lib/dates";
-import { requireManager, requireSession } from "@/lib/session";
+import { requireDatabaseAccess, requireSession } from "@/lib/session";
 import { getAvailability } from "@/lib/stock";
 
 export async function GET(req: NextRequest) {
@@ -93,7 +93,7 @@ const createSchema = z.object({
 
 export async function POST(req: NextRequest) {
   try {
-    await requireManager();
+    await requireDatabaseAccess();
     const body = createSchema.parse(await req.json());
     const max = await prisma.catalogItem.aggregate({
       where: { categoryId: body.categoryId },

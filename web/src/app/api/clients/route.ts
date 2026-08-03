@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { requireManager } from "@/lib/session";
+import { requireDatabaseAccess } from "@/lib/session";
 
 const clientSelect = {
   id: true,
@@ -21,7 +21,7 @@ const clientSelect = {
 
 export async function GET(req: NextRequest) {
   try {
-    await requireManager();
+    await requireDatabaseAccess();
     const q = req.nextUrl.searchParams.get("q")?.trim();
     const activeOnly = req.nextUrl.searchParams.get("active") !== "0";
 
@@ -69,7 +69,7 @@ const createSchema = z.object({
 
 export async function POST(req: NextRequest) {
   try {
-    await requireManager();
+    await requireDatabaseAccess();
     const body = createSchema.parse(await req.json());
     const client = await prisma.client.create({
       data: {

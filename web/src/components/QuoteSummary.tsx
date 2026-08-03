@@ -17,6 +17,8 @@ type LaborRow = {
   pay: number;
   payMode: "SHIFT" | "HOURLY";
   hours: number | null;
+  isFreelancer?: boolean;
+  owners?: CatalogOwnerValue[] | null;
   user: {
     id: string;
     name: string;
@@ -91,7 +93,7 @@ export function QuoteSummary({
       allocateLaborByEmployeeOwners(
         labor.map((a) => ({
           pay: a.pay,
-          owners: a.user.owners,
+          owners: a.owners?.length ? a.owners : a.user.owners,
         })),
       ),
     [labor],
@@ -270,12 +272,23 @@ export function QuoteSummary({
               ) : (
                 labor.map((a) => (
                   <tr key={a.id} className="border-t border-[var(--line)]">
-                    <td className="px-3 py-2 font-medium">{a.user.name}</td>
+                    <td className="px-3 py-2 font-medium">
+                      {a.user.name}
+                      {a.isFreelancer ? (
+                        <span className="ml-1 text-[10px] font-normal text-[var(--muted)]">
+                          фр.
+                        </span>
+                      ) : null}
+                    </td>
                     <td className="px-3 py-2">{a.specialty.name}</td>
                     <td className="px-3 py-2">
-                      <FirmBadges owners={a.user.owners} />
+                      <FirmBadges
+                        owners={a.owners?.length ? a.owners : a.user.owners}
+                      />
                       <span className="sr-only">
-                        {ownerShorts(a.user.owners)}
+                        {ownerShorts(
+                          a.owners?.length ? a.owners : a.user.owners,
+                        )}
                       </span>
                     </td>
                     <td className="px-3 py-2 text-[var(--muted)]">

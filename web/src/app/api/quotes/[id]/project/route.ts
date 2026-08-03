@@ -3,9 +3,10 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { canAccessQuote } from "@/lib/quote-access";
 import {
+  canEditBrief,
   canManageAssignments,
   isManager,
-  requireManager,
+  requireBriefEditor,
   requireSession,
 } from "@/lib/session";
 
@@ -75,6 +76,7 @@ export async function GET(
       ...quote,
       isManager: isManager(session.user.role),
       canManageAssignments: canManageAssignments(session.user.role),
+      canEditBrief: canEditBrief(session.user.role),
     });
   } catch (e) {
     if (e instanceof Response) return e;
@@ -95,7 +97,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const session = await requireManager();
+    const session = await requireBriefEditor();
     const { id } = await params;
     const ok = await canAccessQuote(id, session.user.id, session.user.role);
     if (!ok) {

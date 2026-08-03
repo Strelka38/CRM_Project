@@ -7,7 +7,7 @@ import {
   type CatalogOwnerValue,
 } from "@/lib/catalog-owner";
 import { calcAssignmentPay } from "@/lib/payroll";
-import { requireSession } from "@/lib/session";
+import { canAccessDatabase, requireSession } from "@/lib/session";
 
 const companyEnum = z.enum(["SHOW_MASTER", "DIAKOM", "NE_EVENT"]);
 
@@ -39,7 +39,8 @@ export async function GET(
   try {
     const session = await requireSession();
     const { id } = await params;
-    if (session.user.role !== "MANAGER" && session.user.id !== id) {
+    const admin = canAccessDatabase(session.user.role);
+    if (!admin && session.user.id !== id) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -139,15 +140,15 @@ export async function PATCH(
   try {
     const session = await requireSession();
     const { id } = await params;
-    const isManager = session.user.role === "MANAGER";
+    const admin = canAccessDatabase(session.user.role);
     const isSelf = session.user.id === id;
-    if (!isManager && !isSelf) {
+    if (!admin && !isSelf) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     const body = patchSchema.parse(await req.json());
     if (
-      !isManager &&
+      !admin &&
       (body.role !== undefined ||
         body.active !== undefined ||
         body.monthlySalary !== undefined ||
@@ -181,15 +182,15 @@ export async function PATCH(
     if (body.patronymic !== undefined) data.patronymic = body.patronymic;
     if (body.phone !== undefined) data.phone = body.phone;
     if (body.comment !== undefined) data.comment = body.comment;
-    if (isManager && body.role !== undefined) data.role = body.role;
-    if (isManager && body.active !== undefined) data.active = body.active;
-    if (isManager && body.monthlySalary !== undefined) {
+    if (admin && body.role !== undefined) data.role = body.role;
+    if (admin && body.active !== undefined) data.active = body.active;
+    if (admin && body.monthlySalary !== undefined) {
       data.monthlySalary = body.monthlySalary;
     }
-    if (isManager && body.owners !== undefined) {
+    if (admin && body.owners !== undefined) {
       data.owners = normalizeOwners(body.owners);
     }
-    if (isManager && body.password) {
+    if (admin && body.password) {
       data.passwordHash = await bcrypt.hash(body.password, 10);
     }
 

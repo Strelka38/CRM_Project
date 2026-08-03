@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { requireManager, requireSession } from "@/lib/session";
+import { requireDatabaseAccess, requireSession } from "@/lib/session";
 
 export async function GET(
   _req: NextRequest,
@@ -49,7 +49,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    await requireManager();
+    await requireDatabaseAccess();
     const { id } = await params;
     const body = patchSchema.parse(await req.json());
     const { components, ...meta } = body;
@@ -90,7 +90,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    await requireManager();
+    await requireDatabaseAccess();
     const { id } = await params;
     await prisma.kit.update({ where: { id }, data: { active: false } });
     return NextResponse.json({ ok: true });

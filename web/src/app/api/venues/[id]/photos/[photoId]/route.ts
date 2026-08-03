@@ -1,7 +1,7 @@
 import { readFile } from "fs/promises";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { requireManager, requireSession } from "@/lib/session";
+import { requireDatabaseAccess, requireSession } from "@/lib/session";
 import {
   deleteUploadFile,
   mimeFromStoragePath,
@@ -44,7 +44,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string; photoId: string }> },
 ) {
   try {
-    await requireManager();
+    await requireDatabaseAccess();
     const { id, photoId } = await params;
     const photo = await prisma.venuePhoto.findFirst({
       where: { id: photoId, venueId: id },

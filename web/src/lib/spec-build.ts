@@ -360,3 +360,40 @@ export function pruneStaleOverrideKeys(
     .filter((o) => !live.has(o.deriveKey))
     .map((o) => o.id);
 }
+
+/** Apply saved packing-list order; unknown keys ignored, new keys appended. */
+export function applySpecLineOrder(
+  lines: SpecLine[],
+  order: string[] | null | undefined,
+): SpecLine[] {
+  if (!order || order.length === 0) return lines;
+  const byKey = new Map(lines.map((l) => [l.key, l]));
+  const result: SpecLine[] = [];
+  for (const key of order) {
+    const line = byKey.get(key);
+    if (line) {
+      result.push(line);
+      byKey.delete(key);
+    }
+  }
+  for (const line of lines) {
+    if (byKey.has(line.key)) result.push(line);
+  }
+  return result;
+}
+
+/** Drop keys that no longer exist in the built line set. */
+export function sanitizeSpecLineOrder(
+  lines: SpecLine[],
+  order: string[] | null | undefined,
+): string[] {
+  if (!order || order.length === 0) {
+    return lines.map((l) => l.key);
+  }
+  const live = new Set(lines.map((l) => l.key));
+  const kept = order.filter((k) => live.has(k));
+  for (const l of lines) {
+    if (!kept.includes(l.key)) kept.push(l.key);
+  }
+  return kept;
+}

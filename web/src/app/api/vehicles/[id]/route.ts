@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { requireManager } from "@/lib/session";
+import { requireDatabaseAccess } from "@/lib/session";
 
 const vehicleSelect = {
   id: true,
@@ -24,7 +24,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    await requireManager();
+    await requireDatabaseAccess();
     const { id } = await params;
     const vehicle = await prisma.vehicle.findUnique({
       where: { id },
@@ -58,7 +58,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    await requireManager();
+    await requireDatabaseAccess();
     const { id } = await params;
     const body = patchSchema.parse(await req.json());
 
@@ -113,7 +113,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    await requireManager();
+    await requireDatabaseAccess();
     const { id } = await params;
     const existing = await prisma.vehicle.findUnique({ where: { id } });
     if (!existing) {

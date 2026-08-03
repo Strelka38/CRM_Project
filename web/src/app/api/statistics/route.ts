@@ -164,9 +164,10 @@ export async function GET(req: NextRequest) {
         q.discountPercent,
       );
       const assignmentPays = q.assignments.map((a) => {
-        const rates = a.user.specialties.find(
-          (s) => s.specialtyId === a.specialtyId,
-        );
+        const isFreelancer = a.isFreelancer || !a.userId;
+        const rates = isFreelancer
+          ? null
+          : a.user?.specialties.find((s) => s.specialtyId === a.specialtyId);
         const pay = calcAssignmentPay({
           payMode: a.payMode,
           hours: a.hours,
@@ -176,7 +177,9 @@ export async function GET(req: NextRequest) {
         });
         return {
           pay,
-          owners: a.user.owners as CatalogOwnerValue[],
+          owners: (isFreelancer
+            ? a.owners
+            : a.user?.owners || []) as CatalogOwnerValue[],
         };
       });
       const laborCost = assignmentPays.reduce((s, a) => s + a.pay, 0);
@@ -281,30 +284,33 @@ export async function GET(req: NextRequest) {
       };
     });
 
-    const payrollRows = assignments.map((a) => {
-      const rates = a.user.specialties.find(
-        (s) => s.specialtyId === a.specialtyId,
-      );
-      const pay = calcAssignmentPay({
-        payMode: a.payMode,
-        hours: a.hours,
-        rateOverride: a.rateOverride,
-        hourlyRate: rates?.hourlyRate ?? 0,
-        shiftRate: rates?.shiftRate ?? 0,
+    const payrollRows = assignments
+      .filter((a) => a.userId && a.user)
+      .map((a) => {
+        const user = a.user!;
+        const rates = user.specialties.find(
+          (s) => s.specialtyId === a.specialtyId,
+        );
+        const pay = calcAssignmentPay({
+          payMode: a.payMode,
+          hours: a.hours,
+          rateOverride: a.rateOverride,
+          hourlyRate: rates?.hourlyRate ?? 0,
+          shiftRate: rates?.shiftRate ?? 0,
+        });
+        return {
+          id: a.id,
+          pay,
+          payMode: a.payMode,
+          hours: a.hours,
+          rateOverride: a.rateOverride,
+          hourlyRate: rates?.hourlyRate ?? 0,
+          shiftRate: rates?.shiftRate ?? 0,
+          specialty: a.specialty,
+          user: { id: user.id, name: user.name },
+          quote: a.quote,
+        };
       });
-      return {
-        id: a.id,
-        pay,
-        payMode: a.payMode,
-        hours: a.hours,
-        rateOverride: a.rateOverride,
-        hourlyRate: rates?.hourlyRate ?? 0,
-        shiftRate: rates?.shiftRate ?? 0,
-        specialty: a.specialty,
-        user: { id: a.user.id, name: a.user.name },
-        quote: a.quote,
-      };
-    });
 
     const confirmedRows = payrollRows.filter((r) =>
       ["CONFIRMED", "COMPLETED"].includes(r.quote.lifecycle),
@@ -354,7 +360,7 @@ export async function GET(req: NextRequest) {
         projects,
       },
       byCompany: {
-        note: "Выручка в наличных по правилам калькуляции (ШМ / ДК / НИ). ЗП списывается с фирм сотрудника (теги в профиле); без тегов — по доле выручки проекта.",
+        note: "Выручка в наличных по правилам калькуляции (ШМ / ДК / NE). ЗП списывается с фирм сотрудника (теги в профиле); без тегов — по доле выручки проекта.",
         cashRevenue: Math.round(cashRevenueTotal),
         cashExpenses: Math.round(cashExpensesTotal),
         unassignedRevenue: Math.round(unassignedCashTotal),

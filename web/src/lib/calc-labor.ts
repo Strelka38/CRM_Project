@@ -9,39 +9,22 @@ import {
   calcAssignmentBasePay,
   calcAssignmentPay,
 } from "@/lib/payroll";
-
-type AssignmentLike = {
-  id: string;
-  payMode: "SHIFT" | "HOURLY";
-  hours: number | null;
-  rateOverride: number | null;
-  bonus?: number | null;
-  montageAmount?: number | null;
-  specialtyId: string;
-  specialty?: { id: string; name: string };
-  user: {
-    id?: string;
-    name?: string;
-    owners: CatalogOwnerValue[] | string[];
-    specialties: Array<{
-      specialtyId: string;
-      hourlyRate: number;
-      shiftRate: number;
-    }>;
-  };
-};
+import {
+  assignmentDisplayName,
+  assignmentOwners,
+  assignmentRates,
+  type AssignmentLike,
+} from "@/lib/quote-assignments";
 
 export function buildAssignmentLaborRows(assignments: AssignmentLike[]) {
   return assignments.map((a) => {
-    const rates = a.user.specialties.find(
-      (s) => s.specialtyId === a.specialtyId,
-    );
+    const rates = assignmentRates(a);
     const basePay = calcAssignmentBasePay({
       payMode: a.payMode,
       hours: a.hours,
       rateOverride: a.rateOverride,
-      hourlyRate: rates?.hourlyRate ?? 0,
-      shiftRate: rates?.shiftRate ?? 0,
+      hourlyRate: rates.hourlyRate,
+      shiftRate: rates.shiftRate,
     });
     const bonus = Math.max(0, Number(a.bonus) || 0);
     const montageAmount = Math.max(0, Number(a.montageAmount) || 0);
@@ -49,26 +32,27 @@ export function buildAssignmentLaborRows(assignments: AssignmentLike[]) {
       payMode: a.payMode,
       hours: a.hours,
       rateOverride: a.rateOverride,
-      hourlyRate: rates?.hourlyRate ?? 0,
-      shiftRate: rates?.shiftRate ?? 0,
+      hourlyRate: rates.hourlyRate,
+      shiftRate: rates.shiftRate,
       bonus,
     });
-    const owners = a.user.owners as CatalogOwnerValue[];
+    const owners = assignmentOwners(a);
     return {
       id: a.id,
-      userId: a.user.id ?? "",
-      userName: a.user.name ?? "",
+      userId: a.userId ?? a.user?.id ?? "",
+      userName: assignmentDisplayName(a),
       specialtyId: a.specialtyId,
       specialtyName: a.specialty?.name ?? "",
       payMode: a.payMode,
       hours: a.hours,
       owners,
+      isFreelancer: Boolean(a.isFreelancer) || !a.userId,
       basePay: Math.round(basePay),
       bonus: Math.round(bonus),
       montageAmount: Math.round(montageAmount),
       pay: Math.round(pay),
-      hourlyRate: rates?.hourlyRate ?? 0,
-      shiftRate: rates?.shiftRate ?? 0,
+      hourlyRate: rates.hourlyRate,
+      shiftRate: rates.shiftRate,
     };
   });
 }

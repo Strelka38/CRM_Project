@@ -14,6 +14,7 @@ import {
 import {
   addDays,
   formatDateKey,
+  formatRuDate,
   parseEventDate,
   startOfDay,
 } from "@/lib/dates";
@@ -50,10 +51,19 @@ type EventSeg = {
   continuesRight: boolean;
 };
 
-const MAX_VISIBLE_LANES = 3;
-const LANE_HEIGHT = 22;
-const LANE_GAP = 3;
+type DayListState = {
+  date: Date;
+  events: CalendarEvent[];
+};
+
+/** Visible event rows per day (TimeTree-style). */
+const MAX_VISIBLE_LANES = 5;
+const LANE_HEIGHT = 20;
+const LANE_GAP = 2;
 const DAY_NUM_HEIGHT = 22;
+const OVERFLOW_ROW = 18;
+const WEEK_BODY_HEIGHT =
+  MAX_VISIBLE_LANES * (LANE_HEIGHT + LANE_GAP) + OVERFLOW_ROW;
 
 function eventLabel(q: Quote) {
   return `№${q.proposalNumber} ${q.eventName || q.client || "КП"}`;
@@ -105,7 +115,6 @@ function segmentsForWeek(
   for (const ev of events) {
     if (ev.end < firstReal || ev.start > lastReal) continue;
 
-    // Find first/last columns within this week that the event covers
     let startCol = -1;
     let endCol = -1;
     for (let c = 0; c < 7; c++) {
@@ -130,6 +139,17 @@ function segmentsForWeek(
   return assignLanes(raw);
 }
 
+function eventsOnDay(events: CalendarEvent[], day: Date): CalendarEvent[] {
+  const d = startOfDay(day);
+  return events
+    .filter((ev) => d >= ev.start && d <= ev.end)
+    .sort((a, b) => {
+      const byStart = a.start.getTime() - b.start.getTime();
+      if (byStart !== 0) return byStart;
+      return a.quote.proposalNumber.localeCompare(b.quote.proposalNumber, "ru");
+    });
+}
+
 export function CalendarView() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -139,11 +159,8 @@ export function CalendarView() {
   });
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [openQuoteId, setOpenQuoteId] = useState<string | null>(null);
-  const [expandedWeeks, setExpandedWeeks] = useState<Set<number>>(
-    () => new Set(),
-  );
+  const [dayList, setDayList] = useState<DayListState | null>(null);
 
-  // Widen fetch so mount/demount just outside the month still appear
   const from = formatDateKey(
     addDays(new Date(cursor.getFullYear(), cursor.getMonth(), 1), -14),
   );
@@ -157,12 +174,13 @@ export function CalendarView() {
   }, [searchParams]);
 
   useEffect(() => {
-    void fetch(`/api/quotes?calendar=1&from=${from}&to=${to}`)
-      .then(async (r) => {
+    void fetch(`/api/quotes?calendar=1&from=${from}&to=${to}`).then(
+      async (r) => {
         const data: unknown = await r.json().catch(() => []);
         setQuotes(Array.isArray(data) ? data : []);
-      });
-    setExpandedWeeks(new Set());
+      },
+    );
+    setDayList(null);
   }, [from, to]);
 
   const year = cursor.getFullYear();
@@ -205,8 +223,7 @@ export function CalendarView() {
   const weekLayouts = useMemo(() => {
     return weeks.map((week) => {
       const segs = segmentsForWeek(week, events);
-      const maxLane = segs.reduce((m, s) => Math.max(m, s.lane), -1);
-      return { week, segs, maxLane };
+      return { week, segs };
     });
   }, [weeks, events]);
 
@@ -216,6 +233,18 @@ export function CalendarView() {
   });
 
   const todayKey = formatDateKey(new Date());
+
+  function openDayList(day: Date) {
+    setDayList({
+      date: startOfDay(day),
+      events: eventsOnDay(events, day),
+    });
+  }
+
+  function openQuote(id: string) {
+    setDayList(null);
+    setOpenQuoteId(id);
+  }
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 md:px-6">
@@ -247,7 +276,10 @@ export function CalendarView() {
 
       <div className="mb-4 flex flex-wrap gap-3 text-xs">
         {(Object.keys(LIFECYCLE_LABELS) as LifecycleStatus[]).map((k) => (
-          <span key={k} className="inline-flex items-center gap-1.5 text-[var(--muted)]">
+          <span
+            key={k}
+            className="inline-flex items-center gap-1.5 text-[var(--muted)]"
+          >
             <span
               className="inline-block size-2.5 rounded-full"
               style={{ background: lifecycleColor(k) }}
@@ -269,29 +301,14 @@ export function CalendarView() {
           ))}
         </div>
 
-        {weekLayouts.map(({ week, segs, maxLane }, weekIdx) => {
-          const expanded = expandedWeeks.has(weekIdx);
-          const visibleSegs = expanded
-            ? segs
-            : segs.filter((s) => s.lane < MAX_VISIBLE_LANES);
-          const hiddenCount = expanded
-            ? 0
-            : segs.filter((s) => s.lane >= MAX_VISIBLE_LANES).length;
-          const visibleMaxLane = visibleSegs.reduce(
-            (m, s) => Math.max(m, s.lane),
-            -1,
-          );
-          const lanesUsed = visibleMaxLane + 1;
-          const eventsHeight =
-            Math.max(1, lanesUsed) * (LANE_HEIGHT + LANE_GAP) +
-            (hiddenCount > 0 ? LANE_HEIGHT : 0) +
-            6;
+        {weekLayouts.map(({ week, segs }, weekIdx) => {
+          const visibleSegs = segs.filter((s) => s.lane < MAX_VISIBLE_LANES);
 
           return (
             <div
               key={weekIdx}
               className="relative grid grid-cols-7 border-b border-[var(--line)] last:border-b-0"
-              style={{ minHeight: DAY_NUM_HEIGHT + eventsHeight + 8 }}
+              style={{ height: DAY_NUM_HEIGHT + WEEK_BODY_HEIGHT + 8 }}
             >
               {week.map((day, col) => {
                 if (!day) {
@@ -304,10 +321,17 @@ export function CalendarView() {
                 }
                 const key = formatDateKey(day);
                 const isToday = key === todayKey;
+                const hiddenOnDay = segs.filter(
+                  (s) =>
+                    s.lane >= MAX_VISIBLE_LANES &&
+                    col >= s.startCol &&
+                    col < s.startCol + s.span,
+                ).length;
+
                 return (
                   <div
                     key={key}
-                    className={`border-r border-[var(--line)] bg-[var(--panel)] last:border-r-0 ${
+                    className={`relative border-r border-[var(--line)] bg-[var(--panel)] last:border-r-0 ${
                       isToday ? "bg-[var(--accent-soft)]/40" : ""
                     }`}
                   >
@@ -321,13 +345,27 @@ export function CalendarView() {
                     >
                       {day.getDate()}
                     </div>
+                    {hiddenOnDay > 0 && (
+                      <button
+                        type="button"
+                        className="absolute bottom-1 left-1/2 z-[2] -translate-x-1/2 rounded-full bg-[var(--ink)]/85 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white shadow-sm hover:bg-[var(--ink)]"
+                        style={{ height: OVERFLOW_ROW - 2 }}
+                        title={`Ещё ${hiddenOnDay} — открыть список дня`}
+                        onClick={() => openDayList(day)}
+                      >
+                        +{hiddenOnDay}
+                      </button>
+                    )}
                   </div>
                 );
               })}
 
               <div
                 className="pointer-events-none absolute inset-x-0"
-                style={{ top: DAY_NUM_HEIGHT + 2, bottom: 4 }}
+                style={{
+                  top: DAY_NUM_HEIGHT + 2,
+                  height: MAX_VISIBLE_LANES * (LANE_HEIGHT + LANE_GAP),
+                }}
               >
                 {visibleSegs.map((seg) => {
                   const left = `calc(${(seg.startCol / 7) * 100}% + 3px)`;
@@ -349,12 +387,8 @@ export function CalendarView() {
                         background: lifecycleColor(seg.quote.lifecycle),
                         borderRadius: `${radiusLeft} ${radiusRight} ${radiusRight} ${radiusLeft}`,
                       }}
-                      title={`${LIFECYCLE_LABELS[seg.quote.lifecycle]} · ${eventLabel(seg.quote)}${
-                        Math.max(1, seg.quote.durationDays) > 1
-                          ? ` · ${Math.max(1, seg.quote.durationDays)} дн.`
-                          : ""
-                      }`}
-                      onClick={() => setOpenQuoteId(seg.quote.id)}
+                      title={`${LIFECYCLE_LABELS[seg.quote.lifecycle]} · ${eventLabel(seg.quote)}`}
+                      onClick={() => openQuote(seg.quote.id)}
                     >
                       {seg.continuesLeft ? "‹ " : ""}
                       {eventLabel(seg.quote)}
@@ -362,50 +396,81 @@ export function CalendarView() {
                     </button>
                   );
                 })}
-
-                {hiddenCount > 0 && (
-                  <button
-                    type="button"
-                    className="pointer-events-auto absolute text-[10px] text-[var(--accent-deep)] hover:underline"
-                    style={{
-                      left: 6,
-                      top: MAX_VISIBLE_LANES * (LANE_HEIGHT + LANE_GAP),
-                    }}
-                    onClick={() =>
-                      setExpandedWeeks((prev) => {
-                        const next = new Set(prev);
-                        next.add(weekIdx);
-                        return next;
-                      })
-                    }
-                  >
-                    +{hiddenCount} ещё
-                  </button>
-                )}
-                {expanded && maxLane >= MAX_VISIBLE_LANES && (
-                  <button
-                    type="button"
-                    className="pointer-events-auto absolute text-[10px] text-[var(--muted)] hover:underline"
-                    style={{
-                      left: 6,
-                      top: (maxLane + 1) * (LANE_HEIGHT + LANE_GAP),
-                    }}
-                    onClick={() =>
-                      setExpandedWeeks((prev) => {
-                        const next = new Set(prev);
-                        next.delete(weekIdx);
-                        return next;
-                      })
-                    }
-                  >
-                    свернуть
-                  </button>
-                )}
               </div>
             </div>
           );
         })}
       </Card>
+
+      {dayList && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/35 p-3 sm:items-center"
+          onClick={() => setDayList(null)}
+        >
+          <div
+            className="flex max-h-[80vh] w-full max-w-md flex-col overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--panel)] shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Мероприятия за день"
+          >
+            <div className="flex items-start justify-between gap-3 border-b border-[var(--line)] px-4 py-3">
+              <div>
+                <p className="text-xs uppercase tracking-wider text-[var(--muted)]">
+                  Мероприятия
+                </p>
+                <h2 className="font-display text-xl text-[var(--ink)]">
+                  {formatRuDate(dayList.date)}
+                </h2>
+                <p className="text-xs text-[var(--muted)]">
+                  {dayList.events.length}{" "}
+                  {dayList.events.length === 1
+                    ? "мероприятие"
+                    : dayList.events.length < 5
+                      ? "мероприятия"
+                      : "мероприятий"}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDayList(null)}
+                className="shrink-0 text-sm text-[var(--muted)] hover:text-[var(--ink)]"
+              >
+                Закрыть
+              </button>
+            </div>
+            <ul className="min-h-0 flex-1 space-y-1.5 overflow-y-auto p-3">
+              {dayList.events.map((ev) => (
+                <li key={ev.quote.id}>
+                  <button
+                    type="button"
+                    onClick={() => openQuote(ev.quote.id)}
+                    className="flex w-full items-center gap-2.5 rounded-lg border border-[var(--line)] px-3 py-2.5 text-left transition-colors hover:border-[var(--accent)] hover:bg-[var(--bg)]"
+                  >
+                    <span
+                      className="size-2.5 shrink-0 rounded-full"
+                      style={{
+                        background: lifecycleColor(ev.quote.lifecycle),
+                      }}
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium text-[var(--ink)]">
+                        {eventLabel(ev.quote)}
+                      </span>
+                      <span className="text-[11px] text-[var(--muted)]">
+                        {LIFECYCLE_LABELS[ev.quote.lifecycle]}
+                        {ev.start.getTime() !== ev.end.getTime()
+                          ? ` · ${formatRuDate(ev.start)} — ${formatRuDate(ev.end)}`
+                          : ""}
+                      </span>
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
 
       {openQuoteId && (
         <ProjectModal

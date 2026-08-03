@@ -42,7 +42,11 @@ function quoteLinkLabel(n: N) {
   return `Открыть КП №${n.quote.proposalNumber}`;
 }
 
-export function NotificationsBell() {
+export function NotificationsBell({
+  showUnpaidLink = false,
+}: {
+  showUnpaidLink?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<N[]>([]);
   const [unread, setUnread] = useState(0);
@@ -168,15 +172,17 @@ export function NotificationsBell() {
               );
             })}
           </div>
-          <div className="border-t border-[var(--line)] px-3 py-2">
-            <Link
-              href="/unpaid"
-              className="text-xs text-[var(--accent-deep)] hover:underline"
-              onClick={() => setOpen(false)}
-            >
-              Неоплаченные проекты →
-            </Link>
-          </div>
+          {showUnpaidLink && (
+            <div className="border-t border-[var(--line)] px-3 py-2">
+              <Link
+                href="/unpaid"
+                className="text-xs text-[var(--accent-deep)] hover:underline"
+                onClick={() => setOpen(false)}
+              >
+                Неоплаченные проекты →
+              </Link>
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -149,7 +149,7 @@ export function StatisticsView() {
     <div className="mx-auto max-w-6xl px-4 py-6 md:px-6">
       <PageHeader
         title="Статистика"
-        subtitle="Доходность проектов и зарплатные начисления за выбранный период. Режим «По фирмам» — ШМ / ДК / НИ в наличных по правилам калькуляции."
+        subtitle="Доходность проектов и зарплатные начисления за выбранный период. Режим «По фирмам» — ШМ / ДК / NE в наличных по правилам калькуляции."
         actions={
           <div className="flex flex-wrap items-end gap-3">
             <label className="block text-sm">
@@ -333,7 +333,7 @@ export function StatisticsView() {
                 </h2>
                 <p className="text-sm text-[var(--muted)]">
                   {data.byCompany?.note ??
-                    "ШМ / ДК / НИ — выручка в наличных по правилам калькуляции."}
+                    "ШМ / ДК / NE — выручка в наличных по правилам калькуляции."}
                 </p>
 
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -406,7 +406,7 @@ export function StatisticsView() {
                             <th className="px-4 py-3">Проект</th>
                             <th className="px-4 py-3 text-right">ШМ</th>
                             <th className="px-4 py-3 text-right">ДК</th>
-                            <th className="px-4 py-3 text-right">НИ</th>
+                            <th className="px-4 py-3 text-right">NE</th>
                             <th className="px-4 py-3 text-right">Итого нал.</th>
                           </tr>
                         </thead>

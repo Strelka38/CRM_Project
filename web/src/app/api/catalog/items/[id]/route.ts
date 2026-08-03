@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { parseEventDate } from "@/lib/dates";
-import { requireManager, requireSession } from "@/lib/session";
+import { requireDatabaseAccess, requireSession } from "@/lib/session";
 import { getAvailability } from "@/lib/stock";
 
 export async function GET(
@@ -70,7 +70,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    await requireManager();
+    await requireDatabaseAccess();
     const { id } = await params;
     const body = patchSchema.parse(await req.json());
     const item = await prisma.catalogItem.update({
@@ -93,7 +93,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    await requireManager();
+    await requireDatabaseAccess();
     const { id } = await params;
     const item = await prisma.catalogItem.update({
       where: { id },

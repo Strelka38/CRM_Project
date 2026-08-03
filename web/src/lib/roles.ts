@@ -28,6 +28,21 @@ export function canSeeAllEvents(role: string | null | undefined): boolean {
   return role === "MANAGER" || role === "BRIGADIER";
 }
 
+/** Edit event brief / ТЗ (manager + brigadier). */
+export function canEditBrief(role: string | null | undefined): boolean {
+  return role === "MANAGER" || role === "BRIGADIER";
+}
+
+/** Database section: catalog, kits, clients, venues, vehicles, users, rates. */
+export function canAccessDatabase(role: string | null | undefined): boolean {
+  return role === "MANAGER" || role === "BRIGADIER";
+}
+
+/** Pay rates / ФОТ / overrides — manager only. */
+export function canSeeAssignmentPay(role: string | null | undefined): boolean {
+  return role === "MANAGER";
+}
+
 export function roleLabelRu(role: string | null | undefined): string {
   switch (role) {
     case "MANAGER":

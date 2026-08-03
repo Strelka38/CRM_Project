@@ -94,7 +94,7 @@ export function CalculationsView() {
     <div className="mx-auto max-w-6xl px-4 py-6 md:px-6">
       <PageHeader
         title="Калькуляции"
-        subtitle="Финальное распределение выручки между ШМ, ДК и НИ. Суммы всегда в наличных (безнал пересчитывается в кэш). Доли — по владельцам позиций, с возможностью правки в каждой смете."
+        subtitle="Финальное распределение выручки между ШМ, ДК и NE. Суммы всегда в наличных (безнал пересчитывается в кэш). Доли — по владельцам позиций, с возможностью правки в каждой смете."
         actions={
           <div className="flex flex-wrap items-end gap-3">
             <label className="block text-sm">

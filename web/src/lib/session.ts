@@ -1,16 +1,21 @@
 import { auth } from "./auth";
 import { prisma } from "./db";
 import {
+  canAccessDatabase,
+  canEditBrief,
   canEditSpec,
   canManageAssignments,
   isManager,
 } from "./roles";
 
 export {
+  canAccessDatabase,
+  canEditBrief,
   canEditSpec,
   canManageAssignments,
   canManageQuotes,
   canSeeAllEvents,
+  canSeeAssignmentPay,
   isManager,
   roleLabelRu,
   roleLabelRuTitle,
@@ -75,6 +80,24 @@ export async function requireSpecEditor() {
 export async function requireAssignmentManager() {
   const session = await requireSession();
   if (!canManageAssignments(session.user.role)) {
+    throw jsonError("Forbidden", 403);
+  }
+  return session;
+}
+
+/** Event brief / ТЗ: manager or brigadier. */
+export async function requireBriefEditor() {
+  const session = await requireSession();
+  if (!canEditBrief(session.user.role)) {
+    throw jsonError("Forbidden", 403);
+  }
+  return session;
+}
+
+/** Database section APIs: manager or brigadier. */
+export async function requireDatabaseAccess() {
+  const session = await requireSession();
+  if (!canAccessDatabase(session.user.role)) {
     throw jsonError("Forbidden", 403);
   }
   return session;

@@ -22,22 +22,35 @@ export default auth((req) => {
     return NextResponse.redirect(new URL("/quotes", req.nextUrl.origin));
   }
 
+  const role =
+    req.auth?.user && "role" in req.auth.user
+      ? String(req.auth.user.role)
+      : "";
+
+  const isDatabasePath =
+    pathname.startsWith("/catalog") ||
+    pathname.startsWith("/users") ||
+    pathname.startsWith("/kits") ||
+    pathname.startsWith("/clients") ||
+    pathname.startsWith("/venues") ||
+    pathname.startsWith("/vehicles") ||
+    pathname.startsWith("/rates");
+
+  const isAccountingPath =
+    pathname.startsWith("/statistics") ||
+    pathname.startsWith("/calculations") ||
+    pathname.startsWith("/unpaid");
+
   if (
     isLoggedIn &&
-    (pathname.startsWith("/catalog") ||
-      pathname.startsWith("/users") ||
-      pathname.startsWith("/kits") ||
-      pathname.startsWith("/clients") ||
-      pathname.startsWith("/venues") ||
-      pathname.startsWith("/vehicles") ||
-      pathname.startsWith("/rates") ||
-      pathname.startsWith("/statistics") ||
-      pathname.startsWith("/calculations") ||
-      pathname.startsWith("/unpaid")) &&
-    req.auth?.user &&
-    "role" in req.auth.user &&
-    req.auth.user.role !== "MANAGER"
+    isDatabasePath &&
+    role !== "MANAGER" &&
+    role !== "BRIGADIER"
   ) {
+    return NextResponse.redirect(new URL("/quotes", req.nextUrl.origin));
+  }
+
+  if (isLoggedIn && isAccountingPath && role !== "MANAGER") {
     return NextResponse.redirect(new URL("/quotes", req.nextUrl.origin));
   }
 

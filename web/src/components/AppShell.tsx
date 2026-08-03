@@ -6,11 +6,12 @@ import { NotificationsBell } from "@/components/NotificationsBell";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { NavLink } from "@/components/ui/NavLink";
 import { Button } from "@/components/ui/Button";
-import { isManager, roleLabelRu } from "@/lib/roles";
+import { canAccessDatabase, isManager, roleLabelRu } from "@/lib/roles";
 
 export async function AppShell({ children }: { children: React.ReactNode }) {
   const session = await auth();
   const manager = isManager(session?.user?.role);
+  const database = canAccessDatabase(session?.user?.role);
 
   return (
     <div className="min-h-full">
@@ -40,13 +41,13 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
               ) : (
                 <NavLink href="/payroll">Моя ЗП</NavLink>
               )}
-              {manager && <DatabaseMenu />}
+              {database && <DatabaseMenu />}
             </nav>
           </div>
           {session?.user && (
             <div className="flex items-center gap-2 text-sm text-[var(--muted-on-dark)] sm:gap-3">
               <ThemeToggle />
-              <NotificationsBell />
+              <NotificationsBell showUnpaidLink={manager} />
               <Link
                 href="/profile"
                 className="rounded-md px-2 py-1 transition-colors hover:bg-white/10 hover:text-white"

@@ -12,12 +12,15 @@ import { roleLabelRu } from "@/lib/roles";
 
 type Assignment = {
   id: string;
+  userId?: string | null;
+  isFreelancer?: boolean;
+  freelancerName?: string;
   user: {
     id: string;
     name: string;
     firstName: string;
     lastName: string;
-  };
+  } | null;
   specialty: { id: string; name: string };
 };
 
@@ -46,11 +49,15 @@ type Project = {
   assignments: Assignment[];
   isManager: boolean;
   canManageAssignments?: boolean;
+  canEditBrief?: boolean;
 };
 
 type Comment = {
   id: string;
   body: string;
+  hasImage?: boolean;
+  imageMime?: string | null;
+  imageName?: string | null;
   createdAt: string;
   author: { id: string; name: string; role: string };
 };
@@ -134,12 +141,19 @@ export function ProjectModal({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [commentText, setCommentText] = useState("");
+  const [pendingImage, setPendingImage] = useState<File | null>(null);
+  const [pendingPreview, setPendingPreview] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [preview, setPreview] = useState<Attachment | null>(null);
+  const [chatImage, setChatImage] = useState<{
+    url: string;
+    name: string;
+  } | null>(null);
   const [briefSaved, setBriefSaved] = useState(false);
   const [briefError, setBriefError] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
+  const chatImageRef = useRef<HTMLInputElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const savedBriefRef = useRef("");
 
@@ -185,7 +199,6 @@ export function ProjectModal({
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [comments]);
 
-  // Poll comments while the modal is open
   useEffect(() => {
     const tick = async () => {
       const res = await fetch(`/api/quotes/${quoteId}/comments`);
@@ -194,7 +207,11 @@ export function ProjectModal({
       setComments((prev) => {
         if (
           prev.length === data.length &&
-          prev.every((c, i) => c.id === data[i]?.id)
+          prev.every(
+            (c, i) =>
+              c.id === data[i]?.id &&
+              Boolean(c.hasImage) === Boolean(data[i]?.hasImage),
+          )
         ) {
           return prev;
         }
@@ -208,6 +225,10 @@ export function ProjectModal({
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key !== "Escape") return;
+      if (chatImage) {
+        setChatImage(null);
+        return;
+      }
       if (preview) {
         setPreview(null);
         return;
@@ -216,10 +237,10 @@ export function ProjectModal({
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose, preview]);
+  }, [onClose, preview, chatImage]);
 
   useEffect(() => {
-    if (!project?.isManager) return;
+    if (!project?.canEditBrief) return;
     if (brief === savedBriefRef.current) return;
     const t = setTimeout(async () => {
       const res = await fetch(`/api/quotes/${quoteId}/project`, {
@@ -238,22 +259,64 @@ export function ProjectModal({
       }
     }, 700);
     return () => clearTimeout(t);
-  }, [brief, project?.isManager, quoteId]);
+  }, [brief, project?.canEditBrief, quoteId]);
+
+  useEffect(() => {
+    return () => {
+      if (pendingPreview) URL.revokeObjectURL(pendingPreview);
+    };
+  }, [pendingPreview]);
+
+  function clearPendingImage() {
+    if (pendingPreview) URL.revokeObjectURL(pendingPreview);
+    setPendingImage(null);
+    setPendingPreview(null);
+  }
+
+  function onPickChatImage(file: File) {
+    if (!file.type.startsWith("image/")) {
+      alert("Можно прикрепить только изображение (png, jpg)");
+      return;
+    }
+    if (pendingPreview) URL.revokeObjectURL(pendingPreview);
+    setPendingImage(file);
+    setPendingPreview(URL.createObjectURL(file));
+  }
 
   async function sendComment() {
     const body = commentText.trim();
-    if (!body || sending) return;
+    if ((!body && !pendingImage) || sending) return;
     setSending(true);
     try {
-      const res = await fetch(`/api/quotes/${quoteId}/comments`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ body }),
-      });
-      if (!res.ok) return;
+      let res: Response;
+      if (pendingImage) {
+        const fd = new FormData();
+        fd.set("body", body);
+        fd.set("image", pendingImage);
+        res = await fetch(`/api/quotes/${quoteId}/comments`, {
+          method: "POST",
+          body: fd,
+        });
+      } else {
+        res = await fetch(`/api/quotes/${quoteId}/comments`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ body }),
+        });
+      }
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        alert(
+          typeof data.error === "string"
+            ? data.error
+            : "Не удалось отправить",
+        );
+        return;
+      }
       const created = (await res.json()) as Comment;
       setComments((prev) => [...prev, created]);
       setCommentText("");
+      clearPendingImage();
     } finally {
       setSending(false);
     }
@@ -297,8 +360,12 @@ export function ProjectModal({
   const fileUrl = (a: Attachment) =>
     `/api/quotes/${quoteId}/attachments/${a.id}/file`;
 
+  const commentImageUrl = (c: Comment) =>
+    `/api/quotes/${quoteId}/comments/${c.id}/file`;
+
   const managerLabel = project ? projectManagerName(project) : "";
   const periodLabel = project ? eventPeriodLabel(project) : "";
+  const canSend = Boolean(commentText.trim() || pendingImage);
 
   return (
     <>
@@ -379,20 +446,20 @@ export function ProjectModal({
           </div>
 
           {project && (
-            <div className="grid min-h-0 flex-1 gap-0 overflow-y-auto md:grid-cols-[1.1fr_0.9fr]">
-              <div className="flex flex-col gap-4 border-b border-[var(--line)] p-4 md:border-b-0 md:border-r">
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
                 <section>
                   <div className="mb-1 flex items-center justify-between">
                     <h3 className="text-xs font-medium uppercase tracking-wider text-[var(--muted)]">
                       ТЗ к мероприятию
                     </h3>
-                    {project.isManager && briefSaved && (
+                    {project.canEditBrief && briefSaved && (
                       <span className="text-[10px] text-[var(--muted)]">
                         сохранено
                       </span>
                     )}
                   </div>
-                  {project.isManager ? (
+                  {project.canEditBrief ? (
                     <>
                       <textarea
                         className="field min-h-[96px] resize-y"
@@ -404,7 +471,9 @@ export function ProjectModal({
                         }}
                       />
                       {briefError && (
-                        <p className="mt-1 text-xs text-[var(--danger)]">{briefError}</p>
+                        <p className="mt-1 text-xs text-[var(--danger)]">
+                          {briefError}
+                        </p>
                       )}
                     </>
                   ) : (
@@ -420,6 +489,7 @@ export function ProjectModal({
                       quoteId={quoteId}
                       canEdit
                       compact
+                      hidePay
                     />
                   ) : (
                     <>
@@ -432,17 +502,30 @@ export function ProjectModal({
                         </p>
                       ) : (
                         <ul className="space-y-1.5 text-sm">
-                          {project.assignments.map((a) => (
-                            <li
-                              key={a.id}
-                              className="flex items-baseline justify-between gap-2 border-b border-[var(--line)]/60 py-1"
-                            >
-                              <span>{personName(a.user)}</span>
-                              <span className="text-xs text-[var(--muted)]">
-                                {a.specialty.name}
-                              </span>
-                            </li>
-                          ))}
+                          {project.assignments.map((a) => {
+                            const fl = a.isFreelancer || !a.userId || !a.user;
+                            const name = fl
+                              ? (a.freelancerName || "").trim() || "Фрилансер"
+                              : personName(a.user!);
+                            return (
+                              <li
+                                key={a.id}
+                                className="flex items-baseline justify-between gap-2 border-b border-[var(--line)]/60 py-1"
+                              >
+                                <span>
+                                  {name}
+                                  {fl && (
+                                    <span className="ml-1 text-[10px] text-[var(--muted)]">
+                                      фр.
+                                    </span>
+                                  )}
+                                </span>
+                                <span className="text-xs text-[var(--muted)]">
+                                  {a.specialty.name}
+                                </span>
+                              </li>
+                            );
+                          })}
                         </ul>
                       )}
                     </>
@@ -523,7 +606,7 @@ export function ProjectModal({
                   )}
                 </section>
 
-                <div className="mt-auto flex flex-wrap gap-2 pt-2">
+                <div className="flex flex-wrap gap-2 pt-1">
                   {project.isManager && (
                     <Link
                       href={`/quotes/${project.id}`}
@@ -541,46 +624,109 @@ export function ProjectModal({
                 </div>
               </div>
 
-              <div className="flex min-h-[280px] flex-col p-4">
+              <div className="shrink-0 border-t border-[var(--line)] bg-[var(--panel)] px-4 py-3">
                 <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-[var(--muted)]">
                   Комментарии
                 </h3>
-                <div className="mb-3 min-h-0 flex-1 space-y-2 overflow-y-auto rounded-lg border border-[var(--line)] bg-[var(--bg)] p-2">
-                  {comments.length === 0 && (
-                    <p className="px-1 py-4 text-center text-xs text-[var(--muted)]">
-                      Пока нет сообщений
-                    </p>
-                  )}
-                  {comments.map((c) => (
-                    <div
-                      key={c.id}
-                      className="rounded-lg border border-[var(--line)] bg-[var(--panel)] px-2.5 py-2 text-sm"
-                    >
-                      <div className="mb-0.5 flex items-baseline justify-between gap-2">
-                        <span className="text-xs font-medium">
-                          {c.author.name}
-                          <span className="ml-1 font-normal text-[var(--muted)]">
-                            {roleLabelRu(c.author.role)}
+
+                {comments.length > 0 && (
+                  <div className="mb-3 max-h-48 space-y-2 overflow-y-auto rounded-lg border border-[var(--line)] bg-[var(--bg)] p-2">
+                    {comments.map((c) => (
+                      <div
+                        key={c.id}
+                        className="rounded-lg border border-[var(--line)] bg-[var(--panel)] px-2.5 py-2 text-sm"
+                      >
+                        <div className="mb-0.5 flex items-baseline justify-between gap-2">
+                          <span className="text-xs font-medium">
+                            {c.author.name}
+                            <span className="ml-1 font-normal text-[var(--muted)]">
+                              {roleLabelRu(c.author.role)}
+                            </span>
                           </span>
-                        </span>
-                        <span className="text-[10px] text-[var(--muted)]">
-                          {new Date(c.createdAt).toLocaleString("ru-RU", {
-                            day: "2-digit",
-                            month: "2-digit",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </span>
+                          <span className="text-[10px] text-[var(--muted)]">
+                            {new Date(c.createdAt).toLocaleString("ru-RU", {
+                              day: "2-digit",
+                              month: "2-digit",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </span>
+                        </div>
+                        {c.body?.trim() && (
+                          <p className="whitespace-pre-wrap">{c.body}</p>
+                        )}
+                        {c.hasImage && (
+                          <button
+                            type="button"
+                            className="mt-1.5 block overflow-hidden rounded-md border border-[var(--line)]"
+                            onClick={() =>
+                              setChatImage({
+                                url: commentImageUrl(c),
+                                name: c.imageName || "Фото",
+                              })
+                            }
+                          >
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={commentImageUrl(c)}
+                              alt={c.imageName || "Фото"}
+                              className="max-h-40 max-w-full object-contain"
+                            />
+                          </button>
+                        )}
                       </div>
-                      <p className="whitespace-pre-wrap">{c.body}</p>
+                    ))}
+                    <div ref={chatEndRef} />
+                  </div>
+                )}
+
+                {pendingPreview && (
+                  <div className="mb-2 flex items-start gap-2">
+                    <div className="relative overflow-hidden rounded-md border border-[var(--line)]">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={pendingPreview}
+                        alt="Превью"
+                        className="max-h-24 max-w-[10rem] object-contain"
+                      />
+                      <button
+                        type="button"
+                        onClick={clearPendingImage}
+                        className="absolute right-1 top-1 rounded bg-black/60 px-1.5 text-[10px] text-white"
+                      >
+                        ✕
+                      </button>
                     </div>
-                  ))}
-                  <div ref={chatEndRef} />
-                </div>
+                  </div>
+                )}
+
                 <div className="flex gap-2">
                   <input
+                    ref={chatImageRef}
+                    type="file"
+                    accept="image/png,image/jpeg,.png,.jpg,.jpeg"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) onPickChatImage(f);
+                      e.target.value = "";
+                    }}
+                  />
+                  <button
+                    type="button"
+                    title="Прикрепить картинку"
+                    onClick={() => chatImageRef.current?.click()}
+                    className="shrink-0 rounded-md border border-[var(--line)] px-2.5 py-2 text-xs text-[var(--muted)] hover:text-[var(--ink)]"
+                  >
+                    Фото
+                  </button>
+                  <input
                     className="field flex-1"
-                    placeholder="Написать комментарий…"
+                    placeholder={
+                      comments.length === 0
+                        ? "Написать первый комментарий…"
+                        : "Написать комментарий…"
+                    }
                     value={commentText}
                     onChange={(e) => setCommentText(e.target.value)}
                     onKeyDown={(e) => {
@@ -592,7 +738,7 @@ export function ProjectModal({
                   />
                   <button
                     type="button"
-                    disabled={sending || !commentText.trim()}
+                    disabled={sending || !canSend}
                     onClick={() => void sendComment()}
                     className="rounded-md bg-[var(--accent)] px-3 py-2 text-sm text-white disabled:opacity-40"
                   >
@@ -657,6 +803,37 @@ export function ProjectModal({
                   </a>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {chatImage && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
+          onClick={() => setChatImage(null)}
+        >
+          <div
+            className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--panel)]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-[var(--line)] px-4 py-2">
+              <p className="truncate text-sm font-medium">{chatImage.name}</p>
+              <button
+                type="button"
+                className="text-sm text-[var(--muted)]"
+                onClick={() => setChatImage(null)}
+              >
+                Закрыть
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-auto p-4">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={chatImage.url}
+                alt={chatImage.name}
+                className="mx-auto max-h-[75vh] max-w-full object-contain"
+              />
             </div>
           </div>
         </div>

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { requireManager } from "@/lib/session";
+import { requireDatabaseAccess } from "@/lib/session";
 
 const putSchema = z.object({
   specialties: z.array(
@@ -18,7 +18,7 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    await requireManager();
+    await requireDatabaseAccess();
     const { id } = await params;
     const body = putSchema.parse(await req.json());
 

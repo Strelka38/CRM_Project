@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { requireManager, requireSession } from "@/lib/session";
+import { requireDatabaseAccess, requireSession } from "@/lib/session";
 
 export async function GET(req: NextRequest) {
   try {
@@ -55,7 +55,7 @@ const createSchema = z.object({
 
 export async function POST(req: NextRequest) {
   try {
-    await requireManager();
+    await requireDatabaseAccess();
     const body = createSchema.parse(await req.json());
     let path = body.name;
     if (body.parentId) {

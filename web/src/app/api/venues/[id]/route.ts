@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { requireManager } from "@/lib/session";
+import { requireDatabaseAccess } from "@/lib/session";
 
 const venueSelect = {
   id: true,
@@ -31,7 +31,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    await requireManager();
+    await requireDatabaseAccess();
     const { id } = await params;
 
     const venue = await prisma.venue.findUnique({
@@ -75,7 +75,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    await requireManager();
+    await requireDatabaseAccess();
     const { id } = await params;
     const body = patchSchema.parse(await req.json());
 

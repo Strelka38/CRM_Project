@@ -3,9 +3,9 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import {
+  canAccessDatabase,
   canManageAssignments,
-  isManager,
-  requireManager,
+  requireDatabaseAccess,
   requireSession,
 } from "@/lib/session";
 
@@ -16,7 +16,7 @@ export async function GET() {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const managerView = isManager(session.user.role);
+    const showSalary = canAccessDatabase(session.user.role);
     const users = await prisma.user.findMany({
       orderBy: { createdAt: "desc" },
       select: {
@@ -29,7 +29,7 @@ export async function GET() {
         phone: true,
         role: true,
         active: true,
-        monthlySalary: managerView,
+        monthlySalary: showSalary,
         owners: true,
         createdAt: true,
         updatedAt: true,
@@ -63,7 +63,7 @@ const createSchema = z.object({
 
 export async function POST(req: NextRequest) {
   try {
-    await requireManager();
+    await requireDatabaseAccess();
     const body = createSchema.parse(await req.json());
     const fio = [body.lastName, body.firstName, body.patronymic]
       .map((x) => (x || "").trim())

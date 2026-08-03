@@ -1,0 +1,5 @@
+-- AlterTable
+ALTER TABLE "QuoteComment" ALTER COLUMN "body" SET DEFAULT '';
+ALTER TABLE "QuoteComment" ADD COLUMN IF NOT EXISTS "imagePath" TEXT;
+ALTER TABLE "QuoteComment" ADD COLUMN IF NOT EXISTS "imageMime" TEXT;
+ALTER TABLE "QuoteComment" ADD COLUMN IF NOT EXISTS "imageName" TEXT;

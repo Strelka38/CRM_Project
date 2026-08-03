@@ -101,7 +101,7 @@ model User {
   role          Role             @default(EMPLOYEE)
   active        Boolean          @default(true)
   monthlySalary Float            @default(0)
-  /// К каким фирмам относится сотрудник (ШМ / ДК / НИ) — для учёта ЗП в доходности
+  /// К каким фирмам относится сотрудник (ШМ / ДК / NE) — для учёта ЗП в доходности
   owners        CatalogOwner[]   @default([])
   createdAt     DateTime         @default(now())
   updatedAt     DateTime         @updatedAt
@@ -146,8 +146,9 @@ model QuoteAssignment {
   id           String    @id @default(cuid())
   quoteId      String
   quote        Quote     @relation(fields: [quoteId], references: [id], onDelete: Cascade)
-  userId       String
-  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// null для фрилансера (без учётки в системе)
+  userId       String?
+  user         User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
   specialtyId  String
   specialty    Specialty @relation(fields: [specialtyId], references: [id], onDelete: Restrict)
   payMode      PayMode   @default(SHIFT)
@@ -157,6 +158,11 @@ model QuoteAssignment {
   bonus        Float     @default(0)
   /// Монтажные по факту (в калькуляции, на сотрудника)
   montageAmount Float    @default(0)
+  /// Фрилансер: строка без User, ФИО вручную
+  isFreelancer   Boolean        @default(false)
+  freelancerName String         @default("")
+  /// Фирма для ЗП фрилансера (ШМ / ДК / NE); у штатных — с User.owners
+  owners         CatalogOwner[] @default([])
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
@@ -355,6 +361,8 @@ model Quote {
   zones           QuoteZone[]
   notifications   Notification[]
   assignments     QuoteAssignment[]
+  /// Порядок строк спецификации (ключи SpecLine.key)
+  specLineOrder   String[]          @default([])
   specOverrides   SpecOverride[]
   specExtras      SpecExtraBlock[]
   comments        QuoteComment[]
@@ -499,7 +507,11 @@ model QuoteComment {
   quote     Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
   authorId  String
   author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  body      String
+  body      String   @default("")
+  /// Optional chat image (png/jpeg), stored under uploads/
+  imagePath String?
+  imageMime String?
+  imageName String?
   createdAt DateTime @default(now())
 
   @@index([quoteId, createdAt])

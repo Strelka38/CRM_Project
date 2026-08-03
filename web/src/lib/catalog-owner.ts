@@ -7,7 +7,7 @@ export const CATALOG_OWNERS: Array<{
 }> = [
   { value: "SHOW_MASTER", label: "Шоу-Мастер", short: "ШМ" },
   { value: "DIAKOM", label: "Диаком", short: "ДК" },
-  { value: "NE_EVENT", label: "НеИвент", short: "НИ" },
+  { value: "NE_EVENT", label: "НеИвент", short: "NE" },
 ];
 
 export function normalizeOwners(

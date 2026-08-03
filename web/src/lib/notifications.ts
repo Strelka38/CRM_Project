@@ -61,7 +61,7 @@ export async function syncInvoiceNotifications() {
   return { processed: candidates.length, created };
 }
 
-/** Managers get notified about every new event (except the creator). */
+/** Managers and brigadiers get notified about every new event (except the creator). */
 export async function notifyManagersOfNewEvent(quote: {
   id: string;
   eventName: string;
@@ -70,12 +70,14 @@ export async function notifyManagersOfNewEvent(quote: {
   date?: string;
   managerName?: string;
 }) {
-  const managers = await prisma.user.findMany({
-    where: { role: "MANAGER", active: true },
+  const recipients = await prisma.user.findMany({
+    where: {
+      role: { in: ["MANAGER", "BRIGADIER"] },
+      active: true,
+      id: { not: quote.ownerId },
+    },
     select: { id: true },
   });
-
-  const recipients = managers.filter((m) => m.id !== quote.ownerId);
   if (recipients.length === 0) return;
 
   const label = eventLabel(quote.eventName, quote.proposalNumber);
@@ -148,7 +150,9 @@ export async function notifyWorkersOfChatMessage(opts: {
     ...new Set(
       quote.assignments
         .map((a) => a.userId)
-        .filter((id) => id !== opts.authorId),
+        .filter(
+          (id): id is string => Boolean(id) && id !== opts.authorId,
+        ),
     ),
   ];
   if (workerIds.length === 0) return;

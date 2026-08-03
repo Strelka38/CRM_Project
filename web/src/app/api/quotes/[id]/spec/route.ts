@@ -3,8 +3,10 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { canAccessQuote } from "@/lib/quote-access";
 import {
+  applySpecLineOrder,
   buildSpecLines,
   pruneStaleOverrideKeys,
+  sanitizeSpecLineOrder,
 } from "@/lib/spec-build";
 import {
   canEditSpec,
@@ -21,7 +23,7 @@ const overrideSchema = z.object({
 });
 
 const extraSchema = z.object({
-  id: z.string().optional(),
+  id: z.string().min(1),
   type: z.enum(["SECTION", "ITEM"]),
   sortOrder: z.number().int(),
   title: z.string().nullable().optional(),
@@ -34,6 +36,7 @@ const extraSchema = z.object({
 const patchSchema = z.object({
   overrides: z.array(overrideSchema),
   extras: z.array(extraSchema),
+  lineOrder: z.array(z.string()).optional(),
 });
 
 async function loadAssignments(quoteId: string) {
@@ -42,6 +45,9 @@ async function loadAssignments(quoteId: string) {
     orderBy: [{ createdAt: "asc" }],
     select: {
       id: true,
+      userId: true,
+      isFreelancer: true,
+      freelancerName: true,
       user: {
         select: {
           id: true,
@@ -54,12 +60,16 @@ async function loadAssignments(quoteId: string) {
     },
   });
   return rows.map((a) => {
-    const fullName =
-      [a.user.lastName, a.user.firstName].filter(Boolean).join(" ").trim() ||
-      a.user.name;
+    const isFreelancer = a.isFreelancer || !a.userId;
+    const fullName = isFreelancer
+      ? (a.freelancerName || "").trim() || "Фрилансер"
+      : [a.user?.lastName, a.user?.firstName].filter(Boolean).join(" ").trim() ||
+        a.user?.name ||
+        "Сотрудник";
     return {
       id: a.id,
-      userId: a.user.id,
+      userId: a.userId,
+      isFreelancer,
       name: fullName,
       specialtyId: a.specialty.id,
       specialtyName: a.specialty.name,
@@ -79,12 +89,12 @@ async function loadSpecPayload(id: string) {
       client: true,
       lifecycle: true,
       durationDays: true,
+      specLineOrder: true,
       blocks: { orderBy: { sortOrder: "asc" as const } },
     },
   });
   if (!quote) return null;
 
-  // Separate queries — avoids stale Prisma client missing Quote relations
   const [specOverrides, specExtras, assignments] = await Promise.all([
     prisma.specOverride.findMany({ where: { quoteId: id } }),
     prisma.specExtraBlock.findMany({
@@ -94,13 +104,13 @@ async function loadSpecPayload(id: string) {
     loadAssignments(id),
   ]);
 
-  const lines = await buildSpecLines(
+  const built = await buildSpecLines(
     quote.blocks,
     specOverrides,
     specExtras,
   );
 
-  const staleIds = pruneStaleOverrideKeys(lines, specOverrides);
+  const staleIds = pruneStaleOverrideKeys(built, specOverrides);
   if (staleIds.length > 0) {
     await prisma.specOverride.deleteMany({
       where: { id: { in: staleIds } },
@@ -108,10 +118,23 @@ async function loadSpecPayload(id: string) {
   }
 
   const overrides = specOverrides.filter((o) => !staleIds.includes(o.id));
+  const lineOrder = sanitizeSpecLineOrder(built, quote.specLineOrder);
+  const lines = applySpecLineOrder(built, lineOrder);
+
+  if (
+    lineOrder.length !== quote.specLineOrder.length ||
+    lineOrder.some((k, i) => k !== quote.specLineOrder[i])
+  ) {
+    await prisma.quote.update({
+      where: { id },
+      data: { specLineOrder: lineOrder },
+    });
+  }
 
   return {
     quote,
     lines,
+    lineOrder,
     overrides,
     extras: specExtras,
     assignments,
@@ -134,6 +157,7 @@ function serializePayload(
     durationDays: payload.quote.durationDays,
     canEdit,
     lines: canEdit ? payload.lines : visible,
+    lineOrder: payload.lineOrder,
     overrides: payload.overrides,
     extras: payload.extras,
     assignments: payload.assignments,
@@ -214,6 +238,7 @@ export async function PATCH(
       if (body.extras.length > 0) {
         await tx.specExtraBlock.createMany({
           data: body.extras.map((e, index) => ({
+            id: e.id,
             quoteId: id,
             type: e.type,
             sortOrder: e.sortOrder ?? index,
@@ -223,6 +248,13 @@ export async function PATCH(
             comment: e.comment ?? "",
             catalogItemId: e.catalogItemId ?? null,
           })),
+        });
+      }
+
+      if (body.lineOrder) {
+        await tx.quote.update({
+          where: { id },
+          data: { specLineOrder: body.lineOrder },
         });
       }
     });

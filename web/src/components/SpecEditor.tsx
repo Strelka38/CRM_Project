@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useRouter } from "next/navigation";
 import {
   CatalogPicker,
@@ -12,6 +19,8 @@ import {
   StockMarks,
   type StockInfo,
 } from "@/components/StockMarks";
+import { cn } from "@/lib/cn";
+import { reorderBlocksByDrop } from "@/lib/quote-block-groups";
 
 type SpecLine = {
   key: string;
@@ -38,7 +47,7 @@ type Override = {
 };
 
 type Extra = {
-  id?: string;
+  id: string;
   type: "SECTION" | "ITEM";
   sortOrder: number;
   title?: string | null;
@@ -62,8 +71,20 @@ type ReplaceTarget =
   | { kind: "derived"; key: string; deriveKey: string }
   | { kind: "extra"; key: string };
 
+type PickerMode =
+  | { mode: "add" }
+  | { mode: "replace"; target: ReplaceTarget }
+  | { mode: "insert"; index: number };
+
 function uid() {
-  return `tmp-${Math.random().toString(36).slice(2, 10)}`;
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return `x${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
+}
+
+function extraKey(id: string) {
+  return `extra:${id}`;
 }
 
 function EyeIcon({ crossed }: { crossed?: boolean }) {
@@ -107,6 +128,29 @@ function SwapIcon() {
   );
 }
 
+function DragHandle({
+  label,
+  onDragStart,
+  onDragEnd,
+}: {
+  label: string;
+  onDragStart: (e: React.DragEvent) => void;
+  onDragEnd: () => void;
+}) {
+  return (
+    <span
+      draggable
+      title={label}
+      aria-label={label}
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+      className="mt-1 inline-flex cursor-grab select-none items-center justify-center rounded px-1 text-[var(--muted)] hover:bg-black/5 hover:text-[var(--ink)] active:cursor-grabbing"
+    >
+      ⠿
+    </span>
+  );
+}
+
 export function SpecEditor({
   quoteId,
   isManager = false,
@@ -126,22 +170,77 @@ export function SpecEditor({
   const [derived, setDerived] = useState<SpecLine[]>([]);
   const [extras, setExtras] = useState<EditableExtra[]>([]);
   const [overrides, setOverrides] = useState<Override[]>([]);
+  const [lineOrder, setLineOrder] = useState<string[]>([]);
   const [assignments, setAssignments] = useState<StaffRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [error, setError] = useState("");
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [replaceTarget, setReplaceTarget] = useState<ReplaceTarget | null>(
-    null,
-  );
+  const [picker, setPicker] = useState<PickerMode | null>(null);
   const [canEdit, setCanEdit] = useState(false);
   const [showHidden, setShowHidden] = useState(true);
   const [exporting, setExporting] = useState<"excel" | "pdf" | null>(null);
   const [stockMap, setStockMap] = useState<Record<string, StockInfo | null>>(
     {},
   );
+  const [dragKey, setDragKey] = useState<string | null>(null);
+  const [dropKey, setDropKey] = useState<string | null>(null);
+  const [gapIndex, setGapIndex] = useState<number | null>(null);
   const dirtyRef = useRef(false);
+  const lineOrderRef = useRef<string[]>([]);
+  lineOrderRef.current = lineOrder;
+
+  const applyPayload = useCallback((data: Record<string, unknown>) => {
+    setMeta({
+      proposalNumber: String(data.proposalNumber ?? ""),
+      eventName: String(data.eventName ?? ""),
+      date: String(data.date ?? ""),
+      place: String(data.place ?? ""),
+      client: String(data.client ?? ""),
+      durationDays: Number(data.durationDays) || 1,
+    });
+    setCanEdit(Boolean(data.canEdit));
+    const lines: SpecLine[] = ((data.lines as SpecLine[]) || []).map(
+      (l): SpecLine => ({
+        ...l,
+        comment: l.comment ?? "",
+      }),
+    );
+    setDerived(lines.filter((l) => l.source === "derived"));
+    setExtras(
+      ((data.extras as Array<Extra>) || []).map(
+        (e): EditableExtra => ({
+          key: extraKey(e.id),
+          id: e.id,
+          type: e.type,
+          sortOrder: e.sortOrder,
+          title: e.title,
+          name: e.name,
+          qty: e.qty,
+          comment: e.comment ?? "",
+          catalogItemId: e.catalogItemId,
+        }),
+      ),
+    );
+    setOverrides(
+      ((data.overrides as Override[]) || []).map(
+        (o): Override => ({
+          deriveKey: o.deriveKey,
+          action: o.action,
+          qty: o.qty,
+          name: o.name,
+          catalogItemId: o.catalogItemId,
+        }),
+      ),
+    );
+    setLineOrder(
+      Array.isArray(data.lineOrder)
+        ? (data.lineOrder as string[])
+        : lines.map((l) => l.key),
+    );
+    setAssignments((data.assignments as StaffRow[]) || []);
+    dirtyRef.current = false;
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -160,64 +259,25 @@ export function SpecEditor({
         );
         return;
       }
-      setMeta({
-        proposalNumber: data.proposalNumber,
-        eventName: data.eventName,
-        date: data.date,
-        place: data.place,
-        client: data.client,
-        durationDays: Number(data.durationDays) || 1,
-      });
-      setCanEdit(Boolean(data.canEdit));
-      const lines: SpecLine[] = (data.lines || []).map(
-        (l: SpecLine): SpecLine => ({
-          ...l,
-          comment: l.comment ?? "",
-        }),
-      );
-      setDerived(lines.filter((l) => l.source === "derived"));
-      setExtras(
-        (data.extras || []).map(
-          (e: Extra & { id: string }): EditableExtra => ({
-            key: e.id,
-            id: e.id,
-            type: e.type,
-            sortOrder: e.sortOrder,
-            title: e.title,
-            name: e.name,
-            qty: e.qty,
-            comment: e.comment ?? "",
-            catalogItemId: e.catalogItemId,
-          }),
-        ),
-      );
-      setOverrides(
-        (data.overrides || []).map(
-          (o: Override): Override => ({
-            deriveKey: o.deriveKey,
-            action: o.action,
-            qty: o.qty,
-            name: o.name,
-            catalogItemId: o.catalogItemId,
-          }),
-        ),
-      );
-      setAssignments(data.assignments || []);
-      dirtyRef.current = false;
+      applyPayload(data);
     } catch {
       setMeta(null);
       setError("Не удалось связаться с сервером");
     } finally {
       setLoading(false);
     }
-  }, [quoteId]);
+  }, [quoteId, applyPayload]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
   const persist = useCallback(
-    async (nextOverrides: Override[], nextExtras: EditableExtra[]) => {
+    async (
+      nextOverrides: Override[],
+      nextExtras: EditableExtra[],
+      nextOrder: string[],
+    ) => {
       if (!canEdit || !dirtyRef.current) return;
       setSaving(true);
       setError("");
@@ -227,6 +287,7 @@ export function SpecEditor({
         body: JSON.stringify({
           overrides: nextOverrides,
           extras: nextExtras.map((e, i) => ({
+            id: e.id,
             type: e.type,
             sortOrder: i,
             title: e.title ?? null,
@@ -235,6 +296,7 @@ export function SpecEditor({
             comment: e.comment ?? "",
             catalogItemId: e.catalogItemId ?? null,
           })),
+          lineOrder: nextOrder,
         }),
       });
       setSaving(false);
@@ -242,47 +304,80 @@ export function SpecEditor({
         setError("Не удалось сохранить");
         return;
       }
-      dirtyRef.current = false;
+      const data = await res.json().catch(() => null);
+      if (data) applyPayload(data);
       setSavedAt(new Date().toLocaleTimeString("ru-RU"));
     },
-    [canEdit, quoteId],
+    [canEdit, quoteId, applyPayload],
   );
 
   useEffect(() => {
     if (loading || !canEdit || !dirtyRef.current) return;
     const t = setTimeout(() => {
-      void persist(overrides, extras);
+      void persist(overrides, extras, lineOrder);
     }, 800);
     return () => clearTimeout(t);
-  }, [overrides, extras, loading, canEdit, persist]);
+  }, [overrides, extras, lineOrder, loading, canEdit, persist]);
+
+  const allRows = useMemo(() => {
+    const byKey = new Map<string, SpecLine>();
+    for (const l of derived) byKey.set(l.key, l);
+    for (const e of extras) {
+      byKey.set(e.key, {
+        key: e.key,
+        deriveKey: null,
+        source: "extra",
+        type: e.type,
+        title: e.title ?? null,
+        name: e.name ?? null,
+        qty: e.qty ?? 0,
+        comment: e.comment ?? "",
+        kitName: null,
+        catalogItemId: e.catalogItemId ?? null,
+        extraId: e.id,
+        hidden: false,
+      });
+    }
+    const ordered: SpecLine[] = [];
+    const seen = new Set<string>();
+    for (const key of lineOrder) {
+      const row = byKey.get(key);
+      if (row) {
+        ordered.push(row);
+        seen.add(key);
+      }
+    }
+    for (const [key, row] of byKey) {
+      if (!seen.has(key)) ordered.push(row);
+    }
+    return ordered;
+  }, [derived, extras, lineOrder]);
+
+  const displayRows = useMemo(() => {
+    return allRows.filter((l) => {
+      if (!l.hidden) return true;
+      return canEdit && showHidden;
+    });
+  }, [allRows, canEdit, showHidden]);
 
   const neededByItem = useMemo(() => {
     const map = new Map<string, number>();
-    const add = (catalogItemId: string | null | undefined, qty: number) => {
-      if (!catalogItemId || qty <= 0) return;
-      map.set(catalogItemId, (map.get(catalogItemId) || 0) + qty);
-    };
-    for (const l of derived) {
-      if (l.hidden || l.type !== "ITEM") continue;
-      add(l.catalogItemId, Number(l.qty) || 0);
-    }
-    for (const e of extras) {
-      if (e.type !== "ITEM") continue;
-      add(e.catalogItemId, Number(e.qty) || 0);
+    for (const l of allRows) {
+      if (l.hidden || l.type !== "ITEM" || !l.catalogItemId) continue;
+      const q = Number(l.qty) || 0;
+      if (q <= 0) continue;
+      map.set(l.catalogItemId, (map.get(l.catalogItemId) || 0) + q);
     }
     return map;
-  }, [derived, extras]);
+  }, [allRows]);
 
   const catalogIdsKey = useMemo(() => {
     const ids = new Set<string>();
-    for (const l of derived) {
+    for (const l of allRows) {
       if (l.type === "ITEM" && l.catalogItemId) ids.add(l.catalogItemId);
     }
-    for (const e of extras) {
-      if (e.type === "ITEM" && e.catalogItemId) ids.add(e.catalogItemId);
-    }
     return [...ids].sort().join(",");
-  }, [derived, extras]);
+  }, [allRows]);
 
   useEffect(() => {
     if (!meta || !catalogIdsKey || !canEdit) {
@@ -307,6 +402,11 @@ export function SpecEditor({
 
   function markDirty() {
     dirtyRef.current = true;
+  }
+
+  function updateLineOrder(next: string[]) {
+    markDirty();
+    setLineOrder(next);
   }
 
   function setOverride(
@@ -383,18 +483,12 @@ export function SpecEditor({
     return line.name || "";
   }
 
-  function displayQty(line: SpecLine) {
-    return line.qty;
-  }
-
   function updateDerivedName(line: SpecLine, name: string) {
     if (!line.deriveKey) return;
     if (line.type === "SECTION") {
       setOverride(line.deriveKey, "RENAME", { name });
       setDerived((prev) =>
-        prev.map((l) =>
-          l.key === line.key ? { ...l, title: name } : l,
-        ),
+        prev.map((l) => (l.key === line.key ? { ...l, title: name } : l)),
       );
       return;
     }
@@ -430,127 +524,157 @@ export function SpecEditor({
   function removeExtra(key: string) {
     markDirty();
     setExtras((prev) => prev.filter((e) => e.key !== key));
+    updateLineOrder(lineOrderRef.current.filter((k) => k !== key));
   }
 
-  function addSection() {
+  function insertExtraAt(
+    index: number,
+    extra: Omit<EditableExtra, "key" | "sortOrder"> & { id: string },
+  ) {
+    const key = extraKey(extra.id);
+    const row: EditableExtra = {
+      ...extra,
+      key,
+      sortOrder: index,
+    };
     markDirty();
-    setExtras((prev) => [
-      ...prev,
-      {
-        key: uid(),
-        type: "SECTION",
-        sortOrder: prev.length,
-        title: "Доп. раздел",
-      },
-    ]);
-  }
-
-  function addCustomItem() {
-    markDirty();
-    setExtras((prev) => [
-      ...prev,
-      {
-        key: uid(),
-        type: "ITEM",
-        sortOrder: prev.length,
-        name: "Доп. позиция",
-        qty: 1,
-        comment: "",
-      },
-    ]);
-  }
-
-  function addFromCatalog(item: PickedCatalogItem, qty = 1) {
-    markDirty();
-    const addQty = Math.max(1, Math.round(qty) || 1);
-    setExtras((prev) => {
-      const existing = prev.find(
-        (e) => e.type === "ITEM" && e.catalogItemId === item.id,
-      );
-      if (existing) {
-        return prev.map((e) =>
-          e.key === existing.key
-            ? { ...e, qty: (Number(e.qty) || 0) + addQty }
-            : e,
-        );
+    setExtras((prev) => [...prev, row]);
+    const visibleKeys = displayRows.map((r) => r.key);
+    const beforeKey = visibleKeys[index] ?? null;
+    setLineOrder((prev) => {
+      const base = prev.length ? [...prev] : allRows.map((r) => r.key);
+      const without = base.filter((k) => k !== key);
+      if (!beforeKey) {
+        without.push(key);
+        return without;
       }
-      return [
-        ...prev,
-        {
-          key: uid(),
-          type: "ITEM",
-          sortOrder: prev.length,
-          name: item.name,
-          qty: addQty,
-          comment: "",
-          catalogItemId: item.id,
-        },
-      ];
+      const at = without.indexOf(beforeKey);
+      if (at < 0) without.push(key);
+      else without.splice(at, 0, key);
+      return without;
     });
   }
 
-  function openReplace(
-    target: ReplaceTarget,
-  ) {
-    setReplaceTarget(target);
-    setPickerOpen(true);
+  function appendExtra(extra: Omit<EditableExtra, "key" | "sortOrder"> & { id: string }) {
+    const key = extraKey(extra.id);
+    markDirty();
+    setExtras((prev) => [
+      ...prev,
+      { ...extra, key, sortOrder: prev.length },
+    ]);
+    setLineOrder((prev) => {
+      const base = prev.length ? prev : allRows.map((r) => r.key);
+      if (base.includes(key)) return base;
+      return [...base, key];
+    });
   }
 
-  function openAddFromCatalog() {
-    setReplaceTarget(null);
-    setPickerOpen(true);
+  function addSection() {
+    appendExtra({
+      id: uid(),
+      type: "SECTION",
+      title: "Новый раздел",
+      comment: "",
+    });
+  }
+
+  function addCustomItem() {
+    appendExtra({
+      id: uid(),
+      type: "ITEM",
+      name: "Новая позиция",
+      qty: 1,
+      comment: "",
+    });
+  }
+
+  function addFromCatalog(item: PickedCatalogItem, qty = 1) {
+    const addQty = Math.max(1, Math.round(qty) || 1);
+    const existing = extras.find(
+      (e) => e.type === "ITEM" && e.catalogItemId === item.id,
+    );
+    if (existing) {
+      updateExtra(existing.key, {
+        qty: (Number(existing.qty) || 0) + addQty,
+      });
+      return;
+    }
+    appendExtra({
+      id: uid(),
+      type: "ITEM",
+      name: item.name,
+      qty: addQty,
+      comment: "",
+      catalogItemId: item.id,
+    });
+  }
+
+  function insertFromCatalogAt(
+    index: number,
+    item: PickedCatalogItem,
+    qty = 1,
+  ) {
+    const addQty = Math.max(1, Math.round(qty) || 1);
+    insertExtraAt(index, {
+      id: uid(),
+      type: "ITEM",
+      name: item.name,
+      qty: addQty,
+      comment: "",
+      catalogItemId: item.id,
+    });
+  }
+
+  function dropRow(fromKey: string, toKey: string) {
+    const groupable = allRows.map((r, i) => ({
+      key: r.key,
+      type: r.isKitHeader ? "KIT_HEADER" : r.type,
+      zoneId: "spec",
+      sortOrder: i,
+      row: r,
+    }));
+    const next = reorderBlocksByDrop(groupable, fromKey, toKey);
+    if (!next) return;
+    updateLineOrder(next.map((r) => r.key));
   }
 
   function onPickCatalog(item: PickedCatalogItem, qty?: number) {
-    if (replaceTarget) {
-      if (replaceTarget.kind === "derived") {
-        setOverride(replaceTarget.deriveKey, "REPLACE", {
+    if (!picker) return;
+    if (picker.mode === "replace") {
+      const target = picker.target;
+      if (target.kind === "derived") {
+        setOverride(target.deriveKey, "REPLACE", {
           name: item.name,
           catalogItemId: item.id,
         });
-        // Keep an explicit rename so the shown name matches the new catalog item
-        setOverride(replaceTarget.deriveKey, "RENAME", { name: item.name });
+        setOverride(target.deriveKey, "RENAME", { name: item.name });
         setDerived((prev) =>
           prev.map((l) =>
-            l.key === replaceTarget.key
-              ? {
-                  ...l,
-                  name: item.name,
-                  catalogItemId: item.id,
-                }
+            l.key === target.key
+              ? { ...l, name: item.name, catalogItemId: item.id }
               : l,
           ),
         );
       } else {
-        updateExtra(replaceTarget.key, {
+        updateExtra(target.key, {
           name: item.name,
           catalogItemId: item.id,
         });
       }
-      setReplaceTarget(null);
-      setPickerOpen(false);
+      setPicker(null);
+      return;
+    }
+    if (picker.mode === "insert") {
+      insertFromCatalogAt(picker.index, item, qty);
+      setPicker(null);
+      setGapIndex(null);
       return;
     }
     addFromCatalog(item, qty);
   }
 
   function exportLines(): SpecLine[] {
-    const fromDerived = derived.filter((l) => !l.hidden);
-    const fromExtras: SpecLine[] = extras.map((e) => ({
-      key: e.key,
-      deriveKey: null,
-      source: "extra" as const,
-      type: e.type,
-      title: e.title ?? null,
-      name: e.name ?? null,
-      qty: e.qty ?? 0,
-      comment: e.comment ?? "",
-      kitName: null,
-      catalogItemId: e.catalogItemId ?? null,
-      extraId: e.id ?? null,
-      hidden: false,
-    }));
-    return [...fromDerived, ...fromExtras];
+    return allRows.filter((l) => !l.hidden);
   }
 
   async function onExport(kind: "excel" | "pdf") {
@@ -589,12 +713,44 @@ export function SpecEditor({
     );
   }
 
-  const visibleDerived = (
-    canEdit ? derived : derived.filter((l) => !l.hidden)
-  ).filter((l) => (canEdit && showHidden ? true : !l.hidden));
-
   const hiddenCount = derived.filter((l) => l.hidden).length;
   const tableColSpan = canEdit ? 7 : 3;
+
+  function renderGap(index: number) {
+    if (!canEdit) return null;
+    const active = gapIndex === index && !dragKey;
+    return (
+      <tr key={`gap-${index}`} className="relative h-0 border-0">
+        <td colSpan={tableColSpan} className="relative h-0 p-0">
+          <div
+            className="absolute inset-x-0 z-20 -translate-y-1/2"
+            style={{ height: 14, top: 0 }}
+            onMouseEnter={() => setGapIndex(index)}
+            onMouseLeave={() =>
+              setGapIndex((g) => (g === index ? null : g))
+            }
+          >
+            {active && (
+              <>
+                <div className="pointer-events-none absolute inset-x-3 top-1/2 h-0.5 -translate-y-1/2 bg-[var(--accent)]" />
+                <button
+                  type="button"
+                  title="Добавить оборудование сюда"
+                  className="absolute right-2 top-1/2 z-30 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full bg-[var(--accent)] text-sm font-semibold leading-none text-white shadow"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setPicker({ mode: "insert", index });
+                  }}
+                >
+                  +
+                </button>
+              </>
+            )}
+          </div>
+        </td>
+      </tr>
+    );
+  }
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-6 md:px-6">
@@ -613,7 +769,8 @@ export function SpecEditor({
             Спецификация на погрузку
           </h1>
           <p className="text-sm text-[var(--muted)]">
-            №{meta.proposalNumber} · {meta.eventName || meta.client || "Мероприятие"}
+            №{meta.proposalNumber} ·{" "}
+            {meta.eventName || meta.client || "Мероприятие"}
             {meta.date ? ` · ${meta.date}` : ""}
           </p>
           <p className="text-xs text-[var(--muted)]">
@@ -632,9 +789,7 @@ export function SpecEditor({
             type="button"
             disabled={
               exporting !== null ||
-              (derived.length === 0 &&
-                extras.length === 0 &&
-                assignments.length === 0)
+              (allRows.length === 0 && assignments.length === 0)
             }
             onClick={() => void onExport("excel")}
             className="rounded-md bg-[var(--solid)] px-4 py-2 text-sm text-[var(--on-solid)] disabled:opacity-40"
@@ -645,9 +800,7 @@ export function SpecEditor({
             type="button"
             disabled={
               exporting !== null ||
-              (derived.length === 0 &&
-                extras.length === 0 &&
-                assignments.length === 0)
+              (allRows.length === 0 && assignments.length === 0)
             }
             onClick={() => void onExport("pdf")}
             className="rounded-md bg-[var(--accent)] px-4 py-2 text-sm text-white disabled:opacity-40"
@@ -658,8 +811,9 @@ export function SpecEditor({
       </header>
 
       <p className="text-sm text-[var(--muted)]">
-        Отдельные позиции из сметы + разворот комплектов по составляющим. Цен нет.
-        Услуги технического персонала из сметы не включаются — внизу указаны назначенные сотрудники.
+        Отдельные позиции из сметы + разворот комплектов по составляющим. Цен
+        нет. Услуги технического персонала из сметы не включаются — внизу
+        указаны назначенные сотрудники.
         {canEdit ? " Правки поверх сметы сохраняются отдельно." : ""}
       </p>
 
@@ -696,281 +850,255 @@ export function SpecEditor({
       )}
 
       <div className="overflow-x-auto rounded-xl border border-[var(--line)] bg-[var(--panel)]">
-        <table className="w-full min-w-[860px] text-sm">
+        <table className="w-full min-w-[920px] text-sm">
           <thead className="bg-[var(--table-head)] text-xs uppercase text-[var(--muted)]">
             <tr>
               <th className="px-3 py-2 text-left">Название</th>
               <th className="w-24 px-3 py-2">Кол-во</th>
               {canEdit && <StockHeaderCells />}
               <th className="min-w-[10rem] px-3 py-2 text-left">Комментарий</th>
-              {canEdit && <th className="w-24 px-3 py-2" />}
+              {canEdit && <th className="w-28 px-3 py-2" />}
             </tr>
           </thead>
           <tbody>
-            {visibleDerived.map((line) => {
+            {canEdit && renderGap(0)}
+            {displayRows.map((line, index) => {
               const isSection = line.type === "SECTION";
               const isKitHeader = Boolean(line.isKitHeader);
+              const isExtra = line.source === "extra";
               const itemId = line.catalogItemId || null;
               const stock = itemId ? stockMap[itemId] : null;
               const needed = itemId ? neededByItem.get(itemId) || 0 : 0;
-              return (
-                <tr
-                  key={line.key}
-                  className={
-                    line.hidden
-                      ? "border-t border-[var(--line)] opacity-40"
-                      : isKitHeader
-                        ? "border-t border-[var(--line)] bg-[var(--accent)]/10"
-                        : isSection
-                          ? "border-t border-[var(--line)] bg-[var(--selected)]/50"
-                          : "border-t border-[var(--line)]"
+              const isDragging = dragKey === line.key;
+              const isDropTarget =
+                dropKey === line.key && dragKey !== line.key;
+
+              const rowDragProps = canEdit
+                ? {
+                    onDragOver: (e: React.DragEvent) => {
+                      if (!dragKey || dragKey === line.key) return;
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = "move";
+                      if (dropKey !== line.key) setDropKey(line.key);
+                    },
+                    onDragLeave: (e: React.DragEvent) => {
+                      const related = e.relatedTarget as Node | null;
+                      if (
+                        related &&
+                        (e.currentTarget as HTMLElement).contains(related)
+                      ) {
+                        return;
+                      }
+                      setDropKey((k) => (k === line.key ? null : k));
+                    },
+                    onDrop: (e: React.DragEvent) => {
+                      e.preventDefault();
+                      const from =
+                        e.dataTransfer.getData("text/plain") || dragKey;
+                      setDragKey(null);
+                      setDropKey(null);
+                      if (from) dropRow(from, line.key);
+                    },
                   }
-                >
-                  <td className="px-3 py-2">
-                    {isKitHeader && (
-                      <span className="mb-1 block w-fit rounded bg-[var(--accent)]/15 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[var(--accent)]">
-                        Комплект · развёртка
-                      </span>
+                : {};
+
+              return (
+                <Fragment key={line.key}>
+                  <tr
+                    {...rowDragProps}
+                    className={cn(
+                      line.hidden
+                        ? "border-t border-[var(--line)] opacity-40"
+                        : isKitHeader
+                          ? "border-t border-[var(--line)] bg-[var(--accent)]/10"
+                          : isSection
+                            ? "border-t border-[var(--line)] bg-[var(--selected)]/50"
+                            : "border-t border-[var(--line)]",
+                      isDragging && "opacity-50",
+                      isDropTarget &&
+                        "ring-2 ring-inset ring-[var(--accent)]",
                     )}
-                    {!isKitHeader && line.kitName && (
-                      <span className="mb-1 block w-fit rounded bg-[var(--accent)]/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[var(--accent)]">
-                        из комплекта: {line.kitName}
-                      </span>
-                    )}
-                    {canEdit ? (
-                      <input
-                        className={`field ${isSection ? "font-medium" : ""}`}
-                        value={displayName(line)}
-                        onChange={(e) =>
-                          updateDerivedName(line, e.target.value)
-                        }
-                      />
-                    ) : (
-                      <span className={isSection ? "font-medium" : ""}>
-                        {displayName(line)}
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2">
-                    {!isSection &&
-                      (canEdit ? (
-                        <input
-                          type="number"
-                          min={0}
-                          className="field"
-                          value={displayQty(line)}
-                          onChange={(e) =>
-                            updateDerivedQty(
-                              line,
-                              Math.max(0, Number(e.target.value) || 0),
-                            )
-                          }
-                        />
-                      ) : (
-                        <span className="tabular-nums">{displayQty(line)}</span>
-                      ))}
-                  </td>
-                  {canEdit &&
-                    (isSection ? (
-                      <>
-                        <td className="stock-cell">—</td>
-                        <td className="stock-cell">—</td>
-                        <td className="stock-cell">—</td>
-                      </>
-                    ) : (
-                      <StockMarks needed={needed} info={stock} />
-                    ))}
-                  <td className="px-3 py-2">
-                    {!isSection &&
-                      (canEdit ? (
-                        <input
-                          className="field"
-                          placeholder="Комментарий"
-                          value={line.comment || ""}
-                          onChange={(e) =>
-                            updateDerivedComment(line, e.target.value)
-                          }
-                        />
-                      ) : (
-                        <span className="text-[var(--muted)]">
-                          {line.comment || ""}
-                        </span>
-                      ))}
-                  </td>
-                  {canEdit && (
-                    <td className="px-2 py-2">
-                      <div className="flex items-center justify-end gap-1">
-                        {!isSection && line.deriveKey && !line.hidden && (
-                          <button
-                            type="button"
-                            title="Заменить позицию из каталога"
-                            className="btn-icon text-[var(--muted)]"
-                            onClick={() =>
-                              openReplace({
-                                kind: "derived",
-                                key: line.key,
-                                deriveKey: line.deriveKey!,
-                              })
+                  >
+                    <td className="px-3 py-2">
+                      <div className="flex items-start gap-2">
+                        {canEdit && (
+                          <DragHandle
+                            label={
+                              isSection
+                                ? "Перетащить раздел со всеми позициями"
+                                : "Перетащить позицию"
                             }
-                          >
-                            <SwapIcon />
-                          </button>
+                            onDragStart={(e) => {
+                              e.dataTransfer.setData("text/plain", line.key);
+                              e.dataTransfer.effectAllowed = "move";
+                              setDragKey(line.key);
+                              setGapIndex(null);
+                            }}
+                            onDragEnd={() => {
+                              setDragKey(null);
+                              setDropKey(null);
+                            }}
+                          />
                         )}
-                        {line.deriveKey &&
-                          (line.hidden ? (
+                        <div className="min-w-0 flex-1">
+                          {isKitHeader && (
+                            <span className="mb-1 block w-fit rounded bg-[var(--accent)]/15 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[var(--accent)]">
+                              Комплект · развёртка
+                            </span>
+                          )}
+                          {!isKitHeader && line.kitName && (
+                            <span className="mb-1 block w-fit rounded bg-[var(--accent)]/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[var(--accent)]">
+                              из комплекта: {line.kitName}
+                            </span>
+                          )}
+                          {canEdit ? (
+                            <input
+                              className={`field ${isSection ? "font-medium" : ""}`}
+                              value={displayName(line)}
+                              onChange={(e) => {
+                                if (isExtra) {
+                                  updateExtra(
+                                    line.key,
+                                    isSection
+                                      ? { title: e.target.value }
+                                      : { name: e.target.value },
+                                  );
+                                } else {
+                                  updateDerivedName(line, e.target.value);
+                                }
+                              }}
+                            />
+                          ) : (
+                            <span className={isSection ? "font-medium" : ""}>
+                              {displayName(line)}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-3 py-2">
+                      {!isSection &&
+                        (canEdit ? (
+                          <input
+                            type="number"
+                            min={0}
+                            className="field"
+                            value={line.qty}
+                            onChange={(e) => {
+                              const qty = Math.max(
+                                0,
+                                Number(e.target.value) || 0,
+                              );
+                              if (isExtra) updateExtra(line.key, { qty });
+                              else updateDerivedQty(line, qty);
+                            }}
+                          />
+                        ) : (
+                          <span className="tabular-nums">{line.qty}</span>
+                        ))}
+                    </td>
+                    {canEdit &&
+                      (isSection ? (
+                        <>
+                          <td className="stock-cell">—</td>
+                          <td className="stock-cell">—</td>
+                          <td className="stock-cell">—</td>
+                        </>
+                      ) : (
+                        <StockMarks needed={needed} info={stock} />
+                      ))}
+                    <td className="px-3 py-2">
+                      {!isSection &&
+                        (canEdit ? (
+                          <input
+                            className="field"
+                            placeholder="Комментарий"
+                            value={line.comment || ""}
+                            onChange={(e) => {
+                              if (isExtra) {
+                                updateExtra(line.key, {
+                                  comment: e.target.value,
+                                });
+                              } else {
+                                updateDerivedComment(line, e.target.value);
+                              }
+                            }}
+                          />
+                        ) : (
+                          <span className="text-[var(--muted)]">
+                            {line.comment || ""}
+                          </span>
+                        ))}
+                    </td>
+                    {canEdit && (
+                      <td className="px-2 py-2">
+                        <div className="flex items-center justify-end gap-1">
+                          {!isSection && !line.hidden && (
                             <button
                               type="button"
-                              className="text-xs text-[var(--accent)]"
-                              onClick={() => unhideLine(line.deriveKey!)}
+                              title="Заменить позицию из каталога"
+                              className="btn-icon text-[var(--muted)]"
+                              onClick={() =>
+                                setPicker({
+                                  mode: "replace",
+                                  target: isExtra
+                                    ? { kind: "extra", key: line.key }
+                                    : {
+                                        kind: "derived",
+                                        key: line.key,
+                                        deriveKey: line.deriveKey!,
+                                      },
+                                })
+                              }
                             >
-                              Вернуть
+                              <SwapIcon />
                             </button>
-                          ) : (
+                          )}
+                          {isExtra ? (
                             <button
                               type="button"
                               className="btn-icon text-[var(--danger)]"
-                              onClick={() => hideLine(line.deriveKey!)}
+                              onClick={() => removeExtra(line.key)}
                             >
                               ×
                             </button>
-                          ))}
-                      </div>
-                    </td>
-                  )}
-                </tr>
-              );
-            })}
-
-            {extras.map((extra) => {
-              const isSection = extra.type === "SECTION";
-              const itemId = extra.catalogItemId || null;
-              const stock = itemId ? stockMap[itemId] : null;
-              const needed = itemId ? neededByItem.get(itemId) || 0 : 0;
-              return (
-                <tr
-                  key={extra.key}
-                  className={
-                    isSection
-                      ? "border-t border-[var(--line)] bg-[var(--selected)]/50"
-                      : "border-t border-[var(--line)]"
-                  }
-                >
-                  <td className="px-3 py-2">
-                    <span className="mb-1 block w-fit rounded bg-[var(--ink)]/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[var(--muted)]">
-                      Доп. к смете
-                    </span>
-                    {canEdit ? (
-                      <input
-                        className={`field ${isSection ? "font-medium" : ""}`}
-                        value={
-                          isSection ? extra.title || "" : extra.name || ""
-                        }
-                        onChange={(e) =>
-                          updateExtra(
-                            extra.key,
-                            isSection
-                              ? { title: e.target.value }
-                              : { name: e.target.value },
-                          )
-                        }
-                      />
-                    ) : (
-                      <span className={isSection ? "font-medium" : ""}>
-                        {isSection ? extra.title : extra.name}
-                      </span>
+                          ) : line.deriveKey ? (
+                            line.hidden ? (
+                              <button
+                                type="button"
+                                className="text-xs text-[var(--accent)]"
+                                onClick={() => unhideLine(line.deriveKey!)}
+                              >
+                                Вернуть
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                className="btn-icon text-[var(--danger)]"
+                                onClick={() => hideLine(line.deriveKey!)}
+                              >
+                                ×
+                              </button>
+                            )
+                          ) : null}
+                        </div>
+                      </td>
                     )}
-                  </td>
-                  <td className="px-3 py-2">
-                    {!isSection &&
-                      (canEdit ? (
-                        <input
-                          type="number"
-                          min={0}
-                          className="field"
-                          value={extra.qty ?? 0}
-                          onChange={(e) =>
-                            updateExtra(extra.key, {
-                              qty: Math.max(0, Number(e.target.value) || 0),
-                            })
-                          }
-                        />
-                      ) : (
-                        <span className="tabular-nums">{extra.qty ?? 0}</span>
-                      ))}
-                  </td>
-                  {canEdit &&
-                    (isSection ? (
-                      <>
-                        <td className="stock-cell">—</td>
-                        <td className="stock-cell">—</td>
-                        <td className="stock-cell">—</td>
-                      </>
-                    ) : (
-                      <StockMarks needed={needed} info={stock} />
-                    ))}
-                  <td className="px-3 py-2">
-                    {!isSection &&
-                      (canEdit ? (
-                        <input
-                          className="field"
-                          placeholder="Комментарий"
-                          value={extra.comment || ""}
-                          onChange={(e) =>
-                            updateExtra(extra.key, {
-                              comment: e.target.value,
-                            })
-                          }
-                        />
-                      ) : (
-                        <span className="text-[var(--muted)]">
-                          {extra.comment || ""}
-                        </span>
-                      ))}
-                  </td>
-                  {canEdit && (
-                    <td className="px-2 py-2">
-                      <div className="flex items-center justify-end gap-1">
-                        {!isSection && (
-                          <button
-                            type="button"
-                            title="Заменить позицию из каталога"
-                            className="btn-icon text-[var(--muted)]"
-                            onClick={() =>
-                              openReplace({ kind: "extra", key: extra.key })
-                            }
-                          >
-                            <SwapIcon />
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          className="btn-icon text-[var(--danger)]"
-                          onClick={() => removeExtra(extra.key)}
-                        >
-                          ×
-                        </button>
-                      </div>
-                    </td>
-                  )}
-                </tr>
+                  </tr>
+                  {canEdit && renderGap(index + 1)}
+                </Fragment>
               );
             })}
 
             {assignments.length > 0 && (
               <>
                 <tr className="border-t border-[var(--line)] bg-[var(--selected)]/50">
-                  <td
-                    className="px-3 py-2 font-medium"
-                    colSpan={tableColSpan}
-                  >
+                  <td className="px-3 py-2 font-medium" colSpan={tableColSpan}>
                     Технический персонал
                   </td>
                 </tr>
                 {assignments.map((a) => (
-                  <tr
-                    key={a.id}
-                    className="border-t border-[var(--line)]"
-                  >
+                  <tr key={a.id} className="border-t border-[var(--line)]">
                     <td className="px-3 py-2">
                       <span>{a.name}</span>
                       <span className="ml-2 text-[var(--muted)]">
@@ -992,18 +1120,16 @@ export function SpecEditor({
               </>
             )}
 
-            {visibleDerived.length === 0 &&
-              extras.length === 0 &&
-              assignments.length === 0 && (
-                <tr>
-                  <td
-                    colSpan={tableColSpan}
-                    className="px-4 py-8 text-center text-[var(--muted)]"
-                  >
-                    В смете пока нет позиций для спецификации
-                  </td>
-                </tr>
-              )}
+            {displayRows.length === 0 && assignments.length === 0 && (
+              <tr>
+                <td
+                  colSpan={tableColSpan}
+                  className="px-4 py-8 text-center text-[var(--muted)]"
+                >
+                  В смете пока нет позиций для спецификации
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
@@ -1026,7 +1152,7 @@ export function SpecEditor({
           </button>
           <button
             type="button"
-            onClick={openAddFromCatalog}
+            onClick={() => setPicker({ mode: "add" })}
             className="rounded-md border border-[var(--line)] px-3 py-2 text-sm"
           >
             + Из каталога
@@ -1039,15 +1165,16 @@ export function SpecEditor({
           quoteId={quoteId}
           canEdit
           compact
+          hidePay
           onChanged={() => void load()}
         />
       )}
 
       <CatalogPicker
-        open={pickerOpen}
+        open={picker !== null}
         onClose={() => {
-          setPickerOpen(false);
-          setReplaceTarget(null);
+          setPicker(null);
+          setGapIndex(null);
         }}
         onPickItem={onPickCatalog}
         eventDate={meta.date || undefined}
