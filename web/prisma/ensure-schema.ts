@@ -12,6 +12,10 @@ const statements = [
   `ALTER TABLE "QuoteComment" ADD COLUMN IF NOT EXISTS "imagePath" TEXT`,
   `ALTER TABLE "QuoteComment" ADD COLUMN IF NOT EXISTS "imageMime" TEXT`,
   `ALTER TABLE "QuoteComment" ADD COLUMN IF NOT EXISTS "imageName" TEXT`,
+  `ALTER TABLE "QuoteAssignment" ALTER COLUMN "userId" DROP NOT NULL`,
+  `ALTER TABLE "QuoteAssignment" ADD COLUMN IF NOT EXISTS "isFreelancer" BOOLEAN NOT NULL DEFAULT false`,
+  `ALTER TABLE "QuoteAssignment" ADD COLUMN IF NOT EXISTS "freelancerName" TEXT NOT NULL DEFAULT ''`,
+  `ALTER TABLE "QuoteAssignment" ADD COLUMN IF NOT EXISTS "owners" "CatalogOwner"[] DEFAULT ARRAY[]::"CatalogOwner"[]`,
 ];
 
 async function main() {

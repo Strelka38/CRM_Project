@@ -169,13 +169,16 @@ export function ProjectModal({
       if (!pRes.ok) {
         const data = (await pRes.json().catch(() => null)) as {
           error?: string;
+          detail?: string;
         } | null;
-        setError(
+        const base =
           pRes.status === 404
             ? "Мероприятие не найдено"
             : typeof data?.error === "string"
               ? data.error
-              : "Не удалось загрузить мероприятие",
+              : "Не удалось загрузить мероприятие";
+        setError(
+          data?.detail ? `${base}: ${data.detail.slice(0, 180)}` : base,
         );
         setProject(null);
         return;
