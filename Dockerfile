@@ -58,9 +58,11 @@ COPY --from=builder /app/package.json /app/package-lock.json ./
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/seed-data ./seed-data
 COPY --from=builder /app/src/lib/catalog-owner.ts ./src/lib/catalog-owner.ts
+COPY --from=builder /app/src/lib/ensure-schema.ts ./src/lib/ensure-schema.ts
 COPY --from=builder /app/tsconfig.json ./tsconfig.json
 COPY docker/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh && mkdir -p /app/uploads
+RUN chmod +x /entrypoint.sh && mkdir -p /app/uploads && test -f prisma/ensure-schema.ts && test -f prisma/ensure-columns.sql
+
 
 EXPOSE 3000
 ENTRYPOINT ["/entrypoint.sh"]

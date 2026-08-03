@@ -13,20 +13,22 @@ until node -e "const n=require('net');const s=n.connect(5432,'db',()=>{s.end();p
 done
 
 echo "==> Applying migrations..."
-npx prisma migrate deploy || {
-  echo "WARN: migrate deploy failed — continuing with ensure-schema" >&2
-}
+if ! npx prisma migrate deploy; then
+  echo "WARN: migrate deploy failed — continuing" >&2
+fi
 
-echo "==> Ensuring quote schedule / chat image columns (SQL)..."
-npx prisma db execute --schema prisma/schema.prisma --file prisma/ensure-columns.sql || {
+echo "==> Ensuring quote schedule / chat image columns..."
+if ! npx prisma db execute --schema prisma/schema.prisma --file prisma/ensure-columns.sql; then
   echo "WARN: db execute failed — trying TS ensure-schema" >&2
-}
-
-echo "==> Ensuring columns via Prisma \$executeRaw..."
-npx tsx prisma/ensure-schema.ts
+fi
+if ! npx tsx prisma/ensure-schema.ts; then
+  echo "WARN: ensure-schema failed — app will still start" >&2
+fi
 
 echo "==> Bootstrapping (safe if already initialized)..."
-npx tsx prisma/seed.ts
+if ! npx tsx prisma/seed.ts; then
+  echo "WARN: seed failed — app will still start" >&2
+fi
 
 echo "==> Starting application..."
 exec "$@"
