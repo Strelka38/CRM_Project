@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
+import { ensureQuoteSchemaColumns } from "@/lib/ensure-schema";
 import { canAccessQuote } from "@/lib/quote-access";
 import {
   canEditBrief,
@@ -9,6 +10,126 @@ import {
   requireBriefEditor,
   requireSession,
 } from "@/lib/session";
+
+const ownerSelect = {
+  id: true,
+  name: true,
+  firstName: true,
+  lastName: true,
+} as const;
+
+const assignmentsInclude = {
+  include: {
+    user: {
+      select: {
+        id: true,
+        name: true,
+        firstName: true,
+        lastName: true,
+      },
+    },
+    specialty: { select: { id: true, name: true } },
+  },
+  orderBy: { createdAt: "asc" as const },
+};
+
+const fullSelect = {
+  id: true,
+  proposalNumber: true,
+  eventName: true,
+  date: true,
+  eventDate: true,
+  mountDate: true,
+  mountDurationDays: true,
+  demountDate: true,
+  demountDurationDays: true,
+  time: true,
+  place: true,
+  client: true,
+  managerName: true,
+  brief: true,
+  lifecycle: true,
+  durationDays: true,
+  owner: { select: ownerSelect },
+  assignments: assignmentsInclude,
+  _count: { select: { comments: true, attachments: true } },
+} as const;
+
+/** Without mount/demount columns — for drifted DBs before ensure runs. */
+const baseSelect = {
+  id: true,
+  proposalNumber: true,
+  eventName: true,
+  date: true,
+  eventDate: true,
+  time: true,
+  place: true,
+  client: true,
+  managerName: true,
+  brief: true,
+  lifecycle: true,
+  durationDays: true,
+  owner: { select: ownerSelect },
+  assignments: assignmentsInclude,
+  _count: { select: { comments: true, attachments: true } },
+} as const;
+
+function isSchemaDriftError(e: unknown): boolean {
+  if (!(e instanceof Error)) return false;
+  const msg = e.message;
+  return (
+    msg.includes("Unknown field") ||
+    /column .* does not exist/i.test(msg) ||
+    msg.includes("P2022") ||
+    msg.includes("does not exist in the current database")
+  );
+}
+
+let ensureOnce: Promise<void> | null = null;
+
+function ensureSchemaOnce() {
+  if (!ensureOnce) {
+    ensureOnce = ensureQuoteSchemaColumns().catch((e) => {
+      ensureOnce = null;
+      throw e;
+    });
+  }
+  return ensureOnce;
+}
+
+async function loadProjectQuote(id: string) {
+  try {
+    return await prisma.quote.findUnique({
+      where: { id },
+      select: fullSelect,
+    });
+  } catch (e) {
+    if (!isSchemaDriftError(e)) throw e;
+
+    // Try to fix DB, then retry full select
+    try {
+      await ensureSchemaOnce();
+      return await prisma.quote.findUnique({
+        where: { id },
+        select: fullSelect,
+      });
+    } catch {
+      // Last resort: load without mount fields
+      const quote = await prisma.quote.findUnique({
+        where: { id },
+        select: baseSelect,
+      });
+      if (!quote) return null;
+      return {
+        ...quote,
+        mountDate: "",
+        mountDurationDays: 1,
+        demountDate: "",
+        demountDurationDays: 1,
+      };
+    }
+  }
+}
 
 export async function GET(
   _req: NextRequest,
@@ -22,52 +143,7 @@ export async function GET(
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
-    const quote = await prisma.quote.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        proposalNumber: true,
-        eventName: true,
-        date: true,
-        eventDate: true,
-        mountDate: true,
-        mountDurationDays: true,
-        demountDate: true,
-        demountDurationDays: true,
-        time: true,
-        place: true,
-        client: true,
-        managerName: true,
-        brief: true,
-        lifecycle: true,
-        durationDays: true,
-        owner: {
-          select: {
-            id: true,
-            name: true,
-            firstName: true,
-            lastName: true,
-          },
-        },
-        assignments: {
-          include: {
-            user: {
-              select: {
-                id: true,
-                name: true,
-                firstName: true,
-                lastName: true,
-              },
-            },
-            specialty: { select: { id: true, name: true } },
-          },
-          orderBy: { createdAt: "asc" },
-        },
-        _count: {
-          select: { comments: true, attachments: true },
-        },
-      },
-    });
+    const quote = await loadProjectQuote(id);
     if (!quote) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
@@ -81,13 +157,14 @@ export async function GET(
   } catch (e) {
     if (e instanceof Response) return e;
     console.error("GET /api/quotes/[id]/project", e);
-    const message =
-      e instanceof Error && e.message.includes("Unknown field")
-        ? "Схема Prisma устарела — пересоберите образ (prisma generate)"
-        : e instanceof Error && /column .* does not exist/i.test(e.message)
-          ? "В БД нет нужных колонок — примените миграции"
-          : "Не удалось загрузить мероприятие";
-    return NextResponse.json({ error: message }, { status: 500 });
+    const detail = e instanceof Error ? e.message.slice(0, 300) : String(e);
+    return NextResponse.json(
+      {
+        error: "Не удалось загрузить мероприятие",
+        detail,
+      },
+      { status: 500 },
+    );
   }
 }
 

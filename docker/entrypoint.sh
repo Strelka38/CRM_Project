@@ -13,11 +13,17 @@ until node -e "const n=require('net');const s=n.connect(5432,'db',()=>{s.end();p
 done
 
 echo "==> Applying migrations..."
-npx prisma migrate deploy
+npx prisma migrate deploy || {
+  echo "WARN: migrate deploy failed — continuing with ensure-schema" >&2
+}
 
-# Safety net for drifted prod DBs (columns may be missing even if migrate history looks fine)
-echo "==> Ensuring quote schedule / chat image columns..."
-npx prisma db execute --schema prisma/schema.prisma --file prisma/ensure-columns.sql
+echo "==> Ensuring quote schedule / chat image columns (SQL)..."
+npx prisma db execute --schema prisma/schema.prisma --file prisma/ensure-columns.sql || {
+  echo "WARN: db execute failed — trying TS ensure-schema" >&2
+}
+
+echo "==> Ensuring columns via Prisma \$executeRaw..."
+npx tsx prisma/ensure-schema.ts
 
 echo "==> Bootstrapping (safe if already initialized)..."
 npx tsx prisma/seed.ts
