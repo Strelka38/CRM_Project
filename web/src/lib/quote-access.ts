@@ -29,7 +29,8 @@ export async function getAccessibleQuote(
     },
   });
   if (!quote) return null;
-  if (role === "MANAGER" || quote.ownerId === userId) return quote;
+  if (role === "MANAGER") return quote;
+  // Полные данные сметы — только если сотрудник назначен на мероприятие
   const assigned = await prisma.quoteAssignment.findFirst({
     where: { quoteId: id, userId },
     select: { id: true },
@@ -37,29 +38,17 @@ export async function getAccessibleQuote(
   return assigned ? quote : null;
 }
 
+/** Карточка проекта / спецификация / комментарии — любой авторизованный пользователь (календарь общий). */
 export async function canAccessQuote(
   id: string,
-  userId: string,
-  role: string,
+  _userId: string,
+  _role: string,
 ): Promise<boolean> {
-  if (role === "MANAGER") {
-    const q = await prisma.quote.findUnique({
-      where: { id },
-      select: { id: true },
-    });
-    return Boolean(q);
-  }
-  const quote = await prisma.quote.findUnique({
+  const q = await prisma.quote.findUnique({
     where: { id },
-    select: { ownerId: true },
-  });
-  if (!quote) return false;
-  if (quote.ownerId === userId) return true;
-  const assigned = await prisma.quoteAssignment.findFirst({
-    where: { quoteId: id, userId },
     select: { id: true },
   });
-  return Boolean(assigned);
+  return Boolean(q);
 }
 
 /** Ensure quote has at least one zone; return it. */

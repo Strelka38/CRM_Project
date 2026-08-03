@@ -10,10 +10,7 @@ import {
 import { CatalogQuickSearch } from "@/components/CatalogQuickSearch";
 import { ClientQuickSearch } from "@/components/ClientQuickSearch";
 import { VenueQuickSearch } from "@/components/VenueQuickSearch";
-import {
-  DateRangePicker,
-  SingleDatePicker,
-} from "@/components/DateRangePicker";
+import { DateRangePicker } from "@/components/DateRangePicker";
 import { ExportQuoteModal } from "@/components/ExportQuoteModal";
 import { QuoteAssignments } from "@/components/QuoteAssignments";
 import { QuoteSummary } from "@/components/QuoteSummary";
@@ -52,7 +49,9 @@ type QuoteMeta = {
   eventName: string;
   date: string;
   mountDate: string;
+  mountDurationDays: number;
   demountDate: string;
+  demountDurationDays: number;
   time: string;
   place: string;
   venueId: string | null;
@@ -137,7 +136,9 @@ export function QuoteEditor({
         eventName: data.eventName,
         date: data.date,
         mountDate: data.mountDate || "",
+        mountDurationDays: Math.max(1, data.mountDurationDays || 1),
         demountDate: data.demountDate || "",
+        demountDurationDays: Math.max(1, data.demountDurationDays || 1),
         time: data.time,
         place: data.place,
         venueId: data.venueId ?? null,
@@ -324,7 +325,9 @@ export function QuoteEditor({
           eventName: nextMeta.eventName,
           date: nextMeta.date,
           mountDate: nextMeta.mountDate,
+          mountDurationDays: nextMeta.mountDurationDays,
           demountDate: nextMeta.demountDate,
+          demountDurationDays: nextMeta.demountDurationDays,
           time: nextMeta.time,
           place: nextMeta.place,
           venueId: nextMeta.venueId,
@@ -714,21 +717,31 @@ export function QuoteEditor({
               }}
             />
             <div className="grid gap-3 content-start">
-              <SingleDatePicker
-                label="День монтажа"
+              <DateRangePicker
+                label="Монтаж"
+                emptyLabel="Не указан"
                 date={meta.mountDate}
+                durationDays={meta.mountDurationDays}
                 disabled={!isManager}
-                onChange={(mountDate) =>
-                  setMeta((prev) => (prev ? { ...prev, mountDate } : prev))
-                }
+                onChange={(mountDate, mountDurationDays) => {
+                  setMeta((prev) =>
+                    prev ? { ...prev, mountDate, mountDurationDays } : prev,
+                  );
+                }}
               />
-              <SingleDatePicker
-                label="День демонтажа"
+              <DateRangePicker
+                label="Демонтаж"
+                emptyLabel="Не указан"
                 date={meta.demountDate}
+                durationDays={meta.demountDurationDays}
                 disabled={!isManager}
-                onChange={(demountDate) =>
-                  setMeta((prev) => (prev ? { ...prev, demountDate } : prev))
-                }
+                onChange={(demountDate, demountDurationDays) => {
+                  setMeta((prev) =>
+                    prev
+                      ? { ...prev, demountDate, demountDurationDays }
+                      : prev,
+                  );
+                }}
               />
             </div>
           </div>

@@ -14,6 +14,7 @@ import {
 import {
   addDays,
   formatDateKey,
+  parseEventDate,
   startOfDay,
 } from "@/lib/dates";
 
@@ -24,6 +25,10 @@ type Quote = {
   client: string;
   date: string;
   eventDate: string | null;
+  mountDate: string;
+  mountDurationDays: number;
+  demountDate: string;
+  demountDurationDays: number;
   durationDays: number;
   lifecycle: LifecycleStatus;
   invoiceRequired: boolean;
@@ -138,9 +143,12 @@ export function CalendarView() {
     () => new Set(),
   );
 
-  const from = formatDateKey(new Date(cursor.getFullYear(), cursor.getMonth(), 1));
+  // Widen fetch so mount/demount just outside the month still appear
+  const from = formatDateKey(
+    addDays(new Date(cursor.getFullYear(), cursor.getMonth(), 1), -14),
+  );
   const to = formatDateKey(
-    new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0, 23, 59),
+    addDays(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0), 14),
   );
 
   useEffect(() => {
@@ -165,10 +173,30 @@ export function CalendarView() {
   const events = useMemo<CalendarEvent[]>(() => {
     const list: CalendarEvent[] = [];
     for (const q of quotes) {
-      if (!q.eventDate) continue;
-      const start = startOfDay(new Date(q.eventDate));
-      const days = Math.max(1, q.durationDays);
-      const end = addDays(start, days - 1);
+      const eventStart = q.eventDate
+        ? startOfDay(new Date(q.eventDate))
+        : parseEventDate(q.date);
+      if (!eventStart) continue;
+
+      const days = Math.max(1, q.durationDays || 1);
+      const eventEnd = addDays(eventStart, days - 1);
+      const mount = parseEventDate(q.mountDate);
+      const demount = parseEventDate(q.demountDate);
+      const mountDays = Math.max(1, q.mountDurationDays || 1);
+      const demountDays = Math.max(1, q.demountDurationDays || 1);
+
+      const bounds = [eventStart, eventEnd];
+      if (mount) {
+        const m0 = startOfDay(mount);
+        bounds.push(m0, addDays(m0, mountDays - 1));
+      }
+      if (demount) {
+        const d0 = startOfDay(demount);
+        bounds.push(d0, addDays(d0, demountDays - 1));
+      }
+
+      const start = bounds.reduce((a, b) => (a <= b ? a : b));
+      const end = bounds.reduce((a, b) => (a >= b ? a : b));
       list.push({ quote: q, start, end });
     }
     return list;

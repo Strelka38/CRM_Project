@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { ChangePasswordModal } from "@/components/ChangePasswordModal";
 import { OwnerTagsPicker } from "@/components/OwnerTagsPicker";
 import {
   normalizeOwners,
@@ -9,6 +10,7 @@ import {
   type CatalogOwnerValue,
 } from "@/lib/catalog-owner";
 import { formatMoney } from "@/lib/format";
+import { type AppRole, roleLabelRu } from "@/lib/roles";
 
 type Specialty = {
   id: string;
@@ -33,7 +35,7 @@ type UserDetail = {
   patronymic: string;
   phone: string;
   comment: string;
-  role: "MANAGER" | "EMPLOYEE";
+  role: AppRole;
   active: boolean;
   monthlySalary: number;
   owners: CatalogOwnerValue[];
@@ -65,6 +67,7 @@ export function EmployeeEditor({
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [addSpecialtyId, setAddSpecialtyId] = useState("");
+  const [passwordOpen, setPasswordOpen] = useState(false);
   const canAdmin = isManager;
 
   useEffect(() => {
@@ -257,11 +260,12 @@ export function EmployeeEditor({
                     onChange={(e) =>
                       setUser({
                         ...user,
-                        role: e.target.value as "MANAGER" | "EMPLOYEE",
+                        role: e.target.value as AppRole,
                       })
                     }
                   >
                     <option value="EMPLOYEE">Сотрудник</option>
+                    <option value="BRIGADIER">Бригадир</option>
                     <option value="MANAGER">Менеджер</option>
                   </select>
                 </label>
@@ -291,7 +295,7 @@ export function EmployeeEditor({
                 <p className="text-sm text-[var(--muted)]">
                   Роль:{" "}
                   <span className="text-[var(--ink)]">
-                    {user.role === "MANAGER" ? "менеджер" : "сотрудник"}
+                    {roleLabelRu(user.role)}
                   </span>
                 </p>
                 <p className="text-sm text-[var(--muted)]">
@@ -328,6 +332,15 @@ export function EmployeeEditor({
               <p className="mt-1 text-xs text-[var(--muted)]">
                 Логин нельзя изменить здесь
               </p>
+              {selfView && (
+                <button
+                  type="button"
+                  onClick={() => setPasswordOpen(true)}
+                  className="mt-3 rounded-md border border-[var(--line)] px-3 py-1.5 text-sm hover:bg-white/10"
+                >
+                  Сменить пароль
+                </button>
+              )}
             </div>
           </div>
           <div className="rounded-xl border border-[var(--line)] bg-[var(--panel)]">
@@ -518,6 +531,14 @@ export function EmployeeEditor({
             </tbody>
           </table>
         </section>
+      )}
+
+      {selfView && (
+        <ChangePasswordModal
+          open={passwordOpen}
+          email={user.email}
+          onClose={() => setPasswordOpen(false)}
+        />
       )}
     </div>
   );

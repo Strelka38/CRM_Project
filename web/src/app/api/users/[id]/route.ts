@@ -112,7 +112,7 @@ const patchSchema = z.object({
   patronymic: z.string().optional(),
   phone: z.string().optional(),
   comment: z.string().optional(),
-  role: z.enum(["MANAGER", "EMPLOYEE"]).optional(),
+  role: z.enum(["MANAGER", "EMPLOYEE", "BRIGADIER"]).optional(),
   active: z.boolean().optional(),
   monthlySalary: z.number().nonnegative().optional(),
   owners: z.array(companyEnum).max(3).optional(),
@@ -169,7 +169,7 @@ export async function PATCH(
       patronymic?: string;
       phone?: string;
       comment?: string;
-      role?: "MANAGER" | "EMPLOYEE";
+      role?: "MANAGER" | "EMPLOYEE" | "BRIGADIER";
       active?: boolean;
       monthlySalary?: number;
       owners?: CatalogOwnerValue[];

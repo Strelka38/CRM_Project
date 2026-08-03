@@ -16,9 +16,15 @@ export type SpecExportLine = {
   title: string | null;
   name: string | null;
   qty: number;
+  comment?: string | null;
   kitName: string | null;
   isKitHeader?: boolean;
   hidden?: boolean;
+};
+
+export type SpecExportStaff = {
+  name: string;
+  specialtyName: string;
 };
 
 function downloadBlob(blob: Blob, filename: string) {
@@ -62,6 +68,7 @@ async function loadFontBase64(url: string): Promise<string> {
 export async function exportSpecExcel(
   meta: SpecExportMeta,
   lines: SpecExportLine[],
+  staff: SpecExportStaff[] = [],
 ) {
   const wb = new ExcelJS.Workbook();
   wb.creator = "CRM Event Rental";
@@ -71,12 +78,13 @@ export async function exportSpecExcel(
 
   ws.columns = [
     { key: "num", width: 6 },
-    { key: "name", width: 72 },
+    { key: "name", width: 56 },
     { key: "qty", width: 12 },
+    { key: "comment", width: 36 },
     { key: "note", width: 28 },
   ];
 
-  ws.mergeCells("A1:D1");
+  ws.mergeCells("A1:E1");
   ws.getCell("A1").value = `Спецификация на погрузку №${meta.proposalNumber}`;
   ws.getCell("A1").font = { bold: true, size: 14 };
 
@@ -94,7 +102,7 @@ export async function exportSpecExcel(
   });
 
   const headerRow = ws.getRow(8);
-  headerRow.values = ["№", "Наименование", "Кол-во", "Примечание"];
+  headerRow.values = ["№", "Наименование", "Кол-во", "Комментарий", "Примечание"];
   headerRow.font = { bold: true };
   headerRow.fill = {
     type: "pattern",
@@ -104,32 +112,51 @@ export async function exportSpecExcel(
 
   let rowIdx = 9;
   let itemNum = 0;
-  for (const line of visibleLines(lines)) {
-    const isSection = line.type === "SECTION";
-    if (isSection) {
-      ws.mergeCells(`A${rowIdx}:D${rowIdx}`);
-      const cell = ws.getCell(`A${rowIdx}`);
-      cell.value = lineLabel(line);
-      cell.font = { bold: true };
-      cell.fill = {
-        type: "pattern",
-        pattern: "solid",
-        fgColor: { argb: line.isKitHeader ? "FFD6E4F7" : "FFF0F4F8" },
-      };
-      rowIdx += 1;
-      continue;
-    }
 
+  const pushSection = (title: string, isKitHeader = false) => {
+    ws.mergeCells(`A${rowIdx}:E${rowIdx}`);
+    const cell = ws.getCell(`A${rowIdx}`);
+    cell.value = title;
+    cell.font = { bold: true };
+    cell.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: isKitHeader ? "FFD6E4F7" : "FFF0F4F8" },
+    };
+    rowIdx += 1;
+  };
+
+  const pushItem = (
+    name: string,
+    qty: string | number,
+    note: string,
+    comment = "",
+  ) => {
     itemNum += 1;
     const row = ws.getRow(rowIdx);
-    row.values = [
-      itemNum,
+    row.values = [itemNum, name, qty, comment, note];
+    row.getCell(3).alignment = { horizontal: "center" };
+    rowIdx += 1;
+  };
+
+  for (const line of visibleLines(lines)) {
+    if (line.type === "SECTION") {
+      pushSection(lineLabel(line), Boolean(line.isKitHeader));
+      continue;
+    }
+    pushItem(
       lineLabel(line),
       line.qty,
       line.kitName ? `из комплекта: ${line.kitName}` : "",
-    ];
-    row.getCell(3).alignment = { horizontal: "center" };
-    rowIdx += 1;
+      (line.comment || "").trim(),
+    );
+  }
+
+  if (staff.length > 0) {
+    pushSection("Технический персонал");
+    for (const s of staff) {
+      pushItem(s.name, "", s.specialtyName || "");
+    }
   }
 
   const buffer = await wb.xlsx.writeBuffer();
@@ -142,6 +169,7 @@ export async function exportSpecExcel(
 export async function exportSpecPdf(
   meta: SpecExportMeta,
   lines: SpecExportLine[],
+  staff: SpecExportStaff[] = [],
 ) {
   const [regular, bold] = await Promise.all([
     loadFontBase64("/fonts/NotoSans-Regular.ttf"),
@@ -155,7 +183,7 @@ export async function exportSpecPdf(
   doc.addFont("NotoSans-Bold.ttf", "NotoSans", "bold");
   doc.setFont("NotoSans", "normal");
 
-  const margin = 12;
+  const margin = 10;
   let y = 14;
 
   doc.setFont("NotoSans", "bold");
@@ -185,32 +213,46 @@ export async function exportSpecPdf(
   > = [];
 
   let itemNum = 0;
+  const pushSection = (title: string, isKitHeader = false) => {
+    tableBody.push([
+      {
+        content: title,
+        colSpan: 5,
+        styles: {
+          fontStyle: "bold",
+          fillColor: isKitHeader ? [214, 228, 247] : [240, 244, 248],
+        },
+      },
+    ]);
+  };
+  const pushItem = (name: string, qty: string, note: string, comment = "") => {
+    itemNum += 1;
+    tableBody.push([String(itemNum), name, qty, comment, note]);
+  };
+
   for (const line of visibleLines(lines)) {
     if (line.type === "SECTION") {
-      tableBody.push([
-        {
-          content: lineLabel(line),
-          colSpan: 4,
-          styles: {
-            fontStyle: "bold",
-            fillColor: line.isKitHeader ? [214, 228, 247] : [240, 244, 248],
-          },
-        },
-      ]);
+      pushSection(lineLabel(line), Boolean(line.isKitHeader));
       continue;
     }
-    itemNum += 1;
-    tableBody.push([
-      String(itemNum),
+    pushItem(
       lineLabel(line),
       String(line.qty),
       line.kitName ? `из комплекта: ${line.kitName}` : "",
-    ]);
+      (line.comment || "").trim(),
+    );
+  }
+
+  if (staff.length > 0) {
+    pushSection("Технический персонал");
+    for (const s of staff) {
+      pushItem(s.name, "", s.specialtyName || "");
+    }
   }
 
   autoTable(doc, {
     startY: y,
-    head: [["№", "Наименование", "Кол-во", "Примечание"]],
+    head: [["№", "Наименование", "Кол-во", "Комментарий", "Примечание"]],
     body: tableBody,
     styles: {
       font: "NotoSans",
@@ -226,9 +268,10 @@ export async function exportSpecPdf(
     },
     columnStyles: {
       0: { cellWidth: 10 },
-      1: { cellWidth: 110 },
-      2: { cellWidth: 18, halign: "center" },
-      3: { cellWidth: 48 },
+      1: { cellWidth: 70 },
+      2: { cellWidth: 16, halign: "center" },
+      3: { cellWidth: 42 },
+      4: { cellWidth: 42 },
     },
     margin: { left: margin, right: margin },
   });

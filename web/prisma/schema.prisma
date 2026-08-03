@@ -10,6 +10,7 @@ datasource db {
 enum Role {
   MANAGER
   EMPLOYEE
+  BRIGADIER
 }
 
 enum CategoryKind {
@@ -78,6 +79,8 @@ enum SpecOverrideAction {
   HIDE
   SET_QTY
   RENAME
+  SET_COMMENT
+  REPLACE
 }
 
 enum SpecExtraType {
@@ -277,6 +280,25 @@ model Venue {
   @@index([address])
 }
 
+model Vehicle {
+  id                 String   @id @default(cuid())
+  plateNumber        String   @unique
+  make               String   @default("")
+  model              String   @default("")
+  series             String   @default("")
+  certificateNumber  String   @default("")
+  fuelConsumption    Float    @default(0)
+  mileage            Float    @default(0)
+  operatingRules     String   @default("")
+  comment            String   @default("")
+  active             Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([make])
+  @@index([model])
+}
+
 model VenuePhoto {
   id          String   @id @default(cuid())
   venueId     String
@@ -297,10 +319,14 @@ model Quote {
   eventName       String            @default("")
   date            String            @default("")
   eventDate       DateTime?
-  /// День монтажа (ДД.ММ.ГГГГ), отдельно от дат мероприятия
+  /// Начало монтажа (ДД.ММ.ГГГГ), отдельно от дат мероприятия
   mountDate       String            @default("")
-  /// День демонтажа (ДД.ММ.ГГГГ)
+  /// Длительность монтажа в днях (включительно)
+  mountDurationDays Int             @default(1)
+  /// Начало демонтажа (ДД.ММ.ГГГГ)
   demountDate     String            @default("")
+  /// Длительность демонтажа в днях (включительно)
+  demountDurationDays Int           @default(1)
   time            String            @default("")
   place           String            @default("")
   venueId         String?
@@ -434,15 +460,17 @@ model QuoteTemplate {
 }
 
 model SpecOverride {
-  id        String             @id @default(cuid())
-  quoteId   String
-  quote     Quote              @relation(fields: [quoteId], references: [id], onDelete: Cascade)
-  deriveKey String
-  action    SpecOverrideAction
-  qty       Float?
-  name      String?
-  createdAt DateTime           @default(now())
-  updatedAt DateTime           @updatedAt
+  id            String             @id @default(cuid())
+  quoteId       String
+  quote         Quote              @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  deriveKey     String
+  action        SpecOverrideAction
+  qty           Float?
+  name          String?
+  /// For REPLACE — new catalog item
+  catalogItemId String?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
 
   @@unique([quoteId, deriveKey, action])
   @@index([quoteId])
@@ -457,6 +485,7 @@ model SpecExtraBlock {
   title         String?
   name          String?
   qty           Float         @default(0)
+  comment       String        @default("")
   catalogItemId String?
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt

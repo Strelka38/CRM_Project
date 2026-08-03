@@ -2,6 +2,13 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { QuoteAssignments } from "@/components/QuoteAssignments";
+import {
+  endDateFromDuration,
+  formatRuDate,
+  parseEventDate,
+} from "@/lib/dates";
+import { roleLabelRu } from "@/lib/roles";
 
 type Assignment = {
   id: string;
@@ -20,7 +27,9 @@ type Project = {
   eventName: string;
   date: string;
   mountDate: string;
+  mountDurationDays: number;
   demountDate: string;
+  demountDurationDays: number;
   time: string;
   place: string;
   client: string;
@@ -36,6 +45,7 @@ type Project = {
   } | null;
   assignments: Assignment[];
   isManager: boolean;
+  canManageAssignments?: boolean;
 };
 
 type Comment = {
@@ -79,6 +89,19 @@ function personName(u: {
 function projectManagerName(p: Project) {
   if (p.owner) return personName(p.owner);
   return p.managerName?.trim() || "";
+}
+
+function dateRangeLabel(date: string, durationDays: number) {
+  const start = parseEventDate(date);
+  if (!start) return date?.trim() || "";
+  const days = Math.max(1, durationDays || 1);
+  if (days <= 1) return formatRuDate(start);
+  const end = endDateFromDuration(start, days);
+  return `${formatRuDate(start)} — ${formatRuDate(end)}`;
+}
+
+function eventPeriodLabel(p: Project) {
+  return dateRangeLabel(p.date, p.durationDays);
 }
 
 function isImage(mime: string) {
@@ -130,7 +153,16 @@ export function ProjectModal({
         fetch(`/api/quotes/${quoteId}/attachments`),
       ]);
       if (!pRes.ok) {
-        setError("Мероприятие не найдено");
+        const data = (await pRes.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        setError(
+          pRes.status === 404
+            ? "Мероприятие не найдено"
+            : typeof data?.error === "string"
+              ? data.error
+              : "Не удалось загрузить мероприятие",
+        );
         setProject(null);
         return;
       }
@@ -266,6 +298,7 @@ export function ProjectModal({
     `/api/quotes/${quoteId}/attachments/${a.id}/file`;
 
   const managerLabel = project ? projectManagerName(project) : "";
+  const periodLabel = project ? eventPeriodLabel(project) : "";
 
   return (
     <>
@@ -294,23 +327,37 @@ export function ProjectModal({
                   </h2>
                   <p className="text-sm text-[var(--muted)]">
                     №{project.proposalNumber}
-                    {project.date ? ` · ${project.date}` : ""}
                     {project.time ? ` · ${project.time}` : ""}
                     {project.place ? ` · ${project.place}` : ""}
                     {" · "}
                     {LIFE_LABEL[project.lifecycle] || project.lifecycle}
                   </p>
-                  {(project.mountDate || project.demountDate) && (
-                    <p className="mt-0.5 text-sm text-[var(--muted)]">
-                      {project.mountDate
-                        ? `Монтаж: ${project.mountDate}`
-                        : null}
-                      {project.mountDate && project.demountDate ? " · " : null}
-                      {project.demountDate
-                        ? `Демонтаж: ${project.demountDate}`
-                        : null}
+                  <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 text-sm">
+                    {periodLabel && (
+                      <p>
+                        <span className="text-[var(--muted)]">Мероприятие: </span>
+                        <span className="text-[var(--ink)]">{periodLabel}</span>
+                      </p>
+                    )}
+                    <p>
+                      <span className="text-[var(--muted)]">Монтаж: </span>
+                      <span className="text-[var(--ink)]">
+                        {dateRangeLabel(
+                          project.mountDate,
+                          project.mountDurationDays,
+                        ) || "—"}
+                      </span>
                     </p>
-                  )}
+                    <p>
+                      <span className="text-[var(--muted)]">Демонтаж: </span>
+                      <span className="text-[var(--ink)]">
+                        {dateRangeLabel(
+                          project.demountDate,
+                          project.demountDurationDays,
+                        ) || "—"}
+                      </span>
+                    </p>
+                  </div>
                   {managerLabel && (
                     <p className="mt-0.5 text-sm text-[var(--ink)]">
                       <span className="text-[var(--muted)]">Менеджер: </span>
@@ -368,27 +415,37 @@ export function ProjectModal({
                 </section>
 
                 <section>
-                  <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-[var(--muted)]">
-                    Кто работает
-                  </h3>
-                  {project.assignments.length === 0 ? (
-                    <p className="text-sm text-[var(--muted)]">
-                      Никто не назначен
-                    </p>
+                  {project.canManageAssignments && !project.isManager ? (
+                    <QuoteAssignments
+                      quoteId={quoteId}
+                      canEdit
+                      compact
+                    />
                   ) : (
-                    <ul className="space-y-1.5 text-sm">
-                      {project.assignments.map((a) => (
-                        <li
-                          key={a.id}
-                          className="flex items-baseline justify-between gap-2 border-b border-[var(--line)]/60 py-1"
-                        >
-                          <span>{personName(a.user)}</span>
-                          <span className="text-xs text-[var(--muted)]">
-                            {a.specialty.name}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
+                    <>
+                      <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-[var(--muted)]">
+                        Кто работает
+                      </h3>
+                      {project.assignments.length === 0 ? (
+                        <p className="text-sm text-[var(--muted)]">
+                          Никто не назначен
+                        </p>
+                      ) : (
+                        <ul className="space-y-1.5 text-sm">
+                          {project.assignments.map((a) => (
+                            <li
+                              key={a.id}
+                              className="flex items-baseline justify-between gap-2 border-b border-[var(--line)]/60 py-1"
+                            >
+                              <span>{personName(a.user)}</span>
+                              <span className="text-xs text-[var(--muted)]">
+                                {a.specialty.name}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </>
                   )}
                 </section>
 
@@ -503,9 +560,7 @@ export function ProjectModal({
                         <span className="text-xs font-medium">
                           {c.author.name}
                           <span className="ml-1 font-normal text-[var(--muted)]">
-                            {c.author.role === "MANAGER"
-                              ? "менеджер"
-                              : "сотрудник"}
+                            {roleLabelRu(c.author.role)}
                           </span>
                         </span>
                         <span className="text-[10px] text-[var(--muted)]">

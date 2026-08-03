@@ -29,9 +29,11 @@ export default auth((req) => {
       pathname.startsWith("/kits") ||
       pathname.startsWith("/clients") ||
       pathname.startsWith("/venues") ||
+      pathname.startsWith("/vehicles") ||
       pathname.startsWith("/rates") ||
       pathname.startsWith("/statistics") ||
-      pathname.startsWith("/calculations")) &&
+      pathname.startsWith("/calculations") ||
+      pathname.startsWith("/unpaid")) &&
     req.auth?.user &&
     "role" in req.auth.user &&
     req.auth.user.role !== "MANAGER"

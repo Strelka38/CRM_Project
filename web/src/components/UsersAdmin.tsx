@@ -4,12 +4,13 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ownerShorts, type CatalogOwnerValue } from "@/lib/catalog-owner";
 import { formatMoney } from "@/lib/format";
+import type { AppRole } from "@/lib/roles";
 
 type UserRow = {
   id: string;
   email: string;
   name: string;
-  role: "MANAGER" | "EMPLOYEE";
+  role: AppRole;
   active: boolean;
   monthlySalary: number;
   owners: CatalogOwnerValue[];
@@ -22,7 +23,7 @@ export function UsersAdmin() {
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState<"MANAGER" | "EMPLOYEE">("EMPLOYEE");
+  const [role, setRole] = useState<AppRole>("EMPLOYEE");
   const [error, setError] = useState("");
 
   async function load() {
@@ -72,8 +73,8 @@ export function UsersAdmin() {
         <p className="text-xs uppercase tracking-[0.15em] text-[var(--muted)]">CRM</p>
         <h1 className="mt-1 text-3xl font-light tracking-tight">Пользователи</h1>
         <p className="mt-1 text-sm text-[var(--muted)]">
-          Менеджеры и сотрудники. Базовые ставки — во вкладке «Ставки»,
-          индивидуальные — в карточке сотрудника.
+          Менеджеры, бригадиры и сотрудники. Базовые ставки — во вкладке
+          «Ставки», индивидуальные — в карточке сотрудника.
         </p>
       </header>
 
@@ -109,11 +110,10 @@ export function UsersAdmin() {
           <select
             className="field mt-1"
             value={role}
-            onChange={(e) =>
-              setRole(e.target.value as "MANAGER" | "EMPLOYEE")
-            }
+            onChange={(e) => setRole(e.target.value as AppRole)}
           >
             <option value="EMPLOYEE">Сотрудник</option>
+            <option value="BRIGADIER">Бригадир</option>
             <option value="MANAGER">Менеджер</option>
           </select>
         </label>
@@ -173,6 +173,7 @@ export function UsersAdmin() {
                     }
                   >
                     <option value="EMPLOYEE">Сотрудник</option>
+                    <option value="BRIGADIER">Бригадир</option>
                     <option value="MANAGER">Менеджер</option>
                   </select>
                 </td>

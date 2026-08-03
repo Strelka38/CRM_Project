@@ -36,7 +36,9 @@ export type CreateQuoteFromStructureInput = {
   date: string;
   durationDays: number;
   mountDate?: string;
+  mountDurationDays?: number;
   demountDate?: string;
+  demountDurationDays?: number;
   eventName?: string;
   time?: string;
   place?: string;
@@ -147,7 +149,9 @@ export async function createQuoteFromStructure(
       date,
       eventDate: parseEventDate(date),
       mountDate: input.mountDate || "",
+      mountDurationDays: Math.max(1, input.mountDurationDays || 1),
       demountDate: input.demountDate || "",
+      demountDurationDays: Math.max(1, input.demountDurationDays || 1),
       time: input.time || "",
       place: input.place || "",
       venueId: input.venueId ?? null,

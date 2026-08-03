@@ -9,9 +9,9 @@ export default async function QuotePage({
 }) {
   const { id } = await params;
   const session = await auth();
-  const isManager = session?.user?.role === "MANAGER";
-  if (!isManager) {
+  const manager = session?.user?.role === "MANAGER";
+  if (!manager) {
     redirect(`/quotes/${id}/spec`);
   }
-  return <QuoteEditor quoteId={id} isManager={isManager} />;
+  return <QuoteEditor quoteId={id} isManager />;
 }

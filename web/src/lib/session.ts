@@ -1,6 +1,20 @@
 import { auth } from "./auth";
 import { prisma } from "./db";
-import type { Role } from "@prisma/client";
+import {
+  canEditSpec,
+  canManageAssignments,
+  isManager,
+} from "./roles";
+
+export {
+  canEditSpec,
+  canManageAssignments,
+  canManageQuotes,
+  canSeeAllEvents,
+  isManager,
+  roleLabelRu,
+  roleLabelRuTitle,
+} from "./roles";
 
 function jsonError(message: string, status: number) {
   return NextResponseJson({ error: message }, status);
@@ -42,12 +56,26 @@ export async function requireSession() {
 
 export async function requireManager() {
   const session = await requireSession();
-  if (session.user.role !== "MANAGER") {
+  if (!isManager(session.user.role)) {
     throw jsonError("Forbidden", 403);
   }
   return session;
 }
 
-export function isManager(role: Role) {
-  return role === "MANAGER";
+/** Spec edit: manager or brigadier. */
+export async function requireSpecEditor() {
+  const session = await requireSession();
+  if (!canEditSpec(session.user.role)) {
+    throw jsonError("Forbidden", 403);
+  }
+  return session;
+}
+
+/** Assign employees to events: manager or brigadier. */
+export async function requireAssignmentManager() {
+  const session = await requireSession();
+  if (!canManageAssignments(session.user.role)) {
+    throw jsonError("Forbidden", 403);
+  }
+  return session;
 }

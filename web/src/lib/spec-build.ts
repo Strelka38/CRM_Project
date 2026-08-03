@@ -9,6 +9,7 @@ export type SpecLine = {
   title: string | null;
   name: string | null;
   qty: number;
+  comment: string;
   kitName: string | null;
   catalogItemId: string | null;
   extraId: string | null;
@@ -23,9 +24,15 @@ type KitWithComponents = {
   components: Array<{
     qty: number;
     catalogItemId: string;
-    catalogItem: { id: string; name: string };
+    catalogItem: { id: string; name: string; itemKind: string };
   }>;
 };
+
+const SKIP_ITEM_KINDS = new Set(["PERSONNEL", "SERVICE"]);
+
+function isPersonnelOrService(itemKind: string | null | undefined) {
+  return SKIP_ITEM_KINDS.has(String(itemKind || "").toUpperCase());
+}
 
 export function itemDeriveKey(quoteBlockId: string) {
   return `item:${quoteBlockId}`;
@@ -68,20 +75,41 @@ export async function buildSpecLines(
     ),
   ];
 
-  const kits: KitWithComponents[] =
+  const standaloneItemIds = [
+    ...new Set(
+      blocks
+        .filter((b) => b.type === "ITEM" && !b.kitId && b.catalogItemId)
+        .map((b) => b.catalogItemId!),
+    ),
+  ];
+
+  const [kits, standaloneItems] = await Promise.all([
     kitIds.length > 0
-      ? await prisma.kit.findMany({
+      ? prisma.kit.findMany({
           where: { id: { in: kitIds } },
           include: {
             components: {
               include: {
-                catalogItem: { select: { id: true, name: true } },
+                catalogItem: {
+                  select: { id: true, name: true, itemKind: true },
+                },
               },
             },
           },
         })
-      : [];
+      : Promise.resolve([] as KitWithComponents[]),
+    standaloneItemIds.length > 0
+      ? prisma.catalogItem.findMany({
+          where: { id: { in: standaloneItemIds } },
+          select: { id: true, itemKind: true },
+        })
+      : Promise.resolve([] as Array<{ id: string; itemKind: string }>),
+  ]);
+
   const kitMap = new Map(kits.map((k) => [k.id, k]));
+  const itemKindById = new Map(
+    standaloneItems.map((i) => [i.id, i.itemKind]),
+  );
 
   const hideKeys = new Set(
     overrides.filter((o) => o.action === "HIDE").map((o) => o.deriveKey),
@@ -95,6 +123,22 @@ export async function buildSpecLines(
     overrides
       .filter((o) => o.action === "RENAME" && o.name != null)
       .map((o) => [o.deriveKey, o.name as string]),
+  );
+  const commentByKey = new Map(
+    overrides
+      .filter((o) => o.action === "SET_COMMENT" && o.name != null)
+      .map((o) => [o.deriveKey, o.name as string]),
+  );
+  const replaceByKey = new Map(
+    overrides
+      .filter((o) => o.action === "REPLACE")
+      .map((o) => [
+        o.deriveKey,
+        {
+          catalogItemId: o.catalogItemId ?? null,
+          name: o.name ?? null,
+        },
+      ]),
   );
 
   const lines: SpecLine[] = [];
@@ -110,6 +154,7 @@ export async function buildSpecLines(
         title: applyName(deriveKey, b.title, nameByKey),
         name: null,
         qty: 0,
+        comment: commentByKey.get(deriveKey) ?? "",
         kitName: null,
         catalogItemId: null,
         extraId: null,
@@ -120,6 +165,15 @@ export async function buildSpecLines(
 
     if (b.type !== "ITEM") continue;
 
+    // Skip billable personnel/service catalog lines — staff shown via assignments
+    if (
+      !b.kitId &&
+      b.catalogItemId &&
+      isPersonnelOrService(itemKindById.get(b.catalogItemId))
+    ) {
+      continue;
+    }
+
     const lineQty = Number(b.qty) || 0;
 
     // Kit line → header + components (also keep standalone catalog items from the estimate separately)
@@ -128,22 +182,26 @@ export async function buildSpecLines(
       const kitTitle = b.name || kit?.name || "Комплект";
       const headerKey = kitHeaderDeriveKey(b.id);
 
-      lines.push({
-        key: headerKey,
-        deriveKey: headerKey,
-        source: "derived",
-        type: "SECTION",
-        title: applyName(headerKey, `Комплект «${kitTitle}»`, nameByKey),
-        name: null,
-        qty: 0,
-        kitName: kitTitle,
-        catalogItemId: null,
-        extraId: null,
-        hidden: hideKeys.has(headerKey),
-        isKitHeader: true,
-      });
+      const equipmentComponents = (kit?.components || []).filter(
+        (c) => !isPersonnelOrService(c.catalogItem.itemKind),
+      );
 
       if (!kit) {
+        lines.push({
+          key: headerKey,
+          deriveKey: headerKey,
+          source: "derived",
+          type: "SECTION",
+          title: applyName(headerKey, `Комплект «${kitTitle}»`, nameByKey),
+          name: null,
+          qty: 0,
+          comment: commentByKey.get(headerKey) ?? "",
+          kitName: kitTitle,
+          catalogItemId: null,
+          extraId: null,
+          hidden: hideKeys.has(headerKey),
+          isKitHeader: true,
+        });
         const missingKey = `kitmissing:${b.id}`;
         lines.push({
           key: missingKey,
@@ -157,6 +215,7 @@ export async function buildSpecLines(
             nameByKey,
           ),
           qty: qtyByKey.has(missingKey) ? qtyByKey.get(missingKey)! : lineQty,
+          comment: commentByKey.get(missingKey) ?? "",
           kitName: kitTitle,
           catalogItemId: null,
           extraId: null,
@@ -165,41 +224,81 @@ export async function buildSpecLines(
         continue;
       }
 
-      if (kit.components.length === 0) {
-        const emptyKey = `kitempty:${b.id}`;
-        lines.push({
-          key: emptyKey,
-          deriveKey: emptyKey,
-          source: "derived",
-          type: "ITEM",
-          title: null,
-          name: applyName(
-            emptyKey,
-            `${kitTitle} (в комплекте нет составляющих)`,
-            nameByKey,
-          ),
-          qty: qtyByKey.has(emptyKey) ? qtyByKey.get(emptyKey)! : lineQty,
-          kitName: kitTitle,
-          catalogItemId: null,
-          extraId: null,
-          hidden: hideKeys.has(emptyKey),
-        });
+      if (equipmentComponents.length === 0) {
+        // Kit was only personnel/service, or empty — omit from packing list
+        if (kit.components.length === 0) {
+          lines.push({
+            key: headerKey,
+            deriveKey: headerKey,
+            source: "derived",
+            type: "SECTION",
+            title: applyName(headerKey, `Комплект «${kitTitle}»`, nameByKey),
+            name: null,
+            qty: 0,
+            comment: commentByKey.get(headerKey) ?? "",
+            kitName: kitTitle,
+            catalogItemId: null,
+            extraId: null,
+            hidden: hideKeys.has(headerKey),
+            isKitHeader: true,
+          });
+          const emptyKey = `kitempty:${b.id}`;
+          lines.push({
+            key: emptyKey,
+            deriveKey: emptyKey,
+            source: "derived",
+            type: "ITEM",
+            title: null,
+            name: applyName(
+              emptyKey,
+              `${kitTitle} (в комплекте нет составляющих)`,
+              nameByKey,
+            ),
+            qty: qtyByKey.has(emptyKey) ? qtyByKey.get(emptyKey)! : lineQty,
+            comment: commentByKey.get(emptyKey) ?? "",
+            kitName: kitTitle,
+            catalogItemId: null,
+            extraId: null,
+            hidden: hideKeys.has(emptyKey),
+          });
+        }
         continue;
       }
 
-      for (const c of kit.components) {
+      lines.push({
+        key: headerKey,
+        deriveKey: headerKey,
+        source: "derived",
+        type: "SECTION",
+        title: applyName(headerKey, `Комплект «${kitTitle}»`, nameByKey),
+        name: null,
+        qty: 0,
+        comment: commentByKey.get(headerKey) ?? "",
+        kitName: kitTitle,
+        catalogItemId: null,
+        extraId: null,
+        hidden: hideKeys.has(headerKey),
+        isKitHeader: true,
+      });
+
+      for (const c of equipmentComponents) {
         const deriveKey = kitComponentDeriveKey(b.id, c.catalogItemId);
         const baseQty = lineQty * (Number(c.qty) || 0);
+        const replaced = replaceByKey.get(deriveKey);
+        const catalogItemId =
+          replaced?.catalogItemId ?? c.catalogItemId;
+        const baseName = replaced?.name ?? c.catalogItem.name;
         lines.push({
           key: deriveKey,
           deriveKey,
           source: "derived",
           type: "ITEM",
           title: null,
-          name: applyName(deriveKey, c.catalogItem.name, nameByKey),
+          name: applyName(deriveKey, baseName, nameByKey),
           qty: qtyByKey.has(deriveKey) ? qtyByKey.get(deriveKey)! : baseQty,
+          comment: commentByKey.get(deriveKey) ?? "",
           kitName: kitTitle,
-          catalogItemId: c.catalogItemId,
+          catalogItemId,
           extraId: null,
           hidden: hideKeys.has(deriveKey),
         });
@@ -209,16 +308,20 @@ export async function buildSpecLines(
 
     // Standalone catalog / custom item from the estimate
     const deriveKey = itemDeriveKey(b.id);
+    const replaced = replaceByKey.get(deriveKey);
+    const catalogItemId = replaced?.catalogItemId ?? b.catalogItemId;
+    const baseName = replaced?.name ?? b.name;
     lines.push({
       key: deriveKey,
       deriveKey,
       source: "derived",
       type: "ITEM",
       title: null,
-      name: applyName(deriveKey, b.name, nameByKey),
+      name: applyName(deriveKey, baseName, nameByKey),
       qty: qtyByKey.has(deriveKey) ? qtyByKey.get(deriveKey)! : lineQty,
+      comment: commentByKey.get(deriveKey) ?? "",
       kitName: null,
-      catalogItemId: b.catalogItemId,
+      catalogItemId,
       extraId: null,
       hidden: hideKeys.has(deriveKey),
     });
@@ -234,6 +337,7 @@ export async function buildSpecLines(
       title: e.title,
       name: e.name,
       qty: Number(e.qty) || 0,
+      comment: e.comment ?? "",
       kitName: null,
       catalogItemId: e.catalogItemId,
       extraId: e.id,

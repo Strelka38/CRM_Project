@@ -6,13 +6,18 @@ import {
   buildSpecLines,
   pruneStaleOverrideKeys,
 } from "@/lib/spec-build";
-import { requireManager, requireSession } from "@/lib/session";
+import {
+  canEditSpec,
+  requireSession,
+  requireSpecEditor,
+} from "@/lib/session";
 
 const overrideSchema = z.object({
   deriveKey: z.string().min(1),
-  action: z.enum(["HIDE", "SET_QTY", "RENAME"]),
+  action: z.enum(["HIDE", "SET_QTY", "RENAME", "SET_COMMENT", "REPLACE"]),
   qty: z.number().nullable().optional(),
   name: z.string().nullable().optional(),
+  catalogItemId: z.string().nullable().optional(),
 });
 
 const extraSchema = z.object({
@@ -22,6 +27,7 @@ const extraSchema = z.object({
   title: z.string().nullable().optional(),
   name: z.string().nullable().optional(),
   qty: z.number().optional(),
+  comment: z.string().optional(),
   catalogItemId: z.string().nullable().optional(),
 });
 
@@ -29,6 +35,37 @@ const patchSchema = z.object({
   overrides: z.array(overrideSchema),
   extras: z.array(extraSchema),
 });
+
+async function loadAssignments(quoteId: string) {
+  const rows = await prisma.quoteAssignment.findMany({
+    where: { quoteId },
+    orderBy: [{ createdAt: "asc" }],
+    select: {
+      id: true,
+      user: {
+        select: {
+          id: true,
+          name: true,
+          firstName: true,
+          lastName: true,
+        },
+      },
+      specialty: { select: { id: true, name: true } },
+    },
+  });
+  return rows.map((a) => {
+    const fullName =
+      [a.user.lastName, a.user.firstName].filter(Boolean).join(" ").trim() ||
+      a.user.name;
+    return {
+      id: a.id,
+      userId: a.user.id,
+      name: fullName,
+      specialtyId: a.specialty.id,
+      specialtyName: a.specialty.name,
+    };
+  });
+}
 
 async function loadSpecPayload(id: string) {
   const quote = await prisma.quote.findUnique({
@@ -41,18 +78,20 @@ async function loadSpecPayload(id: string) {
       place: true,
       client: true,
       lifecycle: true,
+      durationDays: true,
       blocks: { orderBy: { sortOrder: "asc" as const } },
     },
   });
   if (!quote) return null;
 
   // Separate queries — avoids stale Prisma client missing Quote relations
-  const [specOverrides, specExtras] = await Promise.all([
+  const [specOverrides, specExtras, assignments] = await Promise.all([
     prisma.specOverride.findMany({ where: { quoteId: id } }),
     prisma.specExtraBlock.findMany({
       where: { quoteId: id },
       orderBy: { sortOrder: "asc" },
     }),
+    loadAssignments(id),
   ]);
 
   const lines = await buildSpecLines(
@@ -75,6 +114,29 @@ async function loadSpecPayload(id: string) {
     lines,
     overrides,
     extras: specExtras,
+    assignments,
+  };
+}
+
+function serializePayload(
+  payload: NonNullable<Awaited<ReturnType<typeof loadSpecPayload>>>,
+  canEdit: boolean,
+) {
+  const visible = payload.lines.filter((l) => !l.hidden);
+  return {
+    quoteId: payload.quote.id,
+    proposalNumber: payload.quote.proposalNumber,
+    eventName: payload.quote.eventName,
+    date: payload.quote.date,
+    place: payload.quote.place,
+    client: payload.quote.client,
+    lifecycle: payload.quote.lifecycle,
+    durationDays: payload.quote.durationDays,
+    canEdit,
+    lines: canEdit ? payload.lines : visible,
+    overrides: payload.overrides,
+    extras: payload.extras,
+    assignments: payload.assignments,
   };
 }
 
@@ -95,22 +157,9 @@ export async function GET(
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
-    const canEdit = session.user.role === "MANAGER";
-    const visible = payload.lines.filter((l) => !l.hidden);
-
-    return NextResponse.json({
-      quoteId: payload.quote.id,
-      proposalNumber: payload.quote.proposalNumber,
-      eventName: payload.quote.eventName,
-      date: payload.quote.date,
-      place: payload.quote.place,
-      client: payload.quote.client,
-      lifecycle: payload.quote.lifecycle,
-      canEdit,
-      lines: canEdit ? payload.lines : visible,
-      overrides: payload.overrides,
-      extras: payload.extras,
-    });
+    return NextResponse.json(
+      serializePayload(payload, canEditSpec(session.user.role)),
+    );
   } catch (e) {
     if (e instanceof Response) return e;
     console.error("GET /api/quotes/[id]/spec", e);
@@ -131,7 +180,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const session = await requireManager();
+    const session = await requireSpecEditor();
     const { id } = await params;
     const ok = await canAccessQuote(id, session.user.id, session.user.role);
     if (!ok) {
@@ -149,7 +198,14 @@ export async function PATCH(
             deriveKey: o.deriveKey,
             action: o.action,
             qty: o.action === "SET_QTY" ? (o.qty ?? 0) : null,
-            name: o.action === "RENAME" ? (o.name ?? "") : null,
+            name:
+              o.action === "RENAME" ||
+              o.action === "SET_COMMENT" ||
+              o.action === "REPLACE"
+                ? (o.name ?? "")
+                : null,
+            catalogItemId:
+              o.action === "REPLACE" ? (o.catalogItemId ?? null) : null,
           })),
         });
       }
@@ -164,6 +220,7 @@ export async function PATCH(
             title: e.title ?? null,
             name: e.name ?? null,
             qty: e.qty ?? 0,
+            comment: e.comment ?? "",
             catalogItemId: e.catalogItemId ?? null,
           })),
         });
@@ -175,19 +232,7 @@ export async function PATCH(
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
-    return NextResponse.json({
-      quoteId: payload.quote.id,
-      proposalNumber: payload.quote.proposalNumber,
-      eventName: payload.quote.eventName,
-      date: payload.quote.date,
-      place: payload.quote.place,
-      client: payload.quote.client,
-      lifecycle: payload.quote.lifecycle,
-      canEdit: true,
-      lines: payload.lines,
-      overrides: payload.overrides,
-      extras: payload.extras,
-    });
+    return NextResponse.json(serializePayload(payload, true));
   } catch (e) {
     if (e instanceof Response) return e;
     if (e instanceof z.ZodError) {

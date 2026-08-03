@@ -6,10 +6,11 @@ import { NotificationsBell } from "@/components/NotificationsBell";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { NavLink } from "@/components/ui/NavLink";
 import { Button } from "@/components/ui/Button";
+import { isManager, roleLabelRu } from "@/lib/roles";
 
 export async function AppShell({ children }: { children: React.ReactNode }) {
   const session = await auth();
-  const isManager = session?.user?.role === "MANAGER";
+  const manager = isManager(session?.user?.role);
 
   return (
     <div className="min-h-full">
@@ -31,18 +32,15 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
             </Link>
             <nav className="flex flex-wrap items-center gap-1 text-sm">
               <NavLink href="/quotes">
-                {isManager ? "Сметы" : "Мероприятия"}
+                {manager ? "Сметы" : "Мероприятия"}
               </NavLink>
               <NavLink href="/calendar">Календарь</NavLink>
-              {isManager ? (
+              {manager ? (
                 <AccountingMenu />
               ) : (
-                <>
-                  <NavLink href="/unpaid">Неоплаченные</NavLink>
-                  <NavLink href="/payroll">Моя ЗП</NavLink>
-                </>
+                <NavLink href="/payroll">Моя ЗП</NavLink>
               )}
-              {isManager && <DatabaseMenu />}
+              {manager && <DatabaseMenu />}
             </nav>
           </div>
           {session?.user && (
@@ -58,7 +56,7 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
                 <span className="hidden md:inline">
                   {session.user.name}
                   <span className="ml-1 text-xs uppercase opacity-70">
-                    {session.user.role === "MANAGER" ? "менеджер" : "сотрудник"}
+                    {roleLabelRu(session.user.role)}
                   </span>
                 </span>
               </Link>

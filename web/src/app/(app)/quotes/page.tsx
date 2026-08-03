@@ -49,6 +49,7 @@ export default function QuotesPage() {
   const router = useRouter();
   const { data: session } = useSession();
   const isManager = session?.user?.role === "MANAGER";
+  const isBrigadier = session?.user?.role === "BRIGADIER";
   const [quotes, setQuotes] = useState<QuoteRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -158,7 +159,9 @@ export default function QuotesPage() {
         subtitle={
           isManager
             ? "КП с контролем склада, статусами и календарём"
-            : "Мероприятия, на которые вас назначили"
+            : isBrigadier
+              ? "Все мероприятия — спецификации и назначения сотрудников"
+              : "Мероприятия, на которые вас назначили"
         }
         actions={
           isManager ? (
@@ -191,7 +194,9 @@ export default function QuotesPage() {
             description={
               isManager
                 ? "Создайте первую смету — она появится в списке и календаре"
-                : "Когда вас назначат на мероприятие, оно появится здесь"
+                : isBrigadier
+                  ? "Когда менеджер создаст мероприятие, оно появится здесь"
+                  : "Когда вас назначат на мероприятие, оно появится здесь"
             }
             action={
               isManager ? (

@@ -3,12 +3,17 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { notifyEmployeeOfAssignment } from "@/lib/notifications";
 import { calcAssignmentPay } from "@/lib/payroll";
-import { requireManager, requireSession } from "@/lib/session";
+import {
+  canManageAssignments,
+  requireAssignmentManager,
+  requireSession,
+} from "@/lib/session";
 
 async function getAccessibleQuote(id: string, userId: string, role: string) {
   const quote = await prisma.quote.findUnique({ where: { id } });
   if (!quote) return null;
-  if (role === "MANAGER" || quote.ownerId === userId) return quote;
+  // Менеджер и бригадир — любое мероприятие; сотрудник — только свои назначения
+  if (canManageAssignments(role)) return quote;
   const assigned = await prisma.quoteAssignment.findFirst({
     where: { quoteId: id, userId },
     select: { id: true },
@@ -132,8 +137,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    await requireManager();
-    const session = await requireSession();
+    const session = await requireAssignmentManager();
     const { id } = await params;
     const quote = await getAccessibleQuote(
       id,

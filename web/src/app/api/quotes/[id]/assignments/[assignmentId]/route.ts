@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { calcAssignmentPay } from "@/lib/payroll";
-import { requireManager } from "@/lib/session";
+import { requireAssignmentManager } from "@/lib/session";
 
 const patchSchema = z.object({
   payMode: z.enum(["SHIFT", "HOURLY"]).optional(),
@@ -18,7 +18,7 @@ export async function PATCH(
   }: { params: Promise<{ id: string; assignmentId: string }> },
 ) {
   try {
-    await requireManager();
+    await requireAssignmentManager();
     const { id, assignmentId } = await params;
     const body = patchSchema.parse(await req.json());
 
@@ -108,7 +108,7 @@ export async function DELETE(
   }: { params: Promise<{ id: string; assignmentId: string }> },
 ) {
   try {
-    await requireManager();
+    await requireAssignmentManager();
     const { id, assignmentId } = await params;
     const existing = await prisma.quoteAssignment.findFirst({
       where: { id: assignmentId, quoteId: id },

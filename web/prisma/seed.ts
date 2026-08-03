@@ -183,6 +183,28 @@ async function ensureSpecialtiesAndEmployee() {
   }
 
   console.log(`Employee: ${email} / ${password}`);
+
+  const brigEmail = "brigadier@local.test";
+  const brigPassword = "brigadier123";
+  await prisma.user.upsert({
+    where: { email: brigEmail },
+    update: {
+      firstName: "Алексей",
+      lastName: "Сидоров",
+      patronymic: "Игоревич",
+      role: Role.BRIGADIER,
+    },
+    create: {
+      email: brigEmail,
+      name: "Сидоров Алексей Игоревич",
+      firstName: "Алексей",
+      lastName: "Сидоров",
+      patronymic: "Игоревич",
+      passwordHash: await bcrypt.hash(brigPassword, 10),
+      role: Role.BRIGADIER,
+    },
+  });
+  console.log(`Brigadier: ${brigEmail} / ${brigPassword}`);
 }
 
 async function clearCatalog() {

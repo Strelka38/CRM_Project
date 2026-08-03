@@ -2,11 +2,21 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { requireManager } from "@/lib/session";
+import {
+  canManageAssignments,
+  isManager,
+  requireManager,
+  requireSession,
+} from "@/lib/session";
 
 export async function GET() {
   try {
-    await requireManager();
+    const session = await requireSession();
+    if (!canManageAssignments(session.user.role)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const managerView = isManager(session.user.role);
     const users = await prisma.user.findMany({
       orderBy: { createdAt: "desc" },
       select: {
@@ -19,7 +29,7 @@ export async function GET() {
         phone: true,
         role: true,
         active: true,
-        monthlySalary: true,
+        monthlySalary: managerView,
         owners: true,
         createdAt: true,
         updatedAt: true,
@@ -48,7 +58,7 @@ const createSchema = z.object({
   patronymic: z.string().optional(),
   phone: z.string().optional(),
   password: z.string().min(6),
-  role: z.enum(["MANAGER", "EMPLOYEE"]).default("EMPLOYEE"),
+  role: z.enum(["MANAGER", "EMPLOYEE", "BRIGADIER"]).default("EMPLOYEE"),
 });
 
 export async function POST(req: NextRequest) {

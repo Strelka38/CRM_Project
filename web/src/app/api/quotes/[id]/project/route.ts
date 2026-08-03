@@ -2,7 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { canAccessQuote } from "@/lib/quote-access";
-import { requireManager, requireSession } from "@/lib/session";
+import {
+  canManageAssignments,
+  isManager,
+  requireManager,
+  requireSession,
+} from "@/lib/session";
 
 export async function GET(
   _req: NextRequest,
@@ -25,7 +30,9 @@ export async function GET(
         date: true,
         eventDate: true,
         mountDate: true,
+        mountDurationDays: true,
         demountDate: true,
+        demountDurationDays: true,
         time: true,
         place: true,
         client: true,
@@ -66,11 +73,16 @@ export async function GET(
 
     return NextResponse.json({
       ...quote,
-      isManager: session.user.role === "MANAGER",
+      isManager: isManager(session.user.role),
+      canManageAssignments: canManageAssignments(session.user.role),
     });
   } catch (e) {
     if (e instanceof Response) return e;
-    throw e;
+    console.error("GET /api/quotes/[id]/project", e);
+    return NextResponse.json(
+      { error: "Не удалось загрузить мероприятие" },
+      { status: 500 },
+    );
   }
 }
 
@@ -102,6 +114,10 @@ export async function PATCH(
     if (e instanceof z.ZodError) {
       return NextResponse.json({ error: e.flatten() }, { status: 400 });
     }
-    throw e;
+    console.error("PATCH /api/quotes/[id]/project", e);
+    return NextResponse.json(
+      { error: "Не удалось сохранить" },
+      { status: 500 },
+    );
   }
 }

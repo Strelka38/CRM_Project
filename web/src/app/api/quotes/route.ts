@@ -7,7 +7,11 @@ import {
   syncInvoiceNotifications,
 } from "@/lib/notifications";
 import { nextProposalNumber } from "@/lib/proposal-number";
-import { requireSession } from "@/lib/session";
+import {
+  canSeeAllEvents,
+  requireManager,
+  requireSession,
+} from "@/lib/session";
 
 export async function GET(req: NextRequest) {
   try {
@@ -19,16 +23,21 @@ export async function GET(req: NextRequest) {
     const unpaid = req.nextUrl.searchParams.get("unpaid") === "1";
     const calendar = req.nextUrl.searchParams.get("calendar") === "1";
 
+    // Неоплаченные — только менеджеры
+    if (unpaid) {
+      await requireManager();
+    }
+
+    // Календарь / менеджер / бригадир: все мероприятия.
+    // Список «Мероприятия» у сотрудника: только свои назначения.
+    const employeeScope =
+      !canSeeAllEvents(session.user.role) && !calendar
+        ? { assignments: { some: { userId: session.user.id } } }
+        : {};
+
     const quotes = await prisma.quote.findMany({
       where: {
-        ...(session.user.role === "MANAGER"
-          ? {}
-          : {
-              OR: [
-                { ownerId: session.user.id },
-                { assignments: { some: { userId: session.user.id } } },
-              ],
-            }),
+        ...employeeScope,
         ...(unpaid
           ? {
               invoiceRequired: true,
