@@ -15,6 +15,10 @@ done
 echo "==> Applying migrations..."
 npx prisma migrate deploy
 
+# Safety net for drifted prod DBs (columns may be missing even if migrate history looks fine)
+echo "==> Ensuring quote schedule / chat image columns..."
+npx prisma db execute --schema prisma/schema.prisma --file prisma/ensure-columns.sql
+
 echo "==> Bootstrapping (safe if already initialized)..."
 npx tsx prisma/seed.ts
 

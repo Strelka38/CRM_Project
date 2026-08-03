@@ -81,10 +81,13 @@ export async function GET(
   } catch (e) {
     if (e instanceof Response) return e;
     console.error("GET /api/quotes/[id]/project", e);
-    return NextResponse.json(
-      { error: "Не удалось загрузить мероприятие" },
-      { status: 500 },
-    );
+    const message =
+      e instanceof Error && e.message.includes("Unknown field")
+        ? "Схема Prisma устарела — пересоберите образ (prisma generate)"
+        : e instanceof Error && /column .* does not exist/i.test(e.message)
+          ? "В БД нет нужных колонок — примените миграции"
+          : "Не удалось загрузить мероприятие";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 

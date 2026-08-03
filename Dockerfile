@@ -10,11 +10,6 @@ FROM node:22-bookworm-slim AS builder
 WORKDIR /app
 RUN apt-get update -y && apt-get install -y openssl ca-certificates && rm -rf /var/lib/apt/lists/*
 COPY --from=deps /app/node_modules ./node_modules
-COPY web/package.json web/package-lock.json ./
-COPY web/prisma ./prisma
-RUN npx prisma generate
-
-# App sources after prisma generate so schema-only changes stay cached
 COPY web/ ./
 COPY ["Пример исходников/Каталог выгрузка с golova.xlsx", "./seed-data/catalog.xlsx"]
 
@@ -27,9 +22,11 @@ ENV DATABASE_URL="postgresql://crm:crm@db:5432/crm_event?schema=public"
 ENV AUTH_SECRET="build-time-placeholder-not-used-at-runtime"
 ENV AUTH_URL="http://localhost:3000"
 
+# Generate AFTER full source copy so client always matches schema.prisma
+RUN npx prisma generate
+
 # Turbopack production build is often 5–10× slower inside Docker/VPS;
 # Webpack is the reliable path for image builds (local `next build` can stay default).
-# prisma generate already done; package.json "build" would re-run it
 RUN npx next build --webpack
 
 FROM node:22-bookworm-slim AS runner
