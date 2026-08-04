@@ -3,18 +3,20 @@
 import { signIn } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, Suspense, useState } from "react";
+import { BrandLogo } from "@/components/BrandLogo";
 import { Button } from "@/components/ui/Button";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
 function BrandMark({ compact = false }: { compact?: boolean }) {
+  const size = compact ? 36 : 44;
   return (
     <div className={`flex items-center ${compact ? "gap-2.5" : "gap-3"}`}>
       <span
-        className={`bg-cta flex items-center justify-center font-bold text-white shadow-lg shadow-[#009ee3]/25 ${
-          compact ? "size-9 rounded-lg text-xs" : "size-11 rounded-xl text-sm"
+        className={`flex shrink-0 items-center justify-center overflow-hidden rounded-xl ${
+          compact ? "size-9" : "size-11"
         }`}
       >
-        BS
+        <BrandLogo size={size} invertOnLight={false} />
       </span>
       <span className="leading-none">
         <span

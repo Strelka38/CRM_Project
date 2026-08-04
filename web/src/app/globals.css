@@ -238,3 +238,12 @@ body {
 .bg-subtle {
   background-image: var(--gradient-subtle);
 }
+
+/* Brand mark: white on dark; inverted (black) on light theme */
+html[data-theme="light"] .brand-logo-invert {
+  filter: invert(1);
+}
+
+html[data-theme="light"] .brand-logo-slot {
+  background: rgba(255, 255, 255, 0.95);
+}

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { auth, signOut } from "@/lib/auth";
 import { AccountingMenu } from "@/components/AccountingMenu";
+import { BrandLogo } from "@/components/BrandLogo";
 import { DatabaseMenu } from "@/components/DatabaseMenu";
 import { NotificationsBell } from "@/components/NotificationsBell";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -19,12 +20,12 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-3 md:px-6">
           <div className="flex flex-wrap items-center gap-5">
             <Link href="/quotes" className="flex items-center gap-2.5">
-              <span className="bg-cta flex size-8 items-center justify-center rounded-lg text-xs font-bold tracking-wide text-white">
-                BS
+              <span className="brand-logo-slot flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-lg">
+                <BrandLogo size={32} />
               </span>
               <span className="hidden sm:flex sm:flex-col sm:leading-none">
                 <span className="text-sm font-medium text-white">
-                  BaikalStage
+                  BaikalStageGroup
                 </span>
                 <span className="mt-0.5 text-[10px] uppercase tracking-[0.2em] text-[var(--muted-on-dark)]">
                   CRM
