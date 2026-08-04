@@ -1,10 +1,9 @@
-import Image from "next/image";
 import { cn } from "@/lib/cn";
 
 type Props = {
   size?: number;
   className?: string;
-  /** Invert colors when site theme is light (black rings on light). */
+  /** Invert to black when light theme is active. */
   invertOnLight?: boolean;
 };
 
@@ -14,14 +13,15 @@ export function BrandLogo({
   invertOnLight = true,
 }: Props) {
   return (
-    <Image
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
       src="/brand/bsg-logo.png"
       alt="BaikalStageGroup"
       width={size}
       height={size}
-      priority
+      draggable={false}
       className={cn(
-        "brand-logo object-contain",
+        "brand-logo block object-contain",
         invertOnLight && "brand-logo-invert",
         className,
       )}
