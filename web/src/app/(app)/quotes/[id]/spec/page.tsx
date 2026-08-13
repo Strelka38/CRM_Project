@@ -1,5 +1,6 @@
 import { SpecEditor } from "@/components/SpecEditor";
 import { auth } from "@/lib/auth";
+import { isManager } from "@/lib/roles";
 
 export default async function SpecPage({
   params,
@@ -8,6 +9,6 @@ export default async function SpecPage({
 }) {
   const { id } = await params;
   const session = await auth();
-  const isManager = session?.user?.role === "MANAGER";
-  return <SpecEditor quoteId={id} isManager={isManager} />;
+  const manager = isManager(session?.user?.role);
+  return <SpecEditor quoteId={id} isManager={manager} />;
 }

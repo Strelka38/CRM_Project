@@ -25,7 +25,7 @@ export {
   type DatabaseBackupTables,
 } from "@/lib/database-backup-format";
 
-const ROLES: Role[] = ["MANAGER", "EMPLOYEE", "BRIGADIER"];
+const ROLES: Role[] = ["ADMIN", "MANAGER", "EMPLOYEE", "BRIGADIER"];
 const OWNERS: CatalogOwner[] = ["SHOW_MASTER", "DIAKOM", "NE_EVENT"];
 const CATEGORY_KINDS: CategoryKind[] = ["EQUIPMENT", "PERSONNEL", "OTHER"];
 const ITEM_KINDS: ItemKind[] = [

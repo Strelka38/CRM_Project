@@ -72,7 +72,7 @@ export async function notifyManagersOfNewEvent(quote: {
 }) {
   const recipients = await prisma.user.findMany({
     where: {
-      role: { in: ["MANAGER", "BRIGADIER"] },
+      role: { in: ["ADMIN", "MANAGER", "BRIGADIER"] },
       active: true,
       id: { not: quote.ownerId },
     },

@@ -23,7 +23,11 @@ export const authConfig = {
     },
     async session({ session, token }) {
       session.user.id = token.id as string;
-      session.user.role = token.role as "MANAGER" | "EMPLOYEE" | "BRIGADIER";
+      session.user.role = token.role as
+        | "ADMIN"
+        | "MANAGER"
+        | "EMPLOYEE"
+        | "BRIGADIER";
       session.user.email = token.email ?? "";
       session.user.name = token.name ?? "";
       return session;

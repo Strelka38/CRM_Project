@@ -39,7 +39,7 @@ const QUOTES = [
 
 async function main() {
   const manager = await prisma.user.findFirst({
-    where: { role: "MANAGER", active: true },
+    where: { role: { in: ["ADMIN", "MANAGER"] }, active: true },
   });
   if (!manager) throw new Error("No manager user");
 

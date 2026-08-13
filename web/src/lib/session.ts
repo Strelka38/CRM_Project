@@ -4,6 +4,7 @@ import {
   canAccessDatabase,
   canAccessRepairs,
   canAccessWorkloadStats,
+  canBackupDatabase,
   canCreateCalendarDayOff,
   canCreateCalendarProject,
   canCreateCalendarRental,
@@ -13,7 +14,7 @@ import {
   canEditSpec,
   canManageAssignments,
   canOpenCalendarCreateMenu,
-  isCrmOwner,
+  isAdmin,
   isManager,
 } from "./roles";
 
@@ -21,6 +22,8 @@ export {
   canAccessDatabase,
   canAccessRepairs,
   canAccessWorkloadStats,
+  canAssignRole,
+  canBackupDatabase,
   canCreateCalendarDayOff,
   canCreateCalendarProject,
   canCreateCalendarRental,
@@ -28,14 +31,17 @@ export {
   canEditBrief,
   canEditCalendarEntry,
   canEditSpec,
+  canEditUserRole,
   canManageAssignments,
   canManageQuotes,
   canOpenCalendarCreateMenu,
+  canResetUserPassword,
   canSendEquipmentToRepair,
   canSeeAllEvents,
   canSeeAssignmentPay,
-  isCrmOwner,
+  isAdmin,
   isManager,
+  isQuoteOwnerRole,
   roleLabelRu,
   roleLabelRuTitle,
 } from "./roles";
@@ -86,6 +92,14 @@ export async function requireManager() {
   return session;
 }
 
+export async function requireAdmin() {
+  const session = await requireSession();
+  if (!isAdmin(session.user.role)) {
+    throw jsonError("Forbidden", 403);
+  }
+  return session;
+}
+
 /** Spec edit: manager or brigadier. */
 export async function requireSpecEditor() {
   const session = await requireSession();
@@ -122,19 +136,10 @@ export async function requireDatabaseAccess() {
   return session;
 }
 
-export async function getFirstCrmUserId() {
-  const first = await prisma.user.findFirst({
-    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-    select: { id: true },
-  });
-  return first?.id ?? null;
-}
-
-/** Full export/import: only the first registered CRM user. */
-export async function requireFirstCrmUser() {
+/** Full export/import: admin only. */
+export async function requireDatabaseBackup() {
   const session = await requireSession();
-  const firstId = await getFirstCrmUserId();
-  if (!isCrmOwner(session.user.id, firstId)) {
+  if (!canBackupDatabase(session.user.role)) {
     throw jsonError("Forbidden", 403);
   }
   return session;

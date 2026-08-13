@@ -10,26 +10,26 @@ import { Button } from "@/components/ui/Button";
 import {
   canAccessDatabase,
   canAccessWorkloadStats,
-  isCrmOwner,
+  canBackupDatabase,
   isManager,
   roleLabelRu,
 } from "@/lib/roles";
-import { getFirstCrmUserId } from "@/lib/session";
+import { prisma } from "@/lib/db";
 
 export async function AppShell({ children }: { children: React.ReactNode }) {
   const session = await auth();
-  const manager = isManager(session?.user?.role);
-  const database = canAccessDatabase(session?.user?.role);
-  const workloadStats = canAccessWorkloadStats(session?.user?.role);
-  let showBackup = false;
+  let role = session?.user?.role;
   if (session?.user?.id) {
-    try {
-      const firstId = await getFirstCrmUserId();
-      showBackup = isCrmOwner(session.user.id, firstId);
-    } catch {
-      showBackup = false;
-    }
+    const dbUser = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { role: true },
+    });
+    if (dbUser) role = dbUser.role;
   }
+  const manager = isManager(role);
+  const database = canAccessDatabase(role);
+  const workloadStats = canAccessWorkloadStats(role);
+  const showBackup = canBackupDatabase(role);
 
   return (
     <div className="min-h-full">

@@ -2,9 +2,16 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { ResetUserPasswordModal } from "@/components/ResetUserPasswordModal";
 import { ownerShorts, type CatalogOwnerValue } from "@/lib/catalog-owner";
 import { formatMoney } from "@/lib/format";
-import type { AppRole } from "@/lib/roles";
+import {
+  assignableRoles,
+  canEditUserRole,
+  canResetUserPassword,
+  roleLabelRuTitle,
+  type AppRole,
+} from "@/lib/roles";
 
 type UserRow = {
   id: string;
@@ -18,13 +25,19 @@ type UserRow = {
   specialties?: Array<{ specialty: { name: string } }>;
 };
 
-export function UsersAdmin() {
+export function UsersAdmin({ actorRole }: { actorRole: string }) {
   const [users, setUsers] = useState<UserRow[]>([]);
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<AppRole>("EMPLOYEE");
   const [error, setError] = useState("");
+  const [resetUser, setResetUser] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
+  const createRoles = assignableRoles(actorRole);
+  const canReset = canResetUserPassword(actorRole);
 
   async function load() {
     const res = await fetch("/api/users");
@@ -59,11 +72,19 @@ export function UsersAdmin() {
   }
 
   async function patchUser(id: string, data: Record<string, unknown>) {
-    await fetch(`/api/users/${id}`, {
+    const res = await fetch(`/api/users/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as {
+        error?: string;
+      } | null;
+      setError(body?.error || "Не удалось сохранить");
+      return;
+    }
+    setError("");
     void load();
   }
 
@@ -73,7 +94,7 @@ export function UsersAdmin() {
         <p className="text-xs uppercase tracking-[0.15em] text-[var(--muted)]">CRM</p>
         <h1 className="mt-1 text-3xl font-light tracking-tight">Пользователи</h1>
         <p className="mt-1 text-sm text-[var(--muted)]">
-          Менеджеры, бригадиры и сотрудники. Базовые ставки — во вкладке
+          Менеджеров назначает только админ. Базовые ставки — во вкладке
           «Ставки», индивидуальные — в карточке сотрудника.
         </p>
       </header>
@@ -112,9 +133,11 @@ export function UsersAdmin() {
             value={role}
             onChange={(e) => setRole(e.target.value as AppRole)}
           >
-            <option value="EMPLOYEE">Сотрудник</option>
-            <option value="BRIGADIER">Бригадир</option>
-            <option value="MANAGER">Менеджер</option>
+            {createRoles.map((r) => (
+              <option key={r} value={r}>
+                {roleLabelRuTitle(r)}
+              </option>
+            ))}
           </select>
         </label>
         {error && <p className="text-sm text-[var(--danger)] md:col-span-2">{error}</p>}
@@ -165,17 +188,23 @@ export function UsersAdmin() {
                     .join(", ") || "—"}
                 </td>
                 <td className="px-4 py-3">
-                  <select
-                    className="field"
-                    value={u.role}
-                    onChange={(e) =>
-                      void patchUser(u.id, { role: e.target.value })
-                    }
-                  >
-                    <option value="EMPLOYEE">Сотрудник</option>
-                    <option value="BRIGADIER">Бригадир</option>
-                    <option value="MANAGER">Менеджер</option>
-                  </select>
+                  {canEditUserRole(actorRole, u.role) ? (
+                    <select
+                      className="field"
+                      value={u.role}
+                      onChange={(e) =>
+                        void patchUser(u.id, { role: e.target.value })
+                      }
+                    >
+                      {assignableRoles(actorRole).map((r) => (
+                        <option key={r} value={r}>
+                          {roleLabelRuTitle(r)}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span>{roleLabelRuTitle(u.role)}</span>
+                  )}
                 </td>
                 <td className="px-4 py-3">
                   <button
@@ -191,18 +220,40 @@ export function UsersAdmin() {
                   </button>
                 </td>
                 <td className="px-4 py-3">
-                  <Link
-                    href={`/users/${u.id}`}
-                    className="text-sm text-[var(--muted)] underline"
-                  >
-                    Карточка
-                  </Link>
+                  <div className="flex flex-col items-start gap-1">
+                    <Link
+                      href={`/users/${u.id}`}
+                      className="text-sm text-[var(--muted)] underline"
+                    >
+                      Карточка
+                    </Link>
+                    {canReset && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setResetUser({ id: u.id, name: u.name })
+                        }
+                        className="text-sm text-[var(--muted)] underline"
+                      >
+                        Сбросить пароль
+                      </button>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      {resetUser && (
+        <ResetUserPasswordModal
+          open
+          userId={resetUser.id}
+          userName={resetUser.name}
+          onClose={() => setResetUser(null)}
+        />
+      )}
     </div>
   );
 }

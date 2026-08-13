@@ -138,7 +138,7 @@ export async function PATCH(
 
     if (meta.ownerId) {
       const manager = await prisma.user.findFirst({
-        where: { id: meta.ownerId, role: "MANAGER", active: true },
+        where: { id: meta.ownerId, role: { in: ["ADMIN", "MANAGER"] }, active: true },
         select: { id: true, name: true },
       });
       if (!manager) {

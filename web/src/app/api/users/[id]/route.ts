@@ -7,8 +7,13 @@ import {
   type CatalogOwnerValue,
 } from "@/lib/catalog-owner";
 import { calcAssignmentPay } from "@/lib/payroll";
-import { isManager } from "@/lib/roles";
-import { canAccessDatabase, requireSession } from "@/lib/session";
+import { isAdmin, isManager } from "@/lib/roles";
+import {
+  canAccessDatabase,
+  canAssignRole,
+  canEditUserRole,
+  requireSession,
+} from "@/lib/session";
 
 const companyEnum = z.enum(["SHOW_MASTER", "DIAKOM", "NE_EVENT"]);
 
@@ -41,8 +46,8 @@ export async function GET(
   try {
     const session = await requireSession();
     const { id } = await params;
-    const admin = canAccessDatabase(session.user.role);
-    if (!admin && session.user.id !== id) {
+    const dbAccess = canAccessDatabase(session.user.role);
+    if (!dbAccess && session.user.id !== id) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -115,7 +120,7 @@ const patchSchema = z.object({
   patronymic: z.string().optional(),
   phone: z.string().optional(),
   comment: z.string().optional(),
-  role: z.enum(["MANAGER", "EMPLOYEE", "BRIGADIER"]).optional(),
+  role: z.enum(["ADMIN", "MANAGER", "EMPLOYEE", "BRIGADIER"]).optional(),
   active: z.boolean().optional(),
   monthlySalary: z.number().nonnegative().optional(),
   agencyPercent: z.number().min(0).max(100).optional(),
@@ -143,21 +148,24 @@ export async function PATCH(
   try {
     const session = await requireSession();
     const { id } = await params;
-    const admin = canAccessDatabase(session.user.role);
+    const dbAccess = canAccessDatabase(session.user.role);
     const isSelf = session.user.id === id;
-    if (!admin && !isSelf) {
+    if (!dbAccess && !isSelf) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     const body = patchSchema.parse(await req.json());
     if (
-      !admin &&
+      !dbAccess &&
       (body.role !== undefined ||
         body.active !== undefined ||
         body.monthlySalary !== undefined ||
         body.owners !== undefined ||
         body.password !== undefined)
     ) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    if (body.password !== undefined && !isAdmin(session.user.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
     if (body.agencyPercent !== undefined && !isManager(session.user.role)) {
@@ -169,6 +177,31 @@ export async function PATCH(
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
+    if (body.role !== undefined) {
+      if (
+        !canEditUserRole(session.user.role, existing.role) ||
+        !canAssignRole(session.user.role, body.role)
+      ) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+    }
+
+    const leavingAdmin =
+      existing.role === "ADMIN" &&
+      ((body.role !== undefined && body.role !== "ADMIN") ||
+        body.active === false);
+    if (leavingAdmin) {
+      const adminCount = await prisma.user.count({
+        where: { role: "ADMIN", active: true },
+      });
+      if (adminCount <= 1) {
+        return NextResponse.json(
+          { error: "Нельзя снять или отключить последнего администратора" },
+          { status: 400 },
+        );
+      }
+    }
+
     const data: {
       name?: string;
       firstName?: string;
@@ -176,7 +209,7 @@ export async function PATCH(
       patronymic?: string;
       phone?: string;
       comment?: string;
-      role?: "MANAGER" | "EMPLOYEE" | "BRIGADIER";
+      role?: "ADMIN" | "MANAGER" | "EMPLOYEE" | "BRIGADIER";
       active?: boolean;
       monthlySalary?: number;
       agencyPercent?: number;
@@ -189,9 +222,9 @@ export async function PATCH(
     if (body.patronymic !== undefined) data.patronymic = body.patronymic;
     if (body.phone !== undefined) data.phone = body.phone;
     if (body.comment !== undefined) data.comment = body.comment;
-    if (admin && body.role !== undefined) data.role = body.role;
-    if (admin && body.active !== undefined) data.active = body.active;
-    if (admin && body.monthlySalary !== undefined) {
+    if (dbAccess && body.role !== undefined) data.role = body.role;
+    if (dbAccess && body.active !== undefined) data.active = body.active;
+    if (dbAccess && body.monthlySalary !== undefined) {
       data.monthlySalary = body.monthlySalary;
     }
     if (
@@ -200,10 +233,10 @@ export async function PATCH(
     ) {
       data.agencyPercent = body.agencyPercent;
     }
-    if (admin && body.owners !== undefined) {
+    if (dbAccess && body.owners !== undefined) {
       data.owners = normalizeOwners(body.owners);
     }
-    if (admin && body.password) {
+    if (isAdmin(session.user.role) && body.password) {
       data.passwordHash = await bcrypt.hash(body.password, 10);
     }
 

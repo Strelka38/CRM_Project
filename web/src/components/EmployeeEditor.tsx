@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChangePasswordModal } from "@/components/ChangePasswordModal";
+import { ResetUserPasswordModal } from "@/components/ResetUserPasswordModal";
 import { OwnerTagsPicker } from "@/components/OwnerTagsPicker";
 import {
   normalizeOwners,
@@ -10,7 +11,14 @@ import {
   type CatalogOwnerValue,
 } from "@/lib/catalog-owner";
 import { formatMoney } from "@/lib/format";
-import { type AppRole, roleLabelRu } from "@/lib/roles";
+import {
+  assignableRoles,
+  canEditUserRole,
+  isManager as roleIsManager,
+  roleLabelRu,
+  roleLabelRuTitle,
+  type AppRole,
+} from "@/lib/roles";
 
 type Specialty = {
   id: string;
@@ -54,12 +62,14 @@ export function EmployeeEditor({
   userId,
   selfView = false,
   isManager = false,
+  isAdmin = false,
   canEditAgency,
 }: {
   userId: string;
   selfView?: boolean;
   isManager?: boolean;
-  /** Менять % агентских могут только менеджеры */
+  isAdmin?: boolean;
+  /** Менять % агентских могут только менеджеры и админ */
   canEditAgency?: boolean;
 }) {
   const router = useRouter();
@@ -72,8 +82,14 @@ export function EmployeeEditor({
   const [saving, setSaving] = useState(false);
   const [addSpecialtyId, setAddSpecialtyId] = useState("");
   const [passwordOpen, setPasswordOpen] = useState(false);
+  const [resetOpen, setResetOpen] = useState(false);
   const canAdmin = isManager;
   const canChangeAgency = canEditAgency ?? isManager;
+  const canChangeRole = canEditUserRole(
+    isAdmin ? "ADMIN" : isManager ? "MANAGER" : "EMPLOYEE",
+    user?.role,
+  );
+  const actorRole = isAdmin ? "ADMIN" : isManager ? "MANAGER" : "EMPLOYEE";
 
   useEffect(() => {
     (async () => {
@@ -116,11 +132,11 @@ export function EmployeeEditor({
       comment: user.comment,
     };
     if (canAdmin) {
-      payload.role = user.role;
+      if (canChangeRole) payload.role = user.role;
       payload.active = user.active;
       payload.monthlySalary = user.monthlySalary;
       payload.owners = normalizeOwners(user.owners);
-      if (canChangeAgency && user.role === "MANAGER") {
+      if (canChangeAgency && roleIsManager(user.role)) {
         payload.agencyPercent = Math.min(
           100,
           Math.max(0, Number(user.agencyPercent) || 0),
@@ -266,20 +282,28 @@ export function EmployeeEditor({
               <>
                 <label className="block text-sm">
                   <span className="text-[var(--muted)]">Роль</span>
-                  <select
-                    className="field mt-1"
-                    value={user.role}
-                    onChange={(e) =>
-                      setUser({
-                        ...user,
-                        role: e.target.value as AppRole,
-                      })
-                    }
-                  >
-                    <option value="EMPLOYEE">Сотрудник</option>
-                    <option value="BRIGADIER">Бригадир</option>
-                    <option value="MANAGER">Менеджер</option>
-                  </select>
+                  {canChangeRole ? (
+                    <select
+                      className="field mt-1"
+                      value={user.role}
+                      onChange={(e) =>
+                        setUser({
+                          ...user,
+                          role: e.target.value as AppRole,
+                        })
+                      }
+                    >
+                      {assignableRoles(actorRole).map((r) => (
+                        <option key={r} value={r}>
+                          {roleLabelRuTitle(r)}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <p className="mt-1 text-sm text-[var(--ink)]">
+                      {roleLabelRuTitle(user.role)}
+                    </p>
+                  )}
                 </label>
                 <OwnerTagsPicker
                   label="Фирмы"
@@ -291,7 +315,7 @@ export function EmployeeEditor({
                   агентские с его фирм минусуются в калькуляции; с чужих —
                   только в его ЗП.
                 </p>
-                {user.role === "MANAGER" &&
+                {roleIsManager(user.role) &&
                   (canChangeAgency ? (
                     <label className="block text-sm">
                       <span className="text-[var(--muted)]">
@@ -352,7 +376,7 @@ export function EmployeeEditor({
                     {ownerShorts(user.owners)}
                   </span>
                 </p>
-                {user.role === "MANAGER" && (
+                {roleIsManager(user.role) && (
                   <p className="text-sm text-[var(--muted)]">
                     Агентские:{" "}
                     <span className="text-[var(--ink)]">
@@ -395,6 +419,15 @@ export function EmployeeEditor({
                   className="mt-3 rounded-md border border-[var(--line)] px-3 py-1.5 text-sm hover:bg-white/10"
                 >
                   Сменить пароль
+                </button>
+              )}
+              {isAdmin && !selfView && (
+                <button
+                  type="button"
+                  onClick={() => setResetOpen(true)}
+                  className="mt-3 rounded-md border border-[var(--line)] px-3 py-1.5 text-sm hover:bg-white/10"
+                >
+                  Сбросить пароль
                 </button>
               )}
             </div>
@@ -594,6 +627,14 @@ export function EmployeeEditor({
           open={passwordOpen}
           email={user.email}
           onClose={() => setPasswordOpen(false)}
+        />
+      )}
+      {isAdmin && !selfView && (
+        <ResetUserPasswordModal
+          open={resetOpen}
+          userId={user.id}
+          userName={user.name}
+          onClose={() => setResetOpen(false)}
         />
       )}
     </div>

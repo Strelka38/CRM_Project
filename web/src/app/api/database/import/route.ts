@@ -3,7 +3,7 @@ import {
   applyDatabaseBackup,
   parseDatabaseBackup,
 } from "@/lib/database-backup";
-import { requireFirstCrmUser } from "@/lib/session";
+import { requireDatabaseBackup } from "@/lib/session";
 
 export const maxDuration = 300;
 
@@ -11,7 +11,7 @@ const MAX_BYTES = 50 * 1024 * 1024;
 
 export async function POST(req: NextRequest) {
   try {
-    const session = await requireFirstCrmUser();
+    const session = await requireDatabaseBackup();
 
     const form = await req.formData();
     const file = form.get("file");

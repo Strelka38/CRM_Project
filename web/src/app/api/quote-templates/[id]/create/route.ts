@@ -33,7 +33,7 @@ export async function POST(
 
     const ownerId = body.ownerId || template.ownerId || session.user.id;
     const owner = await prisma.user.findFirst({
-      where: { id: ownerId, role: "MANAGER", active: true },
+      where: { id: ownerId, role: { in: ["ADMIN", "MANAGER"] }, active: true },
       select: { id: true, name: true },
     });
     if (!owner) {

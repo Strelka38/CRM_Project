@@ -1,6 +1,11 @@
 import NextAuth from "next-auth";
 import { NextResponse } from "next/server";
 import { authConfig } from "@/lib/auth.config";
+import {
+  canAccessDatabase,
+  canAccessWorkloadStats,
+  isManager,
+} from "@/lib/roles";
 
 const { auth } = NextAuth(authConfig);
 
@@ -45,25 +50,19 @@ export default auth((req) => {
   const isAccountingPath =
     pathname.startsWith("/calculations") || pathname.startsWith("/unpaid");
 
-  if (
-    isLoggedIn &&
-    isDatabasePath &&
-    role !== "MANAGER" &&
-    role !== "BRIGADIER"
-  ) {
+  if (isLoggedIn && isDatabasePath && !canAccessDatabase(role)) {
     return NextResponse.redirect(new URL("/quotes", req.nextUrl.origin));
   }
 
   if (
     isLoggedIn &&
     pathname.startsWith("/statistics") &&
-    role !== "MANAGER" &&
-    role !== "BRIGADIER"
+    !canAccessWorkloadStats(role)
   ) {
     return NextResponse.redirect(new URL("/quotes", req.nextUrl.origin));
   }
 
-  if (isLoggedIn && isAccountingPath && role !== "MANAGER") {
+  if (isLoggedIn && isAccountingPath && !isManager(role)) {
     return NextResponse.redirect(new URL("/quotes", req.nextUrl.origin));
   }
 

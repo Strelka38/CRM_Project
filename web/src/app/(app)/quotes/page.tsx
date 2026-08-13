@@ -17,6 +17,7 @@ import {
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { CreateFromTemplateModal } from "@/components/QuoteTemplateActions";
 import { endDateFromDuration, formatRuDate, parseEventDate } from "@/lib/dates";
+import { isManager as roleIsManager, isQuoteOwnerRole } from "@/lib/roles";
 
 type QuoteRow = {
   id: string;
@@ -48,7 +49,7 @@ function formatQuoteDates(date: string, durationDays: number) {
 export default function QuotesPage() {
   const router = useRouter();
   const { data: session } = useSession();
-  const isManager = session?.user?.role === "MANAGER";
+  const isManager = roleIsManager(session?.user?.role);
   const isBrigadier = session?.user?.role === "BRIGADIER";
   const [quotes, setQuotes] = useState<QuoteRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -99,7 +100,7 @@ export default function QuotesPage() {
         ) => {
           if (!Array.isArray(list)) return;
           const ms = list
-            .filter((u) => u.role === "MANAGER" && u.active)
+            .filter((u) => isQuoteOwnerRole(u.role) && u.active)
             .map((u) => ({ id: u.id, name: u.name }));
           setManagers(ms);
           setDefaultOwnerId(ms[0]?.id || "");

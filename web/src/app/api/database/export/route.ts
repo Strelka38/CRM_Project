@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import { collectDatabaseBackup } from "@/lib/database-backup";
-import { requireFirstCrmUser } from "@/lib/session";
+import { requireDatabaseBackup } from "@/lib/session";
 
 export const maxDuration = 300;
 
 export async function GET() {
   try {
-    await requireFirstCrmUser();
+    await requireDatabaseBackup();
     const backup = await collectDatabaseBackup();
     const stamp = new Date().toISOString().slice(0, 10);
     const filename = `crm-database-${stamp}.json`;

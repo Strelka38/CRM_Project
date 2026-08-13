@@ -4,6 +4,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import {
   canAccessDatabase,
+  canAssignRole,
   canManageAssignments,
   requireDatabaseAccess,
   requireSession,
@@ -58,13 +59,16 @@ const createSchema = z.object({
   patronymic: z.string().optional(),
   phone: z.string().optional(),
   password: z.string().min(6),
-  role: z.enum(["MANAGER", "EMPLOYEE", "BRIGADIER"]).default("EMPLOYEE"),
+  role: z.enum(["ADMIN", "MANAGER", "EMPLOYEE", "BRIGADIER"]).default("EMPLOYEE"),
 });
 
 export async function POST(req: NextRequest) {
   try {
-    await requireDatabaseAccess();
+    const session = await requireDatabaseAccess();
     const body = createSchema.parse(await req.json());
+    if (!canAssignRole(session.user.role, body.role)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
     const fio = [body.lastName, body.firstName, body.patronymic]
       .map((x) => (x || "").trim())
       .filter(Boolean)

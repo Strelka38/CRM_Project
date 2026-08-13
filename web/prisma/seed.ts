@@ -82,7 +82,7 @@ async function ensureSpecialties() {
   }
 }
 
-async function ensureManager() {
+async function ensureAdmin() {
   const email = process.env.BOOTSTRAP_MANAGER_EMAIL || "manager@local.test";
   const password = process.env.BOOTSTRAP_MANAGER_PASSWORD || "manager123";
   const name = process.env.BOOTSTRAP_MANAGER_NAME || "Стрельченко Артем";
@@ -97,13 +97,14 @@ async function ensureManager() {
           lastName: "Стрельченко",
           patronymic: "Романович",
           passwordHash,
+          role: Role.ADMIN,
         }
-      : { name, passwordHash },
+      : { name, passwordHash, role: Role.ADMIN },
     create: {
       email,
       name,
       passwordHash,
-      role: Role.MANAGER,
+      role: Role.ADMIN,
       ...(useDemoProfile
         ? {
             firstName: "Артем",
@@ -113,7 +114,7 @@ async function ensureManager() {
         : {}),
     },
   });
-  console.log(`Manager: ${email}`);
+  console.log(`Admin: ${email}`);
 }
 
 async function ensureSpecialtiesAndEmployee() {
@@ -205,6 +206,28 @@ async function ensureSpecialtiesAndEmployee() {
     },
   });
   console.log(`Brigadier: ${brigEmail} / ${brigPassword}`);
+
+  const pmEmail = "pm@local.test";
+  const pmPassword = "manager123";
+  await prisma.user.upsert({
+    where: { email: pmEmail },
+    update: {
+      firstName: "Мария",
+      lastName: "Иванова",
+      patronymic: "Андреевна",
+      role: Role.MANAGER,
+    },
+    create: {
+      email: pmEmail,
+      name: "Иванова Мария Андреевна",
+      firstName: "Мария",
+      lastName: "Иванова",
+      patronymic: "Андреевна",
+      passwordHash: await bcrypt.hash(pmPassword, 10),
+      role: Role.MANAGER,
+    },
+  });
+  console.log(`Manager: ${pmEmail} / ${pmPassword}`);
 }
 
 async function clearCatalog() {
@@ -370,13 +393,13 @@ async function main() {
       console.log("Already initialized — skip bootstrap");
       return;
     }
-    await ensureManager();
+    await ensureAdmin();
     await ensureSpecialties();
     console.log("Production bootstrap complete (empty catalog)");
     return;
   }
 
-  await ensureManager();
+  await ensureAdmin();
   await ensureSpecialtiesAndEmployee();
   await clearCatalog();
   await importCatalog();

@@ -38,6 +38,7 @@ import {
 } from "@/lib/quote-calc";
 import { PaymentFlags } from "@/components/ui";
 import { cn } from "@/lib/cn";
+import { isQuoteOwnerRole } from "@/lib/roles";
 
 type Lifecycle = "CALCULATED" | "CONFIRMED" | "CANCELLED" | "COMPLETED";
 
@@ -215,7 +216,7 @@ export function QuoteEditor({
           if (!Array.isArray(list)) return;
           setManagers(
             list
-              .filter((u) => u.role === "MANAGER" && u.active)
+              .filter((u) => isQuoteOwnerRole(u.role) && u.active)
               .map((u) => ({ id: u.id, name: u.name })),
           );
         },

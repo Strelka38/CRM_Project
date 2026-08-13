@@ -1,4 +1,5 @@
 import { EmployeeEditor } from "@/components/EmployeeEditor";
+import { isAdmin, isManager } from "@/lib/roles";
 import { requireSession } from "@/lib/session";
 
 export default async function UserEditPage({
@@ -12,7 +13,8 @@ export default async function UserEditPage({
     <EmployeeEditor
       userId={id}
       isManager
-      canEditAgency={session.user.role === "MANAGER"}
+      isAdmin={isAdmin(session.user.role)}
+      canEditAgency={isManager(session.user.role)}
     />
   );
 }
