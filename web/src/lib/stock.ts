@@ -76,6 +76,7 @@ export async function expandBlocksToItemQty(
 }
 
 export type ReservationRow = {
+  source: "quote" | "rental";
   quoteId: string;
   proposalNumber: string;
   eventName: string;
@@ -85,20 +86,37 @@ export type ReservationRow = {
   qty: number;
 };
 
-/** Quotes that reserve this catalog item on overlapping dates. */
+export type StockExclude = {
+  excludeQuoteId?: string;
+  excludeRentalEntryId?: string;
+};
+
+function dateKeyFromDbDate(d: Date): string {
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(d.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/** Quotes + calendar rentals that reserve this catalog item on overlapping dates. */
 export async function getReservationDetails(
   catalogItemId: string,
   eventDate: Date | null,
   durationDays: number,
-  excludeQuoteId?: string,
+  excludeQuoteIdOrOpts?: string | StockExclude,
 ): Promise<ReservationRow[]> {
   if (!eventDate) return [];
+
+  const opts: StockExclude =
+    typeof excludeQuoteIdOrOpts === "string"
+      ? { excludeQuoteId: excludeQuoteIdOrOpts }
+      : excludeQuoteIdOrOpts || {};
 
   const quotes = await prisma.quote.findMany({
     where: {
       lifecycle: { in: ["CONFIRMED", "COMPLETED"] },
       eventDate: { not: null },
-      ...(excludeQuoteId ? { id: { not: excludeQuoteId } } : {}),
+      ...(opts.excludeQuoteId ? { id: { not: opts.excludeQuoteId } } : {}),
       OR: [
         {
           blocks: {
@@ -140,6 +158,7 @@ export async function getReservationDetails(
     const qty = expanded.get(catalogItemId)?.qty || 0;
     if (qty <= 0) continue;
     rows.push({
+      source: "quote",
       quoteId: q.id,
       proposalNumber: q.proposalNumber,
       eventName: q.eventName,
@@ -149,6 +168,44 @@ export async function getReservationDetails(
       qty,
     });
   }
+
+  const rentals = await prisma.calendarEntry.findMany({
+    where: {
+      kind: "RENTAL",
+      ...(opts.excludeRentalEntryId
+        ? { id: { not: opts.excludeRentalEntryId } }
+        : {}),
+      lines: { some: { catalogItemId, qty: { gt: 0 } } },
+    },
+    include: {
+      lines: {
+        where: { catalogItemId, qty: { gt: 0 } },
+      },
+    },
+  });
+
+  for (const r of rentals) {
+    const rentalDay = new Date(
+      r.date.getUTCFullYear(),
+      r.date.getUTCMonth(),
+      r.date.getUTCDate(),
+      12,
+    );
+    if (!rangesOverlap(eventDate, durationDays, rentalDay, 1)) continue;
+    const qty = r.lines.reduce((sum, l) => sum + (Number(l.qty) || 0), 0);
+    if (qty <= 0) continue;
+    rows.push({
+      source: "rental",
+      quoteId: r.id,
+      proposalNumber: "Аренда",
+      eventName: r.title || "Аренда оборудования",
+      client: "",
+      date: dateKeyFromDbDate(r.date),
+      lifecycle: "RENTAL",
+      qty,
+    });
+  }
+
   rows.sort((a, b) => a.date.localeCompare(b.date, "ru"));
   return rows;
 }
@@ -158,13 +215,13 @@ export async function getReservedQty(
   catalogItemId: string,
   eventDate: Date | null,
   durationDays: number,
-  excludeQuoteId?: string,
+  excludeQuoteIdOrOpts?: string | StockExclude,
 ): Promise<number> {
   const rows = await getReservationDetails(
     catalogItemId,
     eventDate,
     durationDays,
-    excludeQuoteId,
+    excludeQuoteIdOrOpts,
   );
   return rows.reduce((sum, r) => sum + r.qty, 0);
 }
@@ -173,7 +230,7 @@ export async function getAvailability(
   catalogItemId: string,
   eventDate: Date | null,
   durationDays: number,
-  excludeQuoteId?: string,
+  excludeQuoteIdOrOpts?: string | StockExclude,
 ) {
   const item = await prisma.catalogItem.findUnique({
     where: { id: catalogItemId },
@@ -201,7 +258,7 @@ export async function getAvailability(
     catalogItemId,
     eventDate,
     durationDays,
-    excludeQuoteId,
+    excludeQuoteIdOrOpts,
   );
   return {
     ...item,

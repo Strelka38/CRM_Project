@@ -90,6 +90,40 @@ export async function saveVenuePhoto(
   return { storagePath, filename, absPath };
 }
 
+export async function saveEquipmentDocument(
+  catalogItemId: string,
+  mimeType: string,
+  data: Buffer,
+): Promise<{ storagePath: string; absPath: string }> {
+  const ext = EXT_BY_MIME[mimeType] || "";
+  const dir = path.join(UPLOAD_ROOT, "equipment", catalogItemId);
+  await mkdir(dir, { recursive: true });
+  const filename = `${Date.now()}-${randomBytes(8).toString("hex")}${ext}`;
+  const absPath = path.join(dir, filename);
+  await writeFile(absPath, data);
+  const storagePath = path.join("equipment", catalogItemId, filename);
+  return { storagePath, absPath };
+}
+
+export async function saveEquipmentRepairPhoto(
+  repairId: string,
+  mimeType: string,
+  data: Buffer,
+): Promise<{ storagePath: string; absPath: string }> {
+  const ext = EXT_BY_MIME[mimeType] || "";
+  const dir = path.join(UPLOAD_ROOT, "repairs", repairId);
+  await mkdir(dir, { recursive: true });
+  const filename = `${Date.now()}-${randomBytes(8).toString("hex")}${ext}`;
+  const absPath = path.join(dir, filename);
+  await writeFile(absPath, data);
+  const storagePath = path.join("repairs", repairId, filename);
+  return { storagePath, absPath };
+}
+
+export function newQrToken() {
+  return randomBytes(12).toString("base64url");
+}
+
 export function mimeFromStoragePath(storagePath: string) {
   const ext = path.extname(storagePath).toLowerCase();
   return MIME_BY_EXT[ext] || "application/octet-stream";

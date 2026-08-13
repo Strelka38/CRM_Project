@@ -8,24 +8,41 @@ import type {
   QuoteMeta,
 } from "./types";
 
+/** Стандартный % начисления безнала (цена = наличные / (1 − %/100)). */
+export const DEFAULT_CASHLESS_PERCENT = 10;
+
 /** Excel CEILING.MATH(n, 10) for positive numbers */
 export function ceilingMath(value: number, significance = 10): number {
   if (significance === 0) return value;
   return Math.ceil(value / significance - Number.EPSILON) * significance;
 }
 
+export function normalizeCashlessPercent(
+  value?: number | null,
+): number {
+  if (value == null || Number.isNaN(Number(value))) {
+    return DEFAULT_CASHLESS_PERCENT;
+  }
+  // 100% сделало бы деление на ноль; верх — 99
+  return Math.min(99, Math.max(0, Number(value)));
+}
+
 /**
- * Безнал: CEILING.MATH(D + (cashless * ((D/0.9) - D)), 10)
- * cashless = 1 → наценка ~11.11% с округлением вверх до 10
+ * Безнал: CEILING.MATH(D + (cashless * ((D/keep) - D)), 10)
+ * keep = 1 − percent/100 (при 10% → 0.9, наценка ~11.11% с округлением вверх до 10)
  */
 export function cashlessUnitPrice(
   basePrice: number,
   cashless: boolean,
   override: number | null | undefined,
+  cashlessPercent: number = DEFAULT_CASHLESS_PERCENT,
 ): number {
   if (cashless && override != null) return override;
   const flag = cashless ? 1 : 0;
-  return ceilingMath(basePrice + flag * (basePrice / 0.9 - basePrice), 10);
+  const percent = normalizeCashlessPercent(cashlessPercent);
+  const keep = (100 - percent) / 100;
+  if (keep <= 0) return ceilingMath(basePrice, 10);
+  return ceilingMath(basePrice + flag * (basePrice / keep - basePrice), 10);
 }
 
 export function dayCoefficient(mode: DayMode, days: number): number {
@@ -46,10 +63,13 @@ export function dayCoefficient(mode: DayMode, days: number): number {
 export function calcLine(
   item: CatalogItem,
   qty: number,
-  meta: Pick<QuoteMeta, "cashless" | "durationDays">,
+  meta: Pick<QuoteMeta, "cashless" | "durationDays"> & {
+    cashlessPercent?: number;
+  },
 ): LineCalc {
   const q = Math.max(0, qty || 0);
   const dayCoef = dayCoefficient(item.dayMode, meta.durationDays);
+  const percent = normalizeCashlessPercent(meta.cashlessPercent);
   // Колонка D в Excel — базовая цена; G = F*D*C
   const unitPriceCash = item.price;
   // Колонка E — безнал (формула или ручной override); H = F*E*C
@@ -57,6 +77,7 @@ export function calcLine(
     item.price,
     true,
     item.priceCashlessOverride,
+    percent,
   );
   const unitPrice = meta.cashless ? unitPriceCashless : unitPriceCash;
   const sumCash = dayCoef * unitPriceCash * q;
@@ -79,7 +100,9 @@ export function calcLine(
 export function calcQuote(
   catalog: Catalog,
   quantities: Record<string, number>,
-  meta: Pick<QuoteMeta, "cashless" | "durationDays">,
+  meta: Pick<QuoteMeta, "cashless" | "durationDays"> & {
+    cashlessPercent?: number;
+  },
 ): QuoteCalc {
   let totalCash = 0;
   let totalCashless = 0;

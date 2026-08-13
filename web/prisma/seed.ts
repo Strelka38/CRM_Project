@@ -363,22 +363,16 @@ async function importCatalog() {
 }
 
 async function main() {
-  // Docker/prod install: create admin + specialties + catalog once, never wipe data.
+  // Docker/prod install: only first admin + specialties. Catalog stays empty for external import.
   if (process.env.BOOTSTRAP_MODE === "prod") {
     const users = await prisma.user.count();
-    const items = await prisma.catalogItem.count();
-    if (users > 0 && items > 0) {
+    if (users > 0) {
       console.log("Already initialized — skip bootstrap");
       return;
     }
-    if (users === 0) {
-      await ensureManager();
-    }
+    await ensureManager();
     await ensureSpecialties();
-    if (items === 0) {
-      await importCatalog();
-    }
-    console.log("Production bootstrap complete");
+    console.log("Production bootstrap complete (empty catalog)");
     return;
   }
 

@@ -63,6 +63,7 @@ export async function POST(req: NextRequest) {
         ownerId: owner.id,
         discountPercent: quote.discountPercent,
         cashless: quote.cashless,
+        cashlessPercent: quote.cashlessPercent,
         notes: quote.notes,
         payload,
       },

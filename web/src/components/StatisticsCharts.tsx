@@ -417,6 +417,237 @@ export function EmployeesPayrollChart({
   );
 }
 
+function CountTooltip({
+  active,
+  payload,
+  label,
+  unit = "смен",
+}: {
+  active?: boolean;
+  payload?: { name: string; value: number; color: string }[];
+  label?: string;
+  unit?: string;
+}) {
+  const colors = useChartColors();
+  if (!active || !payload?.length) return null;
+  return (
+    <div
+      style={{
+        background: colors.panel,
+        border: `1px solid ${colors.line}`,
+        borderRadius: 8,
+        fontSize: 12,
+        color: colors.ink,
+        boxShadow: "0 8px 24px rgba(0, 0, 0, 0.25)",
+      }}
+      className="px-3 py-2"
+    >
+      {label && (
+        <p className="mb-1 font-medium text-[var(--ink)]">{label}</p>
+      )}
+      {payload.map((entry) => (
+        <p key={entry.name} style={{ color: entry.color }} className="tabular-nums">
+          {entry.name}: {entry.value} {unit}
+        </p>
+      ))}
+    </div>
+  );
+}
+
+export function EmployeesShiftsChart({
+  employees,
+  onSelect,
+}: {
+  employees: {
+    userId: string;
+    name: string;
+    confirmedShifts: number;
+    pendingShifts: number;
+  }[];
+  onSelect?: (userId: string) => void;
+}) {
+  const COLORS = useChartColors();
+  if (employees.length === 0) return null;
+
+  const data = [...employees]
+    .sort(
+      (a, b) =>
+        b.confirmedShifts +
+        b.pendingShifts -
+        (a.confirmedShifts + a.pendingShifts),
+    )
+    .map((e) => ({
+      userId: e.userId,
+      name: shortLabel(e.name, 14),
+      fullName: e.name,
+      Подтверждено: e.confirmedShifts,
+      Ожидается: e.pendingShifts,
+    }));
+
+  const height = Math.max(220, data.length * 36 + 48);
+
+  return (
+    <div className="w-full" style={{ height }}>
+      <p className="mb-2 px-1 text-xs uppercase tracking-[0.15em] text-[var(--muted)]">
+        Смены по сотрудникам
+      </p>
+      <ResponsiveContainer width="100%" height="90%">
+        <BarChart
+          data={data}
+          layout="vertical"
+          margin={{ top: 4, right: 16, left: 4, bottom: 4 }}
+        >
+          <CartesianGrid strokeDasharray="3 3" stroke={COLORS.line} horizontal={false} />
+          <XAxis
+            type="number"
+            allowDecimals={false}
+            tick={{ fill: COLORS.muted, fontSize: 11 }}
+            axisLine={false}
+            tickLine={false}
+          />
+          <YAxis
+            type="category"
+            dataKey="name"
+            width={88}
+            tick={{ fill: COLORS.muted, fontSize: 11 }}
+            axisLine={false}
+            tickLine={false}
+          />
+          <Tooltip
+            content={({ active, payload }) => {
+              if (!active || !payload?.length) return null;
+              const full = (payload[0]?.payload as { fullName?: string })
+                ?.fullName;
+              return (
+                <CountTooltip
+                  active={active}
+                  label={full}
+                  payload={payload.map((p) => ({
+                    name: String(p.name),
+                    value: Number(p.value),
+                    color: String(p.color),
+                  }))}
+                />
+              );
+            }}
+            cursor={{ fill: "rgba(0,158,227,0.06)" }}
+          />
+          <Legend
+            formatter={(value) => (
+              <span className="text-xs text-[var(--muted)]">{value}</span>
+            )}
+          />
+          <Bar
+            dataKey="Подтверждено"
+            stackId="shifts"
+            fill={COLORS.confirmed}
+            maxBarSize={22}
+            cursor={onSelect ? "pointer" : undefined}
+            onClick={(entry) => {
+              const id = (entry as { payload?: { userId?: string } }).payload
+                ?.userId;
+              if (id && onSelect) onSelect(id);
+            }}
+          />
+          <Bar
+            dataKey="Ожидается"
+            stackId="shifts"
+            fill={COLORS.pending}
+            radius={[0, 4, 4, 0]}
+            maxBarSize={22}
+            cursor={onSelect ? "pointer" : undefined}
+            onClick={(entry) => {
+              const id = (entry as { payload?: { userId?: string } }).payload
+                ?.userId;
+              if (id && onSelect) onSelect(id);
+            }}
+          />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+export function EmployeeShiftsDetailChart({
+  rows,
+}: {
+  rows: {
+    id: string;
+    specialty: { name: string };
+    quote: { eventName: string; proposalNumber: string; lifecycle: string };
+  }[];
+}) {
+  const COLORS = useChartColors();
+  if (rows.length === 0) return null;
+
+  const data = [...rows]
+    .reverse()
+    .slice(-15)
+    .map((r) => ({
+      name: shortLabel(r.quote.eventName || `КП №${r.quote.proposalNumber}`, 14),
+      fullName: `${r.quote.eventName || `КП №${r.quote.proposalNumber}`} · ${r.specialty.name}`,
+      Смены: 1,
+      fill: ["CONFIRMED", "COMPLETED"].includes(r.quote.lifecycle)
+        ? COLORS.confirmed
+        : COLORS.pending,
+    }));
+
+  return (
+    <div className="h-64 w-full">
+      <p className="mb-2 px-1 text-xs uppercase tracking-[0.15em] text-[var(--muted)]">
+        Выезды по мероприятиям{rows.length > 15 ? " (последние 15)" : ""}
+      </p>
+      <ResponsiveContainer width="100%" height="90%">
+        <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 4 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke={COLORS.line} vertical={false} />
+          <XAxis
+            dataKey="name"
+            tick={{ fill: COLORS.muted, fontSize: 11 }}
+            axisLine={{ stroke: COLORS.line }}
+            tickLine={false}
+            interval={0}
+            angle={data.length > 5 ? -25 : 0}
+            textAnchor={data.length > 5 ? "end" : "middle"}
+            height={data.length > 5 ? 56 : 28}
+          />
+          <YAxis
+            allowDecimals={false}
+            tick={{ fill: COLORS.muted, fontSize: 11 }}
+            axisLine={false}
+            tickLine={false}
+            width={32}
+          />
+          <Tooltip
+            content={({ active, payload }) => {
+              if (!active || !payload?.length) return null;
+              const full = (payload[0]?.payload as { fullName?: string })
+                ?.fullName;
+              return (
+                <CountTooltip
+                  active={active}
+                  label={full}
+                  unit=""
+                  payload={payload.map((p) => ({
+                    name: String(p.name),
+                    value: Number(p.value),
+                    color: String(p.color ?? COLORS.confirmed),
+                  }))}
+                />
+              );
+            }}
+            cursor={{ fill: "rgba(0,158,227,0.06)" }}
+          />
+          <Bar dataKey="Смены" radius={[6, 6, 0, 0]} maxBarSize={40}>
+            {data.map((entry) => (
+              <Cell key={entry.name + entry.fullName} fill={entry.fill} />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
 const COMPANY_COLORS: Record<string, string> = {
   SHOW_MASTER: "#0f69b1",
   DIAKOM: "#009ee3",

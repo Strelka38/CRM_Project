@@ -22,7 +22,7 @@ export function ThemeToggle({
       className={cn(
         "relative flex h-9 w-9 items-center justify-center rounded-md transition-colors",
         variant === "header"
-          ? "text-[var(--muted-on-dark)] hover:bg-white/10 hover:text-white"
+          ? "text-[var(--header-muted)] hover:bg-[var(--header-hover)] hover:text-[var(--header-ink)]"
           : "text-[var(--muted)] hover:bg-[var(--selected)] hover:text-[var(--ink)]",
         className,
       )}

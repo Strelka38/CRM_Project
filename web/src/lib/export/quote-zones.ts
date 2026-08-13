@@ -27,6 +27,7 @@ export type ExportMeta = {
   client: string;
   managerName: string;
   cashless: boolean;
+  cashlessPercent?: number;
   durationDays: number;
   discountPercent: number;
   notes: string[];
@@ -106,6 +107,7 @@ export function buildExportPreviewHtml(
     meta.cashless,
     meta.durationDays,
     meta.discountPercent,
+    meta.cashlessPercent,
   );
 
   let html = `<div style="font-family:sans-serif;padding:16px">`;
@@ -171,6 +173,7 @@ export async function exportQuoteZonesExcel(
     meta.cashless,
     meta.durationDays,
     meta.discountPercent,
+    meta.cashlessPercent,
   );
 
   const wb = new ExcelJS.Workbook();
@@ -398,6 +401,7 @@ export async function exportQuoteZonesPdf(
     meta.cashless,
     meta.durationDays,
     meta.discountPercent,
+    meta.cashlessPercent,
   );
 
   const [regular, bold] = await Promise.all([

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import {
   useEffect,
   useMemo,
@@ -18,7 +19,6 @@ import {
   KitEditorModal,
   type EditableKit,
 } from "@/components/KitEditorModal";
-import { OwnerTagsPicker } from "@/components/OwnerTagsPicker";
 import {
   inferCatalogOwners,
   normalizeOwners,
@@ -89,6 +89,9 @@ export function CatalogAdmin() {
   const [dragging, setDragging] = useState<DragPayload | null>(null);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
   const expandTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const csvImportRef = useRef<HTMLInputElement>(null);
+  const [csvBusy, setCsvBusy] = useState(false);
+  const [csvMessage, setCsvMessage] = useState("");
 
   async function loadCats() {
     const res = await fetch("/api/catalog/categories?tree=1");
@@ -109,6 +112,67 @@ export function CatalogAdmin() {
     if (q) params.set("q", q);
     const res = await fetch(`/api/kits?${params}`);
     setKits(await res.json());
+  }
+
+  async function exportCsv() {
+    setCsvBusy(true);
+    setCsvMessage("");
+    try {
+      const res = await fetch("/api/catalog/export", {
+        credentials: "same-origin",
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setCsvMessage(data.error || "Не удалось экспортировать");
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download =
+        res.headers
+          .get("Content-Disposition")
+          ?.match(/filename="([^"]+)"/)?.[1] || "catalog.csv";
+      a.click();
+      URL.revokeObjectURL(url);
+      setCsvMessage("CSV скачан");
+    } catch {
+      setCsvMessage("Не удалось экспортировать");
+    } finally {
+      setCsvBusy(false);
+    }
+  }
+
+  async function importCsv(file: File) {
+    setCsvBusy(true);
+    setCsvMessage("");
+    try {
+      const fd = new FormData();
+      fd.set("file", file);
+      const res = await fetch("/api/catalog/import", {
+        method: "POST",
+        credentials: "same-origin",
+        body: fd,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setCsvMessage(data.error || "Не удалось импортировать");
+        return;
+      }
+      const errHint =
+        data.errorCount > 0 ? ` · ошибок: ${data.errorCount}` : "";
+      setCsvMessage(
+        `Импорт: создано ${data.created}, обновлено ${data.updated}${errHint}`,
+      );
+      await loadCats();
+      await loadItems();
+      await loadKits();
+    } catch {
+      setCsvMessage("Не удалось импортировать");
+    } finally {
+      setCsvBusy(false);
+    }
   }
 
   useEffect(() => {
@@ -477,7 +541,16 @@ export function CatalogAdmin() {
     setRenameValue(cat.name);
   }
 
-  function renderNode(cat: Category, depth: number) {
+  function renderNode(
+    cat: Category,
+    depth: number,
+    isLast = true,
+    isFirst = true,
+    /** На каждом уровне предка: продолжать вертикаль (предок не последний среди siblings) */
+    ancestorContinue: boolean[] = [],
+  ) {
+    const TREE_INDENT = 18;
+    const GUIDE_X = 10;
     const kids = byParent.get(cat.id) ?? [];
     const hasKids = kids.length > 0;
     const isOpen = expanded.has(cat.path);
@@ -486,23 +559,71 @@ export function CatalogAdmin() {
     const isDropTarget = dropTargetId === cat.id && dragging != null;
     const isSameCategory =
       dragging != null && dragging.categoryId === cat.id;
+    const parentLevel = depth - 1;
+    const guideLeft = parentLevel * TREE_INDENT + GUIDE_X;
+    const elbowWidth = TREE_INDENT - 2;
 
     return (
-      <div key={cat.id}>
+      <div key={cat.id} className="relative">
+        {depth > 0 && (
+          <>
+            {ancestorContinue.map((cont, level) =>
+              cont ? (
+                <span
+                  key={`anc-${level}`}
+                  className="catalog-tree-guide"
+                  style={{
+                    left: level * TREE_INDENT + GUIDE_X,
+                    top: 0,
+                    bottom: 0,
+                    width: 1,
+                  }}
+                  aria-hidden
+                />
+              ) : null,
+            )}
+            <span
+              className="catalog-tree-guide"
+              style={{
+                left: guideLeft,
+                top: isFirst ? -6 : 0,
+                width: 1,
+                height: isLast
+                  ? isFirst
+                    ? "calc(50% + 6px)"
+                    : "50%"
+                  : isFirst
+                    ? "calc(100% + 6px)"
+                    : "100%",
+              }}
+              aria-hidden
+            />
+            <span
+              className="catalog-tree-guide"
+              style={{
+                left: guideLeft,
+                top: "50%",
+                width: elbowWidth,
+                height: 1,
+              }}
+              aria-hidden
+            />
+          </>
+        )}
         <div
           onDragOver={(e) => onCategoryDragOver(e, cat)}
           onDragLeave={(e) => onCategoryDragLeave(e, cat.id)}
           onDrop={(e) => void onCategoryDrop(e, cat)}
-          className={`group flex items-center gap-0.5 rounded-md transition-colors ${
+          className={`group relative z-[1] flex items-center gap-0.5 rounded-md transition-colors ${
             isDropTarget && !isSameCategory
               ? "bg-[var(--accent)]/15 ring-2 ring-[var(--accent)] ring-inset"
               : isDropTarget && isSameCategory
                 ? "bg-[var(--selected)] opacity-60"
                 : isSelected
                   ? "bg-[var(--selected)]"
-                  : "hover:bg-white/10"
+                  : "hover:bg-[var(--header-hover)]"
           }`}
-          style={{ paddingLeft: `${depth * 0.5}rem` }}
+          style={{ paddingLeft: depth * TREE_INDENT }}
         >
           <button
             type="button"
@@ -510,7 +631,7 @@ export function CatalogAdmin() {
             onClick={(e) => (hasKids ? toggleExpand(cat.path, e) : undefined)}
             aria-label={isOpen ? "Свернуть" : "Развернуть"}
           >
-            {hasKids ? (isOpen ? "▾" : "▸") : ""}
+            {hasKids ? (isOpen ? "▾" : "▸") : "·"}
           </button>
 
           {isRenaming ? (
@@ -534,8 +655,8 @@ export function CatalogAdmin() {
               type="button"
               onClick={() => setSelectedPath(cat.path)}
               className={`min-w-0 flex-1 truncate py-1.5 text-left font-semibold text-[var(--ink)] ${
-                depth === 0 ? "text-sm" : "text-sm"
-              } ${depth >= 2 ? "text-xs" : ""}`}
+                depth >= 2 ? "text-xs" : "text-sm"
+              }`}
             >
               {cat.name}
             </button>
@@ -552,7 +673,7 @@ export function CatalogAdmin() {
               <button
                 type="button"
                 title="Переименовать"
-                className="rounded px-1 text-xs text-[var(--muted)] hover:bg-white/10 hover:text-[var(--ink)]"
+                className="rounded px-1 text-xs text-[var(--muted)] hover:bg-[var(--header-hover)] hover:text-[var(--ink)]"
                 onClick={(e) => startRename(cat, e)}
               >
                 ✎
@@ -560,7 +681,7 @@ export function CatalogAdmin() {
               <button
                 type="button"
                 title="Удалить"
-                className="rounded px-1 text-xs text-[var(--danger)] hover:bg-white/10"
+                className="rounded px-1 text-xs text-[var(--danger)] hover:bg-[var(--header-hover)]"
                 onClick={(e) => {
                   e.stopPropagation();
                   requestHideCategory(cat);
@@ -572,7 +693,31 @@ export function CatalogAdmin() {
           )}
         </div>
         {hasKids && isOpen && (
-          <div>{kids.map((child) => renderNode(child, depth + 1))}</div>
+          <div className="relative">
+            {/* Вертикаль родителя через раскрытых внуков → до следующего sibling */}
+            {depth > 0 && !isLast ? (
+              <span
+                className="catalog-tree-guide"
+                style={{
+                  left: (depth - 1) * TREE_INDENT + GUIDE_X,
+                  top: 0,
+                  bottom: 0,
+                  width: 1,
+                }}
+                aria-hidden
+              />
+            ) : null}
+            {kids.map((child, i) =>
+              renderNode(
+                child,
+                depth + 1,
+                i === kids.length - 1,
+                i === 0,
+                // Не тянем вертикаль между корневыми разделами
+                [...ancestorContinue, depth === 0 ? false : !isLast],
+              ),
+            )}
+          </div>
         )}
       </div>
     );
@@ -611,8 +756,8 @@ export function CatalogAdmin() {
         <p className="text-xs uppercase tracking-[0.15em] text-[var(--muted)]">CRM</p>
         <h1 className="mt-1 text-3xl font-light tracking-tight">Каталог</h1>
         <p className="mt-1 text-sm text-[var(--muted)]">
-          Перетащите позицию или комплект на раздел слева · склад и карточка
-          позиции
+          Остатки, резервы, фирмы и цены. Редактирование техники — во вкладке
+          Склад.
         </p>
       </header>
 
@@ -636,8 +781,10 @@ export function CatalogAdmin() {
           >
             Все разделы
           </button>
-          <div className="max-h-[60vh] space-y-0.5 overflow-y-auto text-sm">
-            {roots.map((root) => renderNode(root, 0))}
+          <div className="catalog-tree max-h-[60vh] overflow-y-auto text-sm">
+            {roots.map((root, i) =>
+              renderNode(root, 0, i === roots.length - 1, i === 0, []),
+            )}
           </div>
           <div className="mt-3 flex gap-2 border-t border-[var(--line)] pt-3">
             <input
@@ -674,7 +821,26 @@ export function CatalogAdmin() {
             <span className="text-xs text-[var(--muted)]">
               {selectedLabel} · {tableRows.length} поз.
             </span>
-            <div className="ml-auto flex flex-wrap gap-2">
+            <div className="ml-auto flex flex-wrap items-center gap-2">
+              <input
+                ref={csvImportRef}
+                type="file"
+                accept=".csv,text/csv"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = "";
+                  if (file) void importCsv(file);
+                }}
+              />
+              <button
+                type="button"
+                disabled={csvBusy}
+                onClick={() => void exportCsv()}
+                className="rounded-md border border-[var(--line)] px-3 py-1.5 text-sm disabled:opacity-50"
+              >
+                Экспорт CSV
+              </button>
               <button
                 type="button"
                 onClick={openNewKit}
@@ -682,15 +848,13 @@ export function CatalogAdmin() {
               >
                 + Комплект
               </button>
-              <button
-                type="button"
-                onClick={() => void addItem()}
-                className="rounded-md border border-[var(--line)] px-3 py-1.5 text-sm"
-              >
-                + Позиция
-              </button>
             </div>
           </div>
+          {csvMessage ? (
+            <p className="border-b border-[var(--line)] px-4 py-2 text-xs text-[var(--muted)]">
+              {csvMessage}
+            </p>
+          ) : null}
 
           <div className="overflow-x-auto">
             <table className="w-full min-w-[800px] text-sm">
@@ -791,119 +955,68 @@ export function CatalogAdmin() {
                     }
 
                     const { item } = row;
-                    const isDragging =
-                      dragging?.kind === "item" && dragging.id === item.id;
                     return (
                       <tr
                         key={`item-${item.id}`}
-                        className={`border-t border-[var(--line)] hover:bg-[var(--panel-muted)] ${
-                          isDragging ? "opacity-40" : ""
-                        }`}
+                        className="border-t border-[var(--line)] hover:bg-[var(--panel-muted)]"
                       >
-                        <td className="px-1 py-2 text-center">
-                          <span
-                            draggable
-                            title="Перетащить в раздел"
-                            onDragStart={(e) =>
-                              startDrag(e, {
-                                kind: "item",
-                                id: item.id,
-                                categoryId:
-                                  item.categoryId || item.category?.id,
-                                name: item.name,
-                              })
-                            }
-                            onDragEnd={endDrag}
-                            className="inline-block cursor-grab select-none px-1 text-[var(--muted)] active:cursor-grabbing"
-                          >
-                            ⠿
-                          </span>
+                        <td className="px-1 py-2 text-center text-[var(--muted)]">
+                          ·
                         </td>
                         <td className="px-3 py-2">
-                          <button
-                            type="button"
-                            className="text-left font-semibold text-[var(--ink)] hover:underline"
-                            onClick={() => setDrawer(item)}
-                          >
-                            {normalizeOwners(item.owners, item.owner).length >
-                            0 ? (
-                              <span
-                                className="mr-1.5 inline-block rounded border border-[var(--line)] bg-[var(--panel-muted)] px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[var(--ink)]"
-                                title={ownerShorts(
-                                  normalizeOwners(item.owners, item.owner),
-                                )}
-                              >
-                                {ownerShorts(
-                                  normalizeOwners(item.owners, item.owner),
-                                )}
-                              </span>
-                            ) : null}
-                            {item.name}
-                          </button>
+                          {item.itemKind === "EQUIPMENT" || !item.itemKind ? (
+                            <Link
+                              href={`/equipment/${item.id}`}
+                              className="text-left font-semibold text-[var(--ink)] hover:underline"
+                            >
+                              {normalizeOwners(item.owners, item.owner).length >
+                              0 ? (
+                                <span
+                                  className="mr-1.5 inline-block rounded border border-[var(--line)] bg-[var(--panel-muted)] px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[var(--ink)]"
+                                  title={ownerShorts(
+                                    normalizeOwners(item.owners, item.owner),
+                                  )}
+                                >
+                                  {ownerShorts(
+                                    normalizeOwners(item.owners, item.owner),
+                                  )}
+                                </span>
+                              ) : null}
+                              {item.name}
+                            </Link>
+                          ) : (
+                            <span className="font-semibold text-[var(--ink)]">
+                              {item.name}
+                            </span>
+                          )}
                           <div className="mt-0.5 text-xs text-[var(--muted)]">
                             {formatMoney(item.basePrice)}
                           </div>
                         </td>
-                        <td className="px-3 py-2">
-                          <input
-                            type="number"
-                            className="field"
-                            defaultValue={item.basePrice}
-                            key={`${item.id}-price-${item.basePrice}`}
-                            onBlur={(e) => {
-                              const v = Number(e.target.value) || 0;
-                              if (v !== item.basePrice) {
-                                void patchItem(item.id, { basePrice: v });
-                              }
-                            }}
-                          />
+                        <td className="px-3 py-2 tabular-nums">
+                          {formatMoney(item.basePrice)}
                         </td>
-                        <td className="px-3 py-2">
-                          <input
-                            type="number"
-                            className="field"
-                            defaultValue={item.stockQty}
-                            key={`${item.id}-stock-${item.stockQty}`}
-                            onBlur={(e) => {
-                              const v = Math.max(
-                                0,
-                                Number(e.target.value) || 0,
-                              );
-                              if (v !== item.stockQty) {
-                                void patchItem(item.id, { stockQty: v });
-                              }
-                            }}
-                          />
+                        <td className="px-3 py-2 tabular-nums">
+                          {item.stockQty}
                         </td>
                         <td className="px-3 py-2 tabular-nums text-[var(--muted)]">
                           {item.available ?? "—"}
                         </td>
-                        <td className="px-3 py-2">
-                          <OwnerTagsPicker
-                            compact
-                            label=""
-                            value={normalizeOwners(item.owners, item.owner)}
-                            onChange={(owners) =>
-                              void patchItem(item.id, { owners })
-                            }
-                          />
+                        <td className="px-3 py-2 text-sm">
+                          {ownerShorts(normalizeOwners(item.owners, item.owner))}
                         </td>
                         <td className="px-3 py-2 text-xs text-[var(--muted)]">
                           {item.category?.path}
                         </td>
                         <td className="px-3 py-2 text-right">
-                          <button
-                            type="button"
-                            className="text-sm text-[var(--danger)]"
-                            onClick={() =>
-                              requestHideItem({
-                                id: item.id,
-                                name: item.name,
-                              })
-                            }
-                          >
-                            Удалить
-                          </button>
+                          {item.itemKind === "EQUIPMENT" || !item.itemKind ? (
+                            <Link
+                              href={`/equipment/${item.id}`}
+                              className="text-sm text-[var(--accent)] hover:underline"
+                            >
+                              Карточка
+                            </Link>
+                          ) : null}
                         </td>
                       </tr>
                     );

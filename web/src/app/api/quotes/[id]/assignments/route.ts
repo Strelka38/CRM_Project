@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
+import { dayOffsOverlappingQuote } from "@/lib/day-off-conflicts";
 import { notifyEmployeeOfAssignment } from "@/lib/notifications";
 import {
   canManageAssignments,
@@ -210,6 +211,24 @@ export async function POST(
       return NextResponse.json(
         { error: "У сотрудника нет этой специальности" },
         { status: 400 },
+      );
+    }
+
+    const dayOffs = await dayOffsOverlappingQuote(body.userId, quote);
+    if (dayOffs.length > 0) {
+      const when = dayOffs
+        .map((d) =>
+          d.startTime && d.endTime
+            ? `${d.date} (${d.startTime}–${d.endTime})`
+            : d.date,
+        )
+        .join(", ");
+      return NextResponse.json(
+        {
+          error: `У сотрудника выходной в эти дни: ${when}. Назначить нельзя.`,
+          dayOffs,
+        },
+        { status: 409 },
       );
     }
 

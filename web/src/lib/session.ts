@@ -2,20 +2,39 @@ import { auth } from "./auth";
 import { prisma } from "./db";
 import {
   canAccessDatabase,
+  canAccessRepairs,
+  canAccessWorkloadStats,
+  canCreateCalendarDayOff,
+  canCreateCalendarProject,
+  canCreateCalendarRental,
+  canCreateCalendarTask,
   canEditBrief,
+  canEditCalendarEntry,
   canEditSpec,
   canManageAssignments,
+  canOpenCalendarCreateMenu,
+  isCrmOwner,
   isManager,
 } from "./roles";
 
 export {
   canAccessDatabase,
+  canAccessRepairs,
+  canAccessWorkloadStats,
+  canCreateCalendarDayOff,
+  canCreateCalendarProject,
+  canCreateCalendarRental,
+  canCreateCalendarTask,
   canEditBrief,
+  canEditCalendarEntry,
   canEditSpec,
   canManageAssignments,
   canManageQuotes,
+  canOpenCalendarCreateMenu,
+  canSendEquipmentToRepair,
   canSeeAllEvents,
   canSeeAssignmentPay,
+  isCrmOwner,
   isManager,
   roleLabelRu,
   roleLabelRuTitle,
@@ -98,6 +117,42 @@ export async function requireBriefEditor() {
 export async function requireDatabaseAccess() {
   const session = await requireSession();
   if (!canAccessDatabase(session.user.role)) {
+    throw jsonError("Forbidden", 403);
+  }
+  return session;
+}
+
+export async function getFirstCrmUserId() {
+  const first = await prisma.user.findFirst({
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    select: { id: true },
+  });
+  return first?.id ?? null;
+}
+
+/** Full export/import: only the first registered CRM user. */
+export async function requireFirstCrmUser() {
+  const session = await requireSession();
+  const firstId = await getFirstCrmUserId();
+  if (!isCrmOwner(session.user.id, firstId)) {
+    throw jsonError("Forbidden", 403);
+  }
+  return session;
+}
+
+/** Repair section: manager or brigadier. */
+export async function requireRepairsAccess() {
+  const session = await requireSession();
+  if (!canAccessRepairs(session.user.role)) {
+    throw jsonError("Forbidden", 403);
+  }
+  return session;
+}
+
+/** Workload / statistics: manager or brigadier. */
+export async function requireWorkloadStats() {
+  const session = await requireSession();
+  if (!canAccessWorkloadStats(session.user.role)) {
     throw jsonError("Forbidden", 403);
   }
   return session;

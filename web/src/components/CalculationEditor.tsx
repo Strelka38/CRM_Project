@@ -56,6 +56,7 @@ type AssignmentRow = {
 
 type AgencyInfo = {
   rate: number;
+  percent?: number;
   total: number;
   deductedTotal: number;
   incomeOnlyTotal: number;
@@ -586,8 +587,11 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
                 Агентские менеджера · {data.owner.name}
               </h2>
               <p className="mt-1 text-sm text-[var(--muted)]">
-                {(agencyInfo.rate * 100).toFixed(0)}% от (выручка − расходы −
-                ЗП − монтажные) по каждой фирме. С фирм менеджера (
+                {(agencyInfo.percent ?? agencyInfo.rate * 100).toLocaleString(
+                  "ru-RU",
+                )}
+                % от (выручка − расходы − ЗП − монтажные) по каждой фирме. С
+                фирм менеджера (
                 {agencyInfo.managerOwners.length
                   ? agencyInfo.managerOwners
                       .map(

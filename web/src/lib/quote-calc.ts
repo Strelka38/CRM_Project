@@ -1,5 +1,10 @@
 import type { DayMode as PrismaDayMode, BlockType } from "@prisma/client";
-import { cashlessUnitPrice, dayCoefficient } from "./pricing";
+import {
+  cashlessUnitPrice,
+  dayCoefficient,
+  DEFAULT_CASHLESS_PERCENT,
+  normalizeCashlessPercent,
+} from "./pricing";
 import type { DayMode } from "./types";
 
 export type CostKind = "equipment" | "service" | "consumable";
@@ -75,6 +80,7 @@ export function calcBlock(
   block: QuoteBlockInput,
   cashless: boolean,
   durationDays: number,
+  cashlessPercent: number = DEFAULT_CASHLESS_PERCENT,
 ): CalcBlock {
   if (block.type !== "ITEM") {
     return {
@@ -95,8 +101,14 @@ export function calcBlock(
       ? Number(block.dayCoefOverride)
       : dayCoefficient(mode, durationDays);
 
+  const percent = normalizeCashlessPercent(cashlessPercent);
   const unitCash = base;
-  const unitCashless = cashlessUnitPrice(base, true, block.cashlessOverride);
+  const unitCashless = cashlessUnitPrice(
+    base,
+    true,
+    block.cashlessOverride,
+    percent,
+  );
   const displayUnitPrice = cashless ? unitCashless : unitCash;
   const lineTotalCash = dayCoef * unitCash * qty;
   const lineTotalCashless = dayCoef * unitCashless * qty;
@@ -116,10 +128,11 @@ export function calcDocument(
   blocks: QuoteBlockInput[],
   cashless: boolean,
   durationDays: number,
+  cashlessPercent: number = DEFAULT_CASHLESS_PERCENT,
 ) {
   const calculated = [...blocks]
     .sort((a, b) => a.sortOrder - b.sortOrder)
-    .map((b) => calcBlock(b, cashless, durationDays));
+    .map((b) => calcBlock(b, cashless, durationDays, cashlessPercent));
 
   let totalCash = 0;
   let totalCashless = 0;
@@ -205,6 +218,7 @@ export function calcByZones(
   cashless: boolean,
   durationDays: number,
   discountPercent: number,
+  cashlessPercent: number = DEFAULT_CASHLESS_PERCENT,
 ): {
   zones: ZoneTotals[];
   equipmentTotal: number;
@@ -216,13 +230,14 @@ export function calcByZones(
   itemCount: number;
 } {
   const discountRate = Math.max(0, Number(discountPercent) || 0) / 100;
+  const percent = normalizeCashlessPercent(cashlessPercent);
   const sortedZones = [...zones].sort((a, b) => a.sortOrder - b.sortOrder);
 
   const zoneRows: ZoneTotals[] = sortedZones.map((z) => {
     const zoneBlocks = blocks
       .filter((b) => b.zoneId === z.id)
       .sort((a, b) => a.sortOrder - b.sortOrder);
-    const doc = calcDocument(zoneBlocks, cashless, durationDays);
+    const doc = calcDocument(zoneBlocks, cashless, durationDays, percent);
 
     let equipmentTotal = 0;
     let servicesTotal = 0;

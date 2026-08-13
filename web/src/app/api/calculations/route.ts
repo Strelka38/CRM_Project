@@ -58,7 +58,9 @@ export async function GET(req: NextRequest) {
       },
       orderBy: [{ eventDate: "desc" }, { createdAt: "desc" }],
       include: {
-        owner: { select: { id: true, name: true, owners: true } },
+        owner: {
+          select: { id: true, name: true, owners: true, agencyPercent: true },
+        },
         zones: {
           orderBy: { sortOrder: "asc" },
           select: { id: true, name: true, sortOrder: true },
@@ -141,6 +143,7 @@ export async function GET(req: NextRequest) {
       const { breakdown, agency, agencyDeductedTotal } = applyManagerAgency(
         withPercents,
         q.owner.owners as CatalogOwnerValue[],
+        q.owner.agencyPercent,
       );
 
       return {
@@ -156,6 +159,7 @@ export async function GET(req: NextRequest) {
           id: q.owner.id,
           name: q.owner.name,
           owners: q.owner.owners as CatalogOwnerValue[],
+          agencyPercent: q.owner.agencyPercent,
         },
         expensesCount: q.extraExpenses.length,
         ...baseCalc,

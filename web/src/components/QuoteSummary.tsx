@@ -58,6 +58,9 @@ export function QuoteSummary({
   summary,
   discountPercent,
   onDiscountPercentChange,
+  cashlessPercent,
+  onCashlessPercentChange,
+  cashless,
   canEdit,
   laborKey = 0,
 }: {
@@ -65,6 +68,9 @@ export function QuoteSummary({
   summary: ZoneCalc;
   discountPercent: number;
   onDiscountPercentChange: (v: number) => void;
+  cashlessPercent: number;
+  onCashlessPercentChange: (v: number) => void;
+  cashless: boolean;
   canEdit: boolean;
   /** Bump when assignments change so ФОТ refreshes. */
   laborKey?: number;
@@ -109,24 +115,47 @@ export function QuoteSummary({
               Итоги по зонам: оборудование, услуги, скидка
             </p>
           </div>
-          <label className="text-sm">
-            <span className="text-[var(--muted)]">Скидка %</span>
-            <input
-              type="number"
-              min={0}
-              max={100}
-              step={0.1}
-              className="field mt-1 w-28"
-              disabled={!canEdit}
-              value={discountPercent}
-              onChange={(e) =>
-                onDiscountPercentChange(
-                  Math.max(0, Number(e.target.value) || 0),
-                )
-              }
-            />
-          </label>
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="text-sm">
+              <span className="text-[var(--muted)]">Начисление %</span>
+              <input
+                type="number"
+                min={0}
+                max={99}
+                step={0.1}
+                className="field mt-1 w-28"
+                disabled={!canEdit}
+                value={cashlessPercent}
+                onChange={(e) =>
+                  onCashlessPercentChange(
+                    Math.min(99, Math.max(0, Number(e.target.value) || 0)),
+                  )
+                }
+              />
+            </label>
+            <label className="text-sm">
+              <span className="text-[var(--muted)]">Скидка %</span>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step={0.1}
+                className="field mt-1 w-28"
+                disabled={!canEdit}
+                value={discountPercent}
+                onChange={(e) =>
+                  onDiscountPercentChange(
+                    Math.max(0, Number(e.target.value) || 0),
+                  )
+                }
+              />
+            </label>
+          </div>
         </div>
+        <p className="text-xs text-[var(--muted)]">
+          Режим: {cashless ? "безнал" : "наличные"}. Начисление {cashlessPercent.toLocaleString("ru-RU")}%
+          применяется к безналичной цене позиций (база — наличные).
+        </p>
 
         <div className="overflow-x-auto rounded-xl border border-[var(--line)] bg-[var(--panel)]">
           <table className="w-full min-w-[720px] text-sm">

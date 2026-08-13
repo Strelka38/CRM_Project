@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { ItemDrawer, type DrawerItem } from "@/components/ItemDrawer";
 import { formatMoney } from "@/lib/format";
 
@@ -41,42 +42,57 @@ type Props = {
 
 function QtyAddControl({
   onAdd,
+  addedTotal = 0,
 }: {
   onAdd: (qty: number) => void;
+  addedTotal?: number;
 }) {
   const [qty, setQty] = useState("1");
+  const [justAdded, setJustAdded] = useState(false);
 
   function submit() {
     const n = Math.max(1, Math.round(Number(qty) || 1));
     onAdd(n);
     setQty("1");
+    setJustAdded(true);
+    window.setTimeout(() => setJustAdded(false), 1200);
   }
 
   return (
-    <div className="flex shrink-0 items-center gap-1">
-      <input
-        type="number"
-        min={1}
-        step={1}
-        value={qty}
-        onChange={(e) => setQty(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            submit();
-          }
-        }}
-        className="field !w-14 px-1.5 py-1 text-center text-sm tabular-nums"
-        aria-label="Количество"
-      />
-      <button
-        type="button"
-        title="Добавить в смету"
-        className="flex h-8 w-8 items-center justify-center rounded-md bg-[var(--accent)] text-lg font-semibold leading-none text-white"
-        onClick={submit}
-      >
-        +
-      </button>
+    <div className="flex shrink-0 flex-col items-end gap-0.5">
+      <div className="flex items-center gap-1">
+        <input
+          type="number"
+          min={1}
+          step={1}
+          value={qty}
+          onChange={(e) => setQty(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              submit();
+            }
+          }}
+          className="field !w-14 px-1.5 py-1 text-center text-sm tabular-nums"
+          aria-label="Количество"
+        />
+        <button
+          type="button"
+          title="Добавить в смету"
+          aria-label="Добавить в смету"
+          className={`flex h-8 w-8 items-center justify-center rounded-md text-lg font-semibold leading-none text-white transition-colors ${
+            justAdded ? "bg-emerald-600" : "bg-[var(--accent)]"
+          }`}
+          onClick={submit}
+        >
+          {justAdded ? "✓" : "+"}
+        </button>
+      </div>
+      {addedTotal > 0 && (
+        <span className="text-[10px] font-medium text-emerald-700 dark:text-emerald-400">
+          добавлено: {addedTotal}
+        </span>
+      )}
     </div>
   );
 }
@@ -100,6 +116,31 @@ export function CatalogPicker({
   const [kits, setKits] = useState<PickedKit[]>([]);
   const [loading, setLoading] = useState(false);
   const [drawer, setDrawer] = useState<DrawerItem | null>(null);
+  const [addedCounts, setAddedCounts] = useState<Record<string, number>>({});
+  const [toast, setToast] = useState<{ text: string; key: number } | null>(
+    null,
+  );
+
+  function noteAdded(id: string, name: string, qty: number) {
+    setAddedCounts((prev) => ({
+      ...prev,
+      [id]: (prev[id] || 0) + qty,
+    }));
+    setToast({ text: `Добавлено: ${name} × ${qty}`, key: Date.now() });
+  }
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = window.setTimeout(() => setToast(null), 1800);
+    return () => window.clearTimeout(t);
+  }, [toast]);
+
+  useEffect(() => {
+    if (!open) {
+      setAddedCounts({});
+      setToast(null);
+    }
+  }, [open]);
 
   const roots = useMemo(
     () => categories.filter((c) => !c.parentId).sort((a, b) => a.name.localeCompare(b.name, "ru")),
@@ -146,12 +187,33 @@ export function CatalogPicker({
     return () => clearTimeout(t);
   }, [open, q, kind, pathFilter, tab, eventDate, durationDays]);
 
-  if (!open) return null;
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
-  return (
+  if (!open || !mounted) return null;
+
+  return createPortal(
     <>
-      <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/30 p-4 sm:items-center">
-        <div className="flex max-h-[85vh] w-full max-w-5xl flex-col rounded-xl border border-[var(--line)] bg-[var(--panel)] shadow-xl">
+      <div
+        className="fixed inset-0 z-[70] flex items-end justify-center bg-black/40 p-4 sm:items-center"
+        onClick={onClose}
+      >
+        <div
+          className="relative flex max-h-[85vh] w-full max-w-5xl flex-col rounded-xl border border-[var(--line)] bg-[var(--panel)] shadow-xl"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {toast && (
+            <div
+              key={toast.key}
+              className="pointer-events-none absolute left-3 top-3 z-20 max-w-sm rounded-lg border border-emerald-600/40 bg-emerald-950/95 px-3 py-2 text-sm font-medium text-emerald-200 shadow-lg"
+              role="status"
+            >
+              {toast.text}
+            </div>
+          )}
+
           <div className="flex items-center justify-between border-b border-[var(--line)] px-4 py-3">
             <h3 className="font-display text-xl font-semibold">Добавить в смету</h3>
             <button type="button" onClick={onClose} className="text-[var(--muted)]">
@@ -266,8 +328,10 @@ export function CatalogPicker({
                         {formatMoney(item.basePrice)}
                       </span>
                       <QtyAddControl
+                        addedTotal={addedCounts[item.id] || 0}
                         onAdd={(qty) => {
                           onPickItem(item, qty);
+                          noteAdded(item.id, item.name, qty);
                         }}
                       />
                     </div>
@@ -301,8 +365,10 @@ export function CatalogPicker({
                           {formatMoney(kit.computedPrice)}
                         </span>
                         <QtyAddControl
+                          addedTotal={addedCounts[`kit:${kit.id}`] || 0}
                           onAdd={(qty) => {
                             onPickKit?.(kit, qty);
+                            noteAdded(`kit:${kit.id}`, kit.name, qty);
                           }}
                         />
                       </div>
@@ -319,9 +385,11 @@ export function CatalogPicker({
         onClose={() => setDrawer(null)}
         onAdd={(item) => {
           onPickItem(item as PickedCatalogItem, 1);
+          noteAdded(item.id, item.name, 1);
           setDrawer(null);
         }}
       />
-    </>
+    </>,
+    document.body,
   );
 }

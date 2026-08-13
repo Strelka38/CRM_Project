@@ -68,6 +68,7 @@ const patchSchema = z.object({
   managerName: z.string().optional(),
   ownerId: z.string().min(1).optional(),
   cashless: z.boolean().optional(),
+  cashlessPercent: z.number().min(0).max(99).optional(),
   durationDays: z.number().int().positive().optional(),
   notes: z.array(z.string()).optional(),
   brief: z.string().optional(),

@@ -7,16 +7,33 @@ import { NotificationsBell } from "@/components/NotificationsBell";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { NavLink } from "@/components/ui/NavLink";
 import { Button } from "@/components/ui/Button";
-import { canAccessDatabase, isManager, roleLabelRu } from "@/lib/roles";
+import {
+  canAccessDatabase,
+  canAccessWorkloadStats,
+  isCrmOwner,
+  isManager,
+  roleLabelRu,
+} from "@/lib/roles";
+import { getFirstCrmUserId } from "@/lib/session";
 
 export async function AppShell({ children }: { children: React.ReactNode }) {
   const session = await auth();
   const manager = isManager(session?.user?.role);
   const database = canAccessDatabase(session?.user?.role);
+  const workloadStats = canAccessWorkloadStats(session?.user?.role);
+  let showBackup = false;
+  if (session?.user?.id) {
+    try {
+      const firstId = await getFirstCrmUserId();
+      showBackup = isCrmOwner(session.user.id, firstId);
+    } catch {
+      showBackup = false;
+    }
+  }
 
   return (
     <div className="min-h-full">
-      <header className="sticky top-0 z-40 border-b border-[var(--line-on-dark)] bg-[var(--bg-elevated)]/95 backdrop-blur-xl">
+      <header className="sticky top-0 z-40 border-b border-[var(--header-line)] bg-[var(--bg-elevated)]/95 backdrop-blur-xl">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-3 md:px-6">
           <div className="flex flex-wrap items-center gap-5">
             <Link href="/quotes" className="flex items-center gap-2.5">
@@ -24,10 +41,10 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
                 <BrandLogo size={32} />
               </span>
               <span className="hidden sm:flex sm:flex-col sm:leading-none">
-                <span className="text-sm font-medium text-white">
+                <span className="text-sm font-medium text-[var(--header-ink)]">
                   BaikalStageGroup
                 </span>
-                <span className="mt-0.5 text-[10px] uppercase tracking-[0.2em] text-[var(--muted-on-dark)]">
+                <span className="mt-0.5 text-[10px] uppercase tracking-[0.2em] text-[var(--header-muted)]">
                   CRM
                 </span>
               </span>
@@ -40,18 +57,23 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
               {manager ? (
                 <AccountingMenu />
               ) : (
-                <NavLink href="/payroll">Моя ЗП</NavLink>
+                <>
+                  <NavLink href="/payroll">Моя ЗП</NavLink>
+                  {workloadStats && (
+                    <NavLink href="/statistics">Статистика</NavLink>
+                  )}
+                </>
               )}
-              {database && <DatabaseMenu />}
+              {database && <DatabaseMenu showBackup={showBackup} />}
             </nav>
           </div>
           {session?.user && (
-            <div className="flex items-center gap-2 text-sm text-[var(--muted-on-dark)] sm:gap-3">
+            <div className="flex items-center gap-2 text-sm text-[var(--header-muted)] sm:gap-3">
               <ThemeToggle />
               <NotificationsBell showUnpaidLink={manager} />
               <Link
                 href="/profile"
-                className="rounded-md px-2 py-1 transition-colors hover:bg-white/10 hover:text-white"
+                className="rounded-md px-2 py-1 transition-colors hover:bg-[var(--header-hover)] hover:text-[var(--header-ink)]"
                 title="Мой профиль"
               >
                 <span className="md:hidden">Профиль</span>
@@ -68,7 +90,12 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
                   await signOut({ redirectTo: "/login" });
                 }}
               >
-                <Button type="submit" variant="ghost" size="sm" className="text-[var(--muted-on-dark)] hover:bg-white/10 hover:text-white">
+                <Button
+                  type="submit"
+                  variant="ghost"
+                  size="sm"
+                  className="text-[var(--header-muted)] hover:bg-[var(--header-hover)] hover:text-[var(--header-ink)]"
+                >
                   Выйти
                 </Button>
               </form>

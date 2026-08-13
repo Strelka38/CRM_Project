@@ -7,6 +7,8 @@ import { cn } from "@/lib/cn";
 
 const ITEMS = [
   { href: "/catalog", label: "Каталог" },
+  { href: "/equipment", label: "Склад" },
+  { href: "/repairs", label: "Ремонт" },
   { href: "/kits", label: "Комплекты" },
   { href: "/clients", label: "Клиенты" },
   { href: "/venues", label: "Площадки" },
@@ -15,12 +17,16 @@ const ITEMS = [
   { href: "/rates", label: "Ставки" },
 ] as const;
 
-export function DatabaseMenu() {
+export function DatabaseMenu({ showBackup = false }: { showBackup?: boolean }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
-  const active = ITEMS.some(
+  const items = showBackup
+    ? [...ITEMS, { href: "/backup", label: "Экспорт / импорт" }]
+    : ITEMS;
+
+  const active = items.some(
     (item) => pathname === item.href || pathname.startsWith(`${item.href}/`),
   );
 
@@ -54,8 +60,8 @@ export function DatabaseMenu() {
         className={cn(
           "rounded-full px-3.5 py-1.5 text-sm transition-all duration-200",
           active || open
-            ? "bg-white/10 text-[var(--accent)] ring-1 ring-[var(--accent-glow)]/40"
-            : "text-[var(--muted-on-dark)] hover:bg-white/5 hover:text-white",
+            ? "bg-[var(--header-active-bg)] text-[var(--accent)] ring-1 ring-[var(--accent-glow)]/40"
+            : "text-[var(--header-muted)] hover:bg-[var(--header-hover)] hover:text-[var(--header-ink)]",
         )}
       >
         База данных
@@ -68,7 +74,7 @@ export function DatabaseMenu() {
           role="menu"
           className="absolute left-0 top-full z-40 mt-2 min-w-[11rem] overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--panel)] py-1 shadow-xl"
         >
-          {ITEMS.map((item) => {
+          {items.map((item) => {
             const isActive =
               pathname === item.href || pathname.startsWith(`${item.href}/`);
             return (

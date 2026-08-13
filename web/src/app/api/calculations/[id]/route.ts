@@ -73,7 +73,9 @@ async function loadQuote(id: string) {
   return prisma.quote.findUnique({
     where: { id },
     include: {
-      owner: { select: { id: true, name: true, owners: true } },
+      owner: {
+        select: { id: true, name: true, owners: true, agencyPercent: true },
+      },
       zones: { orderBy: { sortOrder: "asc" } },
       blocks: {
         orderBy: { sortOrder: "asc" },
@@ -211,6 +213,7 @@ function serialize(quote: NonNullable<Awaited<ReturnType<typeof loadQuote>>>) {
   const { breakdown, agency, agencyDeductedTotal } = applyManagerAgency(
     withPercents,
     quote.owner.owners as CatalogOwnerValue[],
+    quote.owner.agencyPercent,
   );
 
   const calc = {
@@ -247,6 +250,7 @@ function serialize(quote: NonNullable<Awaited<ReturnType<typeof loadQuote>>>) {
       id: quote.owner.id,
       name: quote.owner.name,
       owners: quote.owner.owners as CatalogOwnerValue[],
+      agencyPercent: quote.owner.agencyPercent,
     },
     agency,
     sharesCustom: quote.sharesCustom,

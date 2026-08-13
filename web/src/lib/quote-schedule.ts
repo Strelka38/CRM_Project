@@ -6,7 +6,7 @@ import {
   startOfDay,
 } from "@/lib/dates";
 
-type QuoteScheduleFields = {
+export type QuoteScheduleFields = {
   date: string;
   eventDate: Date | null;
   durationDays: number;

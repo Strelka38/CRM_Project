@@ -51,6 +51,7 @@ export async function POST(
       durationDays: body.durationDays,
       eventName: body.eventName || "",
       cashless: template.cashless,
+      cashlessPercent: template.cashlessPercent,
       discountPercent: template.discountPercent,
       notes: template.notes,
       structure,

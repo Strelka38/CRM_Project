@@ -38,9 +38,84 @@ export function canAccessDatabase(role: string | null | undefined): boolean {
   return role === "MANAGER" || role === "BRIGADIER";
 }
 
+/** Full DB backup/restore: only the first registered CRM user. */
+export function isCrmOwner(
+  userId: string | null | undefined,
+  firstUserId: string | null | undefined,
+): boolean {
+  return !!userId && !!firstUserId && userId === firstUserId;
+}
+
+/** Списать единицу в ремонт: любой авторизованный сотрудник. */
+export function canSendEquipmentToRepair(
+  role: string | null | undefined,
+): boolean {
+  return role === "MANAGER" || role === "BRIGADIER" || role === "EMPLOYEE";
+}
+
+/** Раздел «Ремонт»: бригадир и менеджер. */
+export function canAccessRepairs(role: string | null | undefined): boolean {
+  return role === "MANAGER" || role === "BRIGADIER";
+}
+
 /** Pay rates / ФОТ / overrides — manager only. */
 export function canSeeAssignmentPay(role: string | null | undefined): boolean {
   return role === "MANAGER";
+}
+
+/** Workload stats: who worked where, shift counts (manager + brigadier). */
+export function canAccessWorkloadStats(
+  role: string | null | undefined,
+): boolean {
+  return role === "MANAGER" || role === "BRIGADIER";
+}
+
+/** Create project/quote or equipment rental from calendar (manager only). */
+export function canCreateCalendarProject(
+  role: string | null | undefined,
+): boolean {
+  return role === "MANAGER";
+}
+
+export function canCreateCalendarRental(
+  role: string | null | undefined,
+): boolean {
+  return role === "MANAGER";
+}
+
+/** Create task or day-off from calendar (manager + brigadier). */
+export function canCreateCalendarTask(
+  role: string | null | undefined,
+): boolean {
+  return role === "MANAGER" || role === "BRIGADIER";
+}
+
+export function canCreateCalendarDayOff(
+  role: string | null | undefined,
+): boolean {
+  return role === "MANAGER" || role === "BRIGADIER";
+}
+
+/** Any create action in calendar day menu. */
+export function canOpenCalendarCreateMenu(
+  role: string | null | undefined,
+): boolean {
+  return (
+    canCreateCalendarProject(role) ||
+    canCreateCalendarRental(role) ||
+    canCreateCalendarTask(role) ||
+    canCreateCalendarDayOff(role)
+  );
+}
+
+/** Edit/delete calendar entry (not quote): manager or original creator. */
+export function canEditCalendarEntry(
+  role: string | null | undefined,
+  createdById: string,
+  userId: string,
+): boolean {
+  if (role === "MANAGER") return true;
+  return createdById === userId;
 }
 
 export function roleLabelRu(role: string | null | undefined): string {

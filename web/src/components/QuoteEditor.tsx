@@ -60,6 +60,7 @@ type QuoteMeta = {
   managerName: string;
   ownerId: string;
   cashless: boolean;
+  cashlessPercent: number;
   durationDays: number;
   notes: string[];
   lifecycle: Lifecycle;
@@ -147,6 +148,8 @@ export function QuoteEditor({
         managerName: data.managerName,
         ownerId: data.ownerId || data.owner?.id || "",
         cashless: data.cashless,
+        cashlessPercent:
+          data.cashlessPercent == null ? 10 : Number(data.cashlessPercent),
         durationDays: data.durationDays,
         notes: data.notes,
         lifecycle: data.lifecycle,
@@ -230,6 +233,7 @@ export function QuoteEditor({
       meta.cashless,
       meta.durationDays,
       meta.discountPercent,
+      meta.cashlessPercent,
     );
   }, [zones, blocks, meta]);
 
@@ -253,7 +257,12 @@ export function QuoteEditor({
         totalCashless: 0,
       };
     }
-    return calcDocument(zoneBlocks, meta.cashless, meta.durationDays);
+    return calcDocument(
+      zoneBlocks,
+      meta.cashless,
+      meta.durationDays,
+      meta.cashlessPercent,
+    );
   }, [zoneBlocks, meta]);
 
   const calcByKey = useMemo(() => {
@@ -336,6 +345,7 @@ export function QuoteEditor({
           managerName: nextMeta.managerName,
           ownerId: nextMeta.ownerId || undefined,
           cashless: nextMeta.cashless,
+          cashlessPercent: nextMeta.cashlessPercent,
           durationDays: nextMeta.durationDays,
           notes: nextMeta.notes,
           lifecycle: nextMeta.lifecycle,
@@ -870,6 +880,28 @@ export function QuoteEditor({
             />
             Безналичный расчёт
           </label>
+          <label className="block text-sm">
+            <span className="text-[var(--muted)]">Начисление, %</span>
+            <input
+              type="number"
+              min={0}
+              max={99}
+              step={0.1}
+              className="field mt-1"
+              disabled={!isManager}
+              value={meta.cashlessPercent}
+              onChange={(e) =>
+                updateMeta(
+                  "cashlessPercent",
+                  Math.min(99, Math.max(0, Number(e.target.value) || 0)),
+                )
+              }
+            />
+            <p className="mt-1 text-[11px] text-[var(--muted)]">
+              К безналу от наличной цены (стандарт 10%). Наличные без
+              начисления; безнал = нал / (1 − %/100).
+            </p>
+          </label>
           {meta.invoiceRequired && (
             <div className="rounded-lg border border-[var(--line)] px-3 py-2 sm:col-span-2">
               <div className="mb-1.5 text-xs text-[var(--muted)]">Оплата</div>
@@ -910,6 +942,9 @@ export function QuoteEditor({
           summary={zoneSummary}
           discountPercent={meta.discountPercent}
           onDiscountPercentChange={(v) => updateMeta("discountPercent", v)}
+          cashlessPercent={meta.cashlessPercent}
+          onCashlessPercentChange={(v) => updateMeta("cashlessPercent", v)}
+          cashless={meta.cashless}
           canEdit={isManager}
           laborKey={laborKey}
         />
@@ -1233,6 +1268,7 @@ export function QuoteEditor({
           client: meta.client,
           managerName: meta.managerName,
           cashless: meta.cashless,
+          cashlessPercent: meta.cashlessPercent,
           durationDays: meta.durationDays,
           discountPercent: meta.discountPercent,
           notes: meta.notes,

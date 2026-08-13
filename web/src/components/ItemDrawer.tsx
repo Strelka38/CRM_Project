@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import {
   CategorySelect,
@@ -62,6 +63,8 @@ type Props = {
   onSave?: (id: string, data: DrawerItemPatch) => Promise<void> | void;
   onPhotoChange?: (item: DrawerItem) => void;
   categories?: CategoryOption[];
+  /** Количество задаётся единицами на складе, не вручную */
+  lockStock?: boolean;
 };
 
 type Draft = {
@@ -117,6 +120,7 @@ export function ItemDrawer({
   onSave,
   onPhotoChange,
   categories = [],
+  lockStock = false,
 }: Props) {
   const editable = Boolean(onSave);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -146,7 +150,9 @@ export function ItemDrawer({
       owners: draft.owners,
       basePrice: Math.max(0, Number(draft.basePrice) || 0),
       estimatedValue: parseOptionalNumber(draft.estimatedValue),
-      stockQty: Math.max(0, Math.round(Number(draft.stockQty) || 0)),
+      ...(lockStock
+        ? {}
+        : { stockQty: Math.max(0, Math.round(Number(draft.stockQty) || 0)) }),
       width: parseOptionalNumber(draft.width),
       height: parseOptionalNumber(draft.height),
       depth: parseOptionalNumber(draft.depth),
@@ -209,7 +215,7 @@ export function ItemDrawer({
   const imgSrc = photoUrl(item.id, item.photoPath);
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/25" onClick={onClose}>
+    <div className="fixed inset-0 z-[80] flex justify-end bg-black/25" onClick={onClose}>
       <aside
         className="flex h-full w-full max-w-md flex-col border-l border-[var(--line)] bg-[var(--panel)] shadow-xl"
         onClick={(e) => e.stopPropagation()}
@@ -321,12 +327,16 @@ export function ItemDrawer({
                   value={draft.estimatedValue}
                   onChange={(v) => setField("estimatedValue", v)}
                 />
-                <Field
-                  label="Кол-во"
-                  type="number"
-                  value={draft.stockQty}
-                  onChange={(v) => setField("stockQty", v)}
-                />
+                {lockStock ? (
+                  <Stat label="На складе" value={String(item.stockQty)} />
+                ) : (
+                  <Field
+                    label="Кол-во"
+                    type="number"
+                    value={draft.stockQty}
+                    onChange={(v) => setField("stockQty", v)}
+                  />
+                )}
                 <Field
                   label="Ширина"
                   type="number"
@@ -453,6 +463,17 @@ export function ItemDrawer({
               {item.manufacturer && (
                 <p className="text-[var(--muted)]">{item.manufacturer}</p>
               )}
+            </section>
+          )}
+
+          {item.itemKind === "EQUIPMENT" && (
+            <section>
+              <Link
+                href={`/equipment/${item.id}`}
+                className="inline-flex rounded-md border border-[var(--line)] px-3 py-2 text-sm text-[var(--accent)] hover:bg-[var(--panel-muted)]"
+              >
+                Карточка склада →
+              </Link>
             </section>
           )}
         </div>

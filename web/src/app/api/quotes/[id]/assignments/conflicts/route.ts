@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import {
+  calendarBusyOverlappingQuote,
+  dayOffsOverlappingQuote,
+} from "@/lib/day-off-conflicts";
+import {
   dateRangesOverlap,
   overlapDateLabels,
   quoteOccupancyRange,
@@ -8,8 +12,8 @@ import {
 import { requireAssignmentManager } from "@/lib/session";
 
 /**
- * GET ?userId=… — conflicts if the employee is already on another event
- * overlapping this quote's mount / event / demount dates.
+ * GET ?userId=… — conflicts if the employee is on another event, day-off,
+ * rental (responsible) or task (assignee) overlapping this quote's dates.
  */
 export async function GET(
   req: NextRequest,
@@ -45,7 +49,11 @@ export async function GET(
 
     const targetRange = quoteOccupancyRange(quote);
     if (!targetRange) {
-      return NextResponse.json({ conflicts: [] });
+      return NextResponse.json({
+        conflicts: [],
+        dayOffs: [],
+        calendarBusy: [],
+      });
     }
 
     const otherAssignments = await prisma.quoteAssignment.findMany({
@@ -103,7 +111,12 @@ export async function GET(
       (a.overlapDates[0] || "").localeCompare(b.overlapDates[0] || "", "ru"),
     );
 
-    return NextResponse.json({ conflicts });
+    const [dayOffs, calendarBusy] = await Promise.all([
+      dayOffsOverlappingQuote(userId, quote),
+      calendarBusyOverlappingQuote(userId, quote),
+    ]);
+
+    return NextResponse.json({ conflicts, dayOffs, calendarBusy });
   } catch (e) {
     if (e instanceof Response) return e;
     console.error("GET /api/quotes/[id]/assignments/conflicts", e);

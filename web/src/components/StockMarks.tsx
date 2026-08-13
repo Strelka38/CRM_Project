@@ -11,6 +11,7 @@ export type StockInfo = {
   available: number;
   unlimited: boolean;
   reservations: Array<{
+    source?: "quote" | "rental";
     quoteId: string;
     proposalNumber: string;
     eventName: string;
@@ -24,6 +25,7 @@ export type StockInfo = {
 const LIFE: Record<string, string> = {
   CONFIRMED: "Подтверждено",
   COMPLETED: "Завершено",
+  RENTAL: "Аренда",
 };
 
 export function StockMarks({
@@ -112,17 +114,23 @@ export function StockMarks({
               <ul className="max-h-48 space-y-1.5 overflow-y-auto">
                 {info.reservations.map((r) => (
                   <li
-                    key={r.quoteId}
+                    key={`${r.source || "quote"}-${r.quoteId}`}
                     className="rounded border border-[var(--line)] px-2 py-1.5 text-xs"
                   >
-                    <Link
-                      href={`/quotes/${r.quoteId}`}
-                      className="font-medium text-[var(--accent)] hover:underline"
-                      onClick={() => setOpen(false)}
-                    >
-                      №{r.proposalNumber}{" "}
-                      {r.eventName || r.client || "КП"}
-                    </Link>
+                    {r.source === "rental" || r.lifecycle === "RENTAL" ? (
+                      <span className="font-medium">
+                        Аренда · {r.eventName || "оборудование"}
+                      </span>
+                    ) : (
+                      <Link
+                        href={`/quotes/${r.quoteId}`}
+                        className="font-medium text-[var(--accent)] hover:underline"
+                        onClick={() => setOpen(false)}
+                      >
+                        №{r.proposalNumber}{" "}
+                        {r.eventName || r.client || "КП"}
+                      </Link>
+                    )}
                     <p className="text-[var(--muted)]">
                       {r.date || "—"} · {LIFE[r.lifecycle] || r.lifecycle} ·{" "}
                       занято {r.qty}

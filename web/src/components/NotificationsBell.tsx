@@ -110,7 +110,7 @@ export function NotificationsBell({
           unread > 0 ? `Уведомления, непрочитанных: ${unread}` : "Уведомления"
         }
         onClick={() => setOpen((v) => !v)}
-        className="relative flex h-9 w-9 items-center justify-center rounded-md text-[var(--muted)] transition-colors hover:bg-white/10 hover:text-[var(--ink)]"
+        className="relative flex h-9 w-9 items-center justify-center rounded-md text-[var(--header-muted)] transition-colors hover:bg-[var(--header-hover)] hover:text-[var(--header-ink)]"
       >
         <svg
           viewBox="0 0 24 24"

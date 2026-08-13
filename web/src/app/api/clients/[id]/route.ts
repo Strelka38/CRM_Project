@@ -79,6 +79,7 @@ export async function GET(
         q.cashless,
         q.durationDays,
         q.discountPercent,
+        q.cashlessPercent,
       );
       const laborCost = q.assignments.reduce((sum, a) => {
         const isFreelancer = a.isFreelancer || !a.userId;

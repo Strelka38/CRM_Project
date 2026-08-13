@@ -52,6 +52,25 @@ type ScheduleConflict = {
   overlapDates: string[];
 };
 
+type DayOffConflict = {
+  id: string;
+  date: string;
+  startTime: string | null;
+  endTime: string | null;
+  title: string;
+  note: string;
+  overlapDates: string[];
+};
+
+type CalendarBusyConflict = {
+  id: string;
+  kind: "RENTAL" | "TASK";
+  date: string;
+  title: string;
+  role: "responsible" | "assignee";
+  overlapDates: string[];
+};
+
 function FirmBadges({ owners }: { owners?: CatalogOwnerValue[] | null }) {
   const list = owners?.length
     ? CATALOG_OWNERS.filter((o) => owners.includes(o.value))
@@ -83,6 +102,19 @@ function conflictLabel(c: ScheduleConflict) {
       ? c.overlapDates.join(", ")
       : `${c.overlapDates[0]} — ${c.overlapDates[c.overlapDates.length - 1]} (${c.overlapDates.length} дн.)`;
   return `${dates}: №${c.proposalNumber} ${name}`;
+}
+
+function dayOffLabel(d: DayOffConflict) {
+  const time =
+    d.startTime && d.endTime ? ` · ${d.startTime}–${d.endTime}` : "";
+  return `${d.date}${time}${d.note ? ` · ${d.note}` : ""}`;
+}
+
+function calendarBusyLabel(c: CalendarBusyConflict) {
+  const kindLabel = c.kind === "RENTAL" ? "Аренда" : "Задача";
+  const roleLabel =
+    c.kind === "RENTAL" ? "ответственный за выдачу" : "назначен";
+  return `${c.date}: ${kindLabel} «${c.title}» (${roleLabel})`;
 }
 
 export function QuoteAssignments({
@@ -124,10 +156,15 @@ export function QuoteAssignments({
   const [conflictWarn, setConflictWarn] = useState<{
     userName: string;
     conflicts: ScheduleConflict[];
+    dayOffs: DayOffConflict[];
+    calendarBusy: CalendarBusyConflict[];
   } | null>(null);
   const onChangedRef = useRef(onChanged);
   onChangedRef.current = onChanged;
-  const skipNotifyRef = useRef(true);
+
+  function notifyChanged() {
+    onChangedRef.current?.();
+  }
 
   const load = useCallback(async () => {
     const [aRes, uRes, sRes] = await Promise.all([
@@ -137,11 +174,6 @@ export function QuoteAssignments({
     ]);
     if (aRes.ok) {
       setAssignments(await aRes.json());
-      if (skipNotifyRef.current) {
-        skipNotifyRef.current = false;
-      } else {
-        onChangedRef.current?.();
-      }
     }
     if (uRes?.ok) {
       const list = await uRes.json();
@@ -207,6 +239,7 @@ export function QuoteAssignments({
     setRateOverride("");
     setConflictWarn(null);
     void load();
+    notifyChanged();
     return true;
   }
 
@@ -225,12 +258,22 @@ export function QuoteAssignments({
       if (checkRes.ok) {
         const data = (await checkRes.json()) as {
           conflicts?: ScheduleConflict[];
+          dayOffs?: DayOffConflict[];
+          calendarBusy?: CalendarBusyConflict[];
         };
         const conflicts = data.conflicts || [];
-        if (conflicts.length > 0) {
+        const dayOffs = data.dayOffs || [];
+        const calendarBusy = data.calendarBusy || [];
+        if (
+          conflicts.length > 0 ||
+          dayOffs.length > 0 ||
+          calendarBusy.length > 0
+        ) {
           setConflictWarn({
             userName: selectedUser?.name || "Сотрудник",
             conflicts,
+            dayOffs,
+            calendarBusy,
           });
           return;
         }
@@ -270,6 +313,7 @@ export function QuoteAssignments({
     setFreelancerName("");
     setFreelancerRate("");
     void load();
+    notifyChanged();
   }
 
   async function removeAssignment(id: string) {
@@ -277,6 +321,7 @@ export function QuoteAssignments({
       method: "DELETE",
     });
     void load();
+    notifyChanged();
   }
 
   async function patchAssignment(
@@ -289,6 +334,7 @@ export function QuoteAssignments({
       body: JSON.stringify(body),
     });
     void load();
+    notifyChanged();
   }
 
   const total = assignments.reduce((s, a) => s + a.pay, 0);
@@ -300,7 +346,7 @@ export function QuoteAssignments({
       ? 7
       : 6;
 
-  if (loading) {
+  if (loading && assignments.length === 0) {
     return (
       <section className="rounded-xl border border-[var(--line)] bg-[var(--panel)] p-4 text-sm text-[var(--muted)]">
         Загрузка сотрудников…
@@ -727,25 +773,70 @@ export function QuoteAssignments({
       <Modal
         open={Boolean(conflictWarn)}
         onClose={() => setConflictWarn(null)}
-        title="Сотрудник уже занят"
+        title={
+          conflictWarn?.dayOffs.length
+            ? "У сотрудника выходной"
+            : "Сотрудник уже занят"
+        }
         className="max-w-md"
       >
         {conflictWarn && (
           <div className="mt-3 space-y-3">
-            <p className="text-sm text-[var(--ink)]">
-              <span className="font-medium">{conflictWarn.userName}</span> уже
-              назначен на другое мероприятие в пересекающиеся дни:
-            </p>
-            <ul className="space-y-1.5 rounded-lg border border-[var(--line)] bg-[var(--bg)] p-3 text-sm">
-              {conflictWarn.conflicts.map((c) => (
-                <li key={c.quoteId} className="text-[var(--ink)]">
-                  {conflictLabel(c)}
-                </li>
-              ))}
-            </ul>
-            <p className="text-xs text-[var(--muted)]">
-              Можно всё равно назначить или выбрать другого сотрудника.
-            </p>
+            {conflictWarn.dayOffs.length > 0 && (
+              <>
+                <p className="text-sm text-[var(--ink)]">
+                  <span className="font-medium">{conflictWarn.userName}</span>{" "}
+                  в эти дни в выходном / отсутствии — назначить на работу
+                  нельзя:
+                </p>
+                <ul className="space-y-1.5 rounded-lg border border-[var(--line)] bg-[var(--bg)] p-3 text-sm">
+                  {conflictWarn.dayOffs.map((d) => (
+                    <li key={d.id} className="text-[var(--ink)]">
+                      {dayOffLabel(d)}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+            {conflictWarn.calendarBusy.length > 0 && (
+              <>
+                <p className="text-sm text-[var(--ink)]">
+                  <span className="font-medium">{conflictWarn.userName}</span>{" "}
+                  занят арендой или задачей в пересекающиеся дни:
+                </p>
+                <ul className="space-y-1.5 rounded-lg border border-[var(--line)] bg-[var(--bg)] p-3 text-sm">
+                  {conflictWarn.calendarBusy.map((c) => (
+                    <li key={c.id} className="text-[var(--ink)]">
+                      {calendarBusyLabel(c)}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+            {conflictWarn.conflicts.length > 0 && (
+              <>
+                <p className="text-sm text-[var(--ink)]">
+                  <span className="font-medium">{conflictWarn.userName}</span>{" "}
+                  уже назначен на другое мероприятие в пересекающиеся дни:
+                </p>
+                <ul className="space-y-1.5 rounded-lg border border-[var(--line)] bg-[var(--bg)] p-3 text-sm">
+                  {conflictWarn.conflicts.map((c) => (
+                    <li key={c.quoteId} className="text-[var(--ink)]">
+                      {conflictLabel(c)}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+            {conflictWarn.dayOffs.length > 0 ? (
+              <p className="text-xs text-[var(--muted)]">
+                Снимите выходной в календаре или выберите другого сотрудника.
+              </p>
+            ) : (
+              <p className="text-xs text-[var(--muted)]">
+                Можно всё равно назначить или выбрать другого сотрудника.
+              </p>
+            )}
             <div className="flex flex-wrap justify-end gap-2 pt-1">
               <Button
                 variant="outline"
@@ -758,18 +849,20 @@ export function QuoteAssignments({
               >
                 Выбрать другого
               </Button>
-              <Button
-                size="sm"
-                disabled={checkingBusy}
-                onClick={() => {
-                  setCheckingBusy(true);
-                  void createStaffAssignment().finally(() =>
-                    setCheckingBusy(false),
-                  );
-                }}
-              >
-                Назначить всё равно
-              </Button>
+              {conflictWarn.dayOffs.length === 0 && (
+                <Button
+                  size="sm"
+                  disabled={checkingBusy}
+                  onClick={() => {
+                    setCheckingBusy(true);
+                    void createStaffAssignment().finally(() =>
+                      setCheckingBusy(false),
+                    );
+                  }}
+                >
+                  Назначить всё равно
+                </Button>
+              )}
             </div>
           </div>
         )}

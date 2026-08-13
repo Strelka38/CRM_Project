@@ -12,7 +12,10 @@ type SettlementQuote = {
   durationDays: number;
   discountPercent: number;
   sharesCustom: boolean;
-  owner: { owners: CatalogOwnerValue[] | string[] };
+  owner: {
+    owners: CatalogOwnerValue[] | string[];
+    agencyPercent?: number | null;
+  };
   blocks: Parameters<typeof buildCalcLines>[0];
   calcLineOverrides: Parameters<typeof buildCalcLines>[1];
   extraExpenses: Array<{
@@ -87,6 +90,7 @@ export function computeQuoteSettlement(quote: SettlementQuote): {
   const { agency, agencyDeductedTotal } = applyManagerAgency(
     withPercents,
     quote.owner.owners as CatalogOwnerValue[],
+    quote.owner.agencyPercent,
   );
 
   return {

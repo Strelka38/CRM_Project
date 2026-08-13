@@ -71,7 +71,14 @@ export async function GET(req: NextRequest) {
         },
         orderBy: [{ eventDate: "desc" }, { createdAt: "desc" }],
         include: {
-          owner: { select: { id: true, name: true, owners: true } },
+          owner: {
+            select: {
+              id: true,
+              name: true,
+              owners: true,
+              agencyPercent: true,
+            },
+          },
           blocks: {
             orderBy: { sortOrder: "asc" },
             include: {
@@ -168,6 +175,7 @@ export async function GET(req: NextRequest) {
         ...q,
         owner: {
           owners: q.owner.owners as CatalogOwnerValue[],
+          agencyPercent: q.owner.agencyPercent,
         },
         extraExpenses: q.extraExpenses.map((e) => ({
           ...e,

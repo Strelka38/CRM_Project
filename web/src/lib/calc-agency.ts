@@ -4,8 +4,20 @@ import {
   type CatalogOwnerValue,
 } from "@/lib/catalog-owner";
 
-/** Агентские менеджера проекта: 5% от (выручка − расходы − ЗП − монтажные). */
-export const AGENCY_RATE = 0.05;
+/** Базовый процент агентских менеджера проекта. */
+export const DEFAULT_AGENCY_PERCENT = 5;
+
+/** @deprecated используйте DEFAULT_AGENCY_PERCENT / 100 */
+export const AGENCY_RATE = DEFAULT_AGENCY_PERCENT / 100;
+
+export function normalizeAgencyPercent(
+  value?: number | null,
+): number {
+  if (value == null || Number.isNaN(Number(value))) {
+    return DEFAULT_AGENCY_PERCENT;
+  }
+  return Math.min(100, Math.max(0, Number(value)));
+}
 
 export type CompanyProfitRow = {
   company: CatalogOwnerValue;
@@ -32,7 +44,10 @@ export type CompanyAgencyRow = CompanyProfitRow & {
 };
 
 export type ManagerAgencySummary = {
+  /** Доля 0–1 */
   rate: number;
+  /** Процент 0–100 */
+  percent: number;
   total: number;
   /** Сумма, списанная с фирм менеджера в калькуляции */
   deductedTotal: number;
@@ -49,13 +64,14 @@ export type ManagerAgencySummary = {
 };
 
 /**
- * Агентские = max(0, выручка − расходы на сотрудников − прочие расходы − монтажные) × 5%.
+ * Агентские = max(0, выручка − расходы на сотрудников − прочие расходы − монтажные) × %.
  * Если менеджер — сотрудник фирмы: агентские минусуются из нетто этой фирмы.
  * С остальных фирм: сумма идёт менеджеру в ЗП, но в расходах калькуляции фирмы не отражается.
  */
 export function applyManagerAgency(
   breakdown: CompanyProfitRow[],
   managerOwners: CatalogOwnerValue[] | null | undefined,
+  agencyPercent?: number | null,
 ): {
   breakdown: CompanyAgencyRow[];
   agency: ManagerAgencySummary;
@@ -63,12 +79,14 @@ export function applyManagerAgency(
 } {
   const owners = normalizeOwners(managerOwners);
   const ownerSet = new Set(owners);
+  const percent = normalizeAgencyPercent(agencyPercent);
+  const rate = percent / 100;
 
   const enriched: CompanyAgencyRow[] = breakdown.map((row) => {
     const agencyBase = Math.round(
       row.revenue - row.expenses - row.laborCost - row.montageCost,
     );
-    const agency = Math.round(Math.max(0, agencyBase) * AGENCY_RATE);
+    const agency = Math.round(Math.max(0, agencyBase) * rate);
     const deductedFromFirm = ownerSet.has(row.company) && agency > 0;
     const agencyCost = deductedFromFirm ? agency : 0;
     return {
@@ -105,7 +123,8 @@ export function applyManagerAgency(
     breakdown: enriched,
     agencyDeductedTotal: deductedTotal,
     agency: {
-      rate: AGENCY_RATE,
+      rate,
+      percent,
       total,
       deductedTotal,
       incomeOnlyTotal,

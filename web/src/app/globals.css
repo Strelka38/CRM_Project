@@ -15,8 +15,15 @@
   --muted-on-dark: #8a9abc;
   --line: rgba(255, 255, 255, 0.1);
   --line-on-dark: rgba(255, 255, 255, 0.1);
+  --tree-line: rgba(138, 154, 188, 0.55);
   --solid: #e8eef8;
   --on-solid: #070a12;
+  /* App header (adapts with theme) */
+  --header-ink: #ffffff;
+  --header-muted: #8a9abc;
+  --header-line: rgba(255, 255, 255, 0.1);
+  --header-hover: rgba(255, 255, 255, 0.08);
+  --header-active-bg: rgba(255, 255, 255, 0.1);
 
   /* Brand */
   --accent: #009ee3;
@@ -71,7 +78,7 @@
   color-scheme: light;
 
   --bg: #e8eef5;
-  --bg-elevated: #0a0e17;
+  --bg-elevated: #ffffff;
   --panel: #ffffff;
   --panel-muted: #f4f7fb;
   --ink: #0f1729;
@@ -80,8 +87,14 @@
   --muted-on-dark: #8a9abc;
   --line: #d0d9e6;
   --line-on-dark: rgba(255, 255, 255, 0.1);
+  --tree-line: #9aa8bc;
   --solid: #0f1729;
   --on-solid: #ffffff;
+  --header-ink: #0f1729;
+  --header-muted: #5a6b82;
+  --header-line: #d0d9e6;
+  --header-hover: rgba(15, 23, 41, 0.06);
+  --header-active-bg: #d6eef9;
 
   --accent: #009ee3;
   --accent-deep: #0f69b1;
@@ -216,6 +229,13 @@ body {
   background: rgba(0, 158, 227, 0.15);
 }
 
+/* Catalog category tree guides */
+.catalog-tree-guide {
+  pointer-events: none;
+  position: absolute;
+  background: var(--tree-line);
+}
+
 @keyframes fade-up {
   from {
     opacity: 0;
@@ -244,6 +264,4 @@ html[data-theme="light"] .brand-logo-invert {
   filter: invert(1);
 }
 
-html[data-theme="light"] .brand-logo-slot {
-  background: #ffffff;
-}
+/* Light header is already light — no extra logo plate needed */

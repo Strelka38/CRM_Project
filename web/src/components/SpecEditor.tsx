@@ -242,35 +242,49 @@ export function SpecEditor({
     dirtyRef.current = false;
   }, []);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const res = await fetch(`/api/quotes/${quoteId}/spec`);
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setMeta(null);
-        setError(
-          typeof data.error === "string"
-            ? data.error
-            : res.status === 404
-              ? "Смета не найдена или нет доступа"
-              : `Ошибка загрузки спецификации (${res.status})`,
-        );
-        return;
+  const load = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      const silent = Boolean(opts?.silent);
+      if (!silent) setLoading(true);
+      setError("");
+      try {
+        const res = await fetch(`/api/quotes/${quoteId}/spec`);
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          if (!silent) setMeta(null);
+          setError(
+            typeof data.error === "string"
+              ? data.error
+              : res.status === 404
+                ? "Смета не найдена или нет доступа"
+                : `Ошибка загрузки спецификации (${res.status})`,
+          );
+          return;
+        }
+        applyPayload(data);
+      } catch {
+        if (!silent) setMeta(null);
+        setError("Не удалось связаться с сервером");
+      } finally {
+        if (!silent) setLoading(false);
       }
-      applyPayload(data);
-    } catch {
-      setMeta(null);
-      setError("Не удалось связаться с сервером");
-    } finally {
-      setLoading(false);
-    }
-  }, [quoteId, applyPayload]);
+    },
+    [quoteId, applyPayload],
+  );
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  const refreshStaff = useCallback(() => {
+    void fetch(`/api/quotes/${quoteId}/spec`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!data) return;
+        setAssignments((data.assignments as StaffRow[]) || []);
+      })
+      .catch(() => {});
+  }, [quoteId]);
 
   const persist = useCallback(
     async (
@@ -381,7 +395,6 @@ export function SpecEditor({
 
   useEffect(() => {
     if (!meta || !catalogIdsKey || !canEdit) {
-      setStockMap({});
       return;
     }
     const t = setTimeout(() => {
@@ -697,10 +710,18 @@ export function SpecEditor({
     }
   }
 
-  if (loading) {
+  if (loading && !meta) {
     return (
-      <div className="mx-auto max-w-5xl px-4 py-10 text-[var(--muted)]">
-        Загрузка спецификации…
+      <div className="mx-auto max-w-6xl px-4 py-6 md:px-6">
+        <header className="border-b border-[var(--line)] pb-4">
+          <p className="text-sm text-[var(--muted)]">
+            {isManager ? "← К смете" : "← К мероприятиям"}
+          </p>
+          <h1 className="font-display mt-1 text-3xl text-[var(--ink)]">
+            Спецификация на погрузку
+          </h1>
+          <p className="mt-2 text-sm text-[var(--muted)]">Загрузка…</p>
+        </header>
       </div>
     );
   }
@@ -1166,7 +1187,7 @@ export function SpecEditor({
           canEdit
           compact
           hidePay
-          onChanged={() => void load()}
+          onChanged={refreshStaff}
         />
       )}
 

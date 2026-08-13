@@ -38,6 +38,7 @@ type UserDetail = {
   role: AppRole;
   active: boolean;
   monthlySalary: number;
+  agencyPercent: number;
   owners: CatalogOwnerValue[];
   specialties: UserSpecialtyRow[];
   estimatedSalary?: number;
@@ -53,10 +54,13 @@ export function EmployeeEditor({
   userId,
   selfView = false,
   isManager = false,
+  canEditAgency,
 }: {
   userId: string;
   selfView?: boolean;
   isManager?: boolean;
+  /** Менять % агентских могут только менеджеры */
+  canEditAgency?: boolean;
 }) {
   const router = useRouter();
   const [user, setUser] = useState<UserDetail | null>(null);
@@ -69,6 +73,7 @@ export function EmployeeEditor({
   const [addSpecialtyId, setAddSpecialtyId] = useState("");
   const [passwordOpen, setPasswordOpen] = useState(false);
   const canAdmin = isManager;
+  const canChangeAgency = canEditAgency ?? isManager;
 
   useEffect(() => {
     (async () => {
@@ -84,6 +89,7 @@ export function EmployeeEditor({
       setUser({
         ...u,
         monthlySalary: u.monthlySalary ?? 0,
+        agencyPercent: u.agencyPercent ?? 5,
         owners: normalizeOwners(u.owners),
       });
       setRows(
@@ -114,6 +120,12 @@ export function EmployeeEditor({
       payload.active = user.active;
       payload.monthlySalary = user.monthlySalary;
       payload.owners = normalizeOwners(user.owners);
+      if (canChangeAgency && user.role === "MANAGER") {
+        payload.agencyPercent = Math.min(
+          100,
+          Math.max(0, Number(user.agencyPercent) || 0),
+        );
+      }
     }
     const res = await fetch(`/api/users/${userId}`, {
       method: "PATCH",
@@ -276,9 +288,45 @@ export function EmployeeEditor({
                 />
                 <p className="text-[11px] text-[var(--muted)]">
                   ЗП и монтажные списываются с этих фирм. У менеджера проекта
-                  агентские 5% с его фирм минусуются в калькуляции; с чужих —
+                  агентские с его фирм минусуются в калькуляции; с чужих —
                   только в его ЗП.
                 </p>
+                {user.role === "MANAGER" &&
+                  (canChangeAgency ? (
+                    <label className="block text-sm">
+                      <span className="text-[var(--muted)]">
+                        Агентские, %
+                      </span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        step={0.1}
+                        className="field mt-1 max-w-[8rem]"
+                        value={user.agencyPercent}
+                        onChange={(e) =>
+                          setUser({
+                            ...user,
+                            agencyPercent: Math.min(
+                              100,
+                              Math.max(0, Number(e.target.value) || 0),
+                            ),
+                          })
+                        }
+                      />
+                      <p className="mt-1 text-[11px] text-[var(--muted)]">
+                        База 5%. Считается от (выручка − расходы − ЗП −
+                        монтажные) по каждой фирме.
+                      </p>
+                    </label>
+                  ) : (
+                    <p className="text-sm text-[var(--muted)]">
+                      Агентские:{" "}
+                      <span className="text-[var(--ink)]">
+                        {user.agencyPercent}%
+                      </span>
+                    </p>
+                  ))}
                 <label className="flex items-center gap-2 text-sm">
                   <input
                     type="checkbox"
@@ -304,6 +352,14 @@ export function EmployeeEditor({
                     {ownerShorts(user.owners)}
                   </span>
                 </p>
+                {user.role === "MANAGER" && (
+                  <p className="text-sm text-[var(--muted)]">
+                    Агентские:{" "}
+                    <span className="text-[var(--ink)]">
+                      {user.agencyPercent}%
+                    </span>
+                  </p>
+                )}
               </>
             )}
           </div>

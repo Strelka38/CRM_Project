@@ -7,6 +7,7 @@ import {
   type CatalogOwnerValue,
 } from "@/lib/catalog-owner";
 import { calcAssignmentPay } from "@/lib/payroll";
+import { isManager } from "@/lib/roles";
 import { canAccessDatabase, requireSession } from "@/lib/session";
 
 const companyEnum = z.enum(["SHOW_MASTER", "DIAKOM", "NE_EVENT"]);
@@ -23,6 +24,7 @@ const userSelect = {
   role: true,
   active: true,
   monthlySalary: true,
+  agencyPercent: true,
   owners: true,
   createdAt: true,
   updatedAt: true,
@@ -116,6 +118,7 @@ const patchSchema = z.object({
   role: z.enum(["MANAGER", "EMPLOYEE", "BRIGADIER"]).optional(),
   active: z.boolean().optional(),
   monthlySalary: z.number().nonnegative().optional(),
+  agencyPercent: z.number().min(0).max(100).optional(),
   owners: z.array(companyEnum).max(3).optional(),
   password: z.string().min(6).optional(),
 });
@@ -157,6 +160,9 @@ export async function PATCH(
     ) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
+    if (body.agencyPercent !== undefined && !isManager(session.user.role)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
 
     const existing = await prisma.user.findUnique({ where: { id } });
     if (!existing) {
@@ -173,6 +179,7 @@ export async function PATCH(
       role?: "MANAGER" | "EMPLOYEE" | "BRIGADIER";
       active?: boolean;
       monthlySalary?: number;
+      agencyPercent?: number;
       owners?: CatalogOwnerValue[];
       passwordHash?: string;
     } = {};
@@ -186,6 +193,12 @@ export async function PATCH(
     if (admin && body.active !== undefined) data.active = body.active;
     if (admin && body.monthlySalary !== undefined) {
       data.monthlySalary = body.monthlySalary;
+    }
+    if (
+      isManager(session.user.role) &&
+      body.agencyPercent !== undefined
+    ) {
+      data.agencyPercent = body.agencyPercent;
     }
     if (admin && body.owners !== undefined) {
       data.owners = normalizeOwners(body.owners);

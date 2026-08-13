@@ -58,6 +58,7 @@ export async function POST(
       client: source.client,
       clientId: source.clientId,
       cashless: source.cashless,
+      cashlessPercent: source.cashlessPercent,
       discountPercent: source.discountPercent,
       notes: source.notes,
       structure,

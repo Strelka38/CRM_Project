@@ -21,7 +21,6 @@ COPY web/prisma ./prisma
 RUN npx prisma generate
 
 COPY web/ ./
-COPY ["Пример исходников/Каталог выгрузка с golova.xlsx", "./seed-data/catalog.xlsx"]
 # Re-generate after full copy so client always matches final schema.prisma
 RUN npx prisma generate
 
@@ -31,7 +30,6 @@ ENV DOCKER_BUILD_CPUS=1
 # Keep heap modest on 2–4 GB VMs (avoids swap storms)
 ENV NODE_OPTIONS=--max-old-space-size=1536
 ENV UV_THREADPOOL_SIZE=2
-ENV CATALOG_XLSX=/app/seed-data/catalog.xlsx
 ENV DATABASE_URL="postgresql://crm:crm@db:5432/crm_event?schema=public"
 ENV AUTH_SECRET="build-time-placeholder-not-used-at-runtime"
 ENV AUTH_URL="http://localhost:3000"
@@ -45,7 +43,6 @@ WORKDIR /app
 RUN apt-get update -y && apt-get install -y openssl ca-certificates && rm -rf /var/lib/apt/lists/*
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
-ENV CATALOG_XLSX=/app/seed-data/catalog.xlsx
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 
@@ -56,7 +53,6 @@ COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json /app/package-lock.json ./
 COPY --from=builder /app/prisma ./prisma
-COPY --from=builder /app/seed-data ./seed-data
 COPY --from=builder /app/src/lib/catalog-owner.ts ./src/lib/catalog-owner.ts
 COPY --from=builder /app/src/lib/ensure-schema.ts ./src/lib/ensure-schema.ts
 COPY --from=builder /app/tsconfig.json ./tsconfig.json

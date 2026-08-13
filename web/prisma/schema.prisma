@@ -88,6 +88,18 @@ enum SpecExtraType {
   ITEM
 }
 
+/// Запись календаря вне сметы: аренда / задача / выходной
+enum CalendarEntryKind {
+  RENTAL
+  TASK
+  DAY_OFF
+}
+
+enum EquipmentRepairStatus {
+  OPEN
+  CLOSED
+}
+
 model User {
   id            String           @id @default(cuid())
   email         String           @unique
@@ -101,6 +113,8 @@ model User {
   role          Role             @default(EMPLOYEE)
   active        Boolean          @default(true)
   monthlySalary Float            @default(0)
+  /// Агентские менеджера проекта, % от (выручка − расходы − ЗП − монтажные). База 5.
+  agencyPercent Float            @default(5)
   /// К каким фирмам относится сотрудник (ШМ / ДК / NE) — для учёта ЗП в доходности
   owners        CatalogOwner[]   @default([])
   createdAt     DateTime         @default(now())
@@ -112,6 +126,12 @@ model User {
   assignments        QuoteAssignment[]
   quoteComments      QuoteComment[]
   quoteAttachments   QuoteAttachment[]
+  equipmentDocuments EquipmentDocument[]
+  equipmentRepairsReported EquipmentRepair[] @relation("EquipmentRepairReportedBy")
+  equipmentRepairsResolved EquipmentRepair[] @relation("EquipmentRepairResolvedBy")
+  calendarEntriesCreated      CalendarEntry[]           @relation("CalendarEntryCreatedBy")
+  calendarEntriesResponsible  CalendarEntry[]           @relation("CalendarEntryResponsible")
+  calendarEntryAssignments    CalendarEntryAssignee[]
 }
 
 model Specialty {
@@ -208,6 +228,8 @@ model CatalogItem {
   weight           Float?
   comment          String?
   photoPath        String?
+  /// Публичный числовой ID карточки оборудования (как в QR-референсе)
+  equipmentCode    Int?            @unique
   /// Один или несколько владельцев (общая покупка — 2–3 тега)
   owners           CatalogOwner[]  @default([])
   dayMode          DayMode         @default(HALF_EXTRA)
@@ -218,10 +240,90 @@ model CatalogItem {
   updatedAt        DateTime        @updatedAt
   quoteBlocks      QuoteBlock[]
   kitComponents    KitComponent[]
+  calendarEntryLines CalendarEntryLine[]
+  equipmentUnits   EquipmentUnit[]
+  equipmentDocuments EquipmentDocument[]
 
   @@index([categoryId])
   @@index([itemKind])
   @@index([name])
+}
+
+model EquipmentUnit {
+  id            String      @id @default(cuid())
+  catalogItemId String
+  catalogItem   CatalogItem @relation(fields: [catalogItemId], references: [id], onDelete: Cascade)
+  /// Порядковый номер экземпляра внутри SKU (1..N)
+  unitNumber    Int
+  /// Непрозрачный токен для публичного URL /q/[token]
+  qrToken       String      @unique
+  label         String?
+  active        Boolean     @default(true)
+  /// Списана в ремонт — не участвует в складском остатке
+  inRepair      Boolean     @default(false)
+  /// Списание: DAMAGED | LOST
+  writeOffReason  String?
+  writeOffComment String    @default("")
+  writeOffAt      DateTime?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  repairs       EquipmentRepair[]
+
+  @@unique([catalogItemId, unitNumber])
+  @@index([catalogItemId])
+  @@index([inRepair])
+}
+
+model EquipmentDocument {
+  id            String      @id @default(cuid())
+  catalogItemId String
+  catalogItem   CatalogItem @relation(fields: [catalogItemId], references: [id], onDelete: Cascade)
+  uploaderId    String
+  uploader      User        @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
+  filename      String
+  mimeType      String
+  size          Int
+  storagePath   String
+  description   String?
+  createdAt     DateTime    @default(now())
+
+  @@index([catalogItemId])
+  @@index([uploaderId])
+}
+
+model EquipmentRepair {
+  id           String                 @id @default(cuid())
+  unitId       String
+  unit         EquipmentUnit          @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  status       EquipmentRepairStatus  @default(OPEN)
+  faultType    String
+  comment      String                 @default("")
+  reportedById String
+  reportedBy   User                   @relation("EquipmentRepairReportedBy", fields: [reportedById], references: [id], onDelete: Restrict)
+  reportedAt   DateTime               @default(now())
+  /// Заключение сервиса при возврате на склад
+  resolutionComment String            @default("")
+  resolvedAt   DateTime?
+  resolvedById String?
+  resolvedBy   User?                  @relation("EquipmentRepairResolvedBy", fields: [resolvedById], references: [id], onDelete: SetNull)
+  photos       EquipmentRepairPhoto[]
+
+  @@index([unitId])
+  @@index([status])
+  @@index([reportedAt])
+}
+
+model EquipmentRepairPhoto {
+  id          String          @id @default(cuid())
+  repairId    String
+  repair      EquipmentRepair @relation(fields: [repairId], references: [id], onDelete: Cascade)
+  filename    String
+  mimeType    String
+  size        Int
+  storagePath String
+  createdAt   DateTime        @default(now())
+
+  @@index([repairId])
 }
 
 model Kit {
@@ -342,6 +444,8 @@ model Quote {
   clientRef       Client?           @relation(fields: [clientId], references: [id], onDelete: SetNull)
   managerName     String            @default("")
   cashless        Boolean           @default(true)
+  /// % начисления безнала к базовой (наличной) цене. База 10 → цена / 0.9
+  cashlessPercent Float             @default(10)
   durationDays    Int               @default(1)
   notes           String[]          @default([])
   brief           String            @default("")
@@ -458,6 +562,7 @@ model QuoteTemplate {
   owner           User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   discountPercent Float    @default(0)
   cashless        Boolean  @default(true)
+  cashlessPercent Float    @default(10)
   notes           String[] @default([])
   payload         Json
   createdAt       DateTime @default(now())
@@ -576,4 +681,54 @@ model Notification {
 
   @@index([userId, read])
   @@index([quoteId])
+}
+
+model CalendarEntry {
+  id                String            @id @default(cuid())
+  kind              CalendarEntryKind
+  /// День записи (локальная дата без времени)
+  date              DateTime          @db.Date
+  title             String            @default("")
+  note              String            @default("")
+  /// Выходной: начало/конец в формате HH:mm
+  startTime         String?
+  endTime           String?
+  /// Аренда: ответственный за выдачу
+  responsibleUserId String?
+  responsibleUser   User?             @relation("CalendarEntryResponsible", fields: [responsibleUserId], references: [id], onDelete: SetNull)
+  createdById       String
+  createdBy         User              @relation("CalendarEntryCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  lines             CalendarEntryLine[]
+  assignees         CalendarEntryAssignee[]
+
+  @@index([date])
+  @@index([kind, date])
+  @@index([createdById])
+  @@index([responsibleUserId])
+}
+
+model CalendarEntryLine {
+  id            String        @id @default(cuid())
+  entryId       String
+  entry         CalendarEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  catalogItemId String
+  catalogItem   CatalogItem   @relation(fields: [catalogItemId], references: [id], onDelete: Restrict)
+  qty           Float         @default(1)
+
+  @@index([entryId])
+  @@index([catalogItemId])
+  @@unique([entryId, catalogItemId])
+}
+
+model CalendarEntryAssignee {
+  id      String        @id @default(cuid())
+  entryId String
+  entry   CalendarEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  userId  String
+  user    User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([entryId, userId])
+  @@index([userId])
 }

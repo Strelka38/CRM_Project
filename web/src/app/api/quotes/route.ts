@@ -82,7 +82,7 @@ const createSchema = z.object({
 
 export async function POST(req: NextRequest) {
   try {
-    const session = await requireSession();
+    const session = await requireManager();
     const body = createSchema.parse(await req.json().catch(() => ({})));
     const date = body.date || "";
     const proposalNumber = await nextProposalNumber();
@@ -96,6 +96,7 @@ export async function POST(req: NextRequest) {
         eventDate: parseEventDate(date),
         lifecycle: "CALCULATED",
         discountPercent: 0,
+        cashlessPercent: 10,
         notes: [
           "Внимание: данное предложение не является офертой. Бронирование оборудования на вашу дату производится только после заключения договора или внесения предоплаты",
           "* Первый день - 100% стоимости оборудования, 2-й и последующий, а также отдельный день для репетиций тарифицируются по 50% от стоимости оборудования",

@@ -51,8 +51,8 @@ export function AccountingMenu() {
         className={cn(
           "rounded-full px-3.5 py-1.5 text-sm transition-all duration-200",
           active || open
-            ? "bg-white/10 text-[var(--accent)] ring-1 ring-[var(--accent-glow)]/40"
-            : "text-[var(--muted-on-dark)] hover:bg-white/5 hover:text-white",
+            ? "bg-[var(--header-active-bg)] text-[var(--accent)] ring-1 ring-[var(--accent-glow)]/40"
+            : "text-[var(--header-muted)] hover:bg-[var(--header-hover)] hover:text-[var(--header-ink)]",
         )}
       >
         Бухгалтерия
