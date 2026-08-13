@@ -20,6 +20,9 @@ const nextConfig: NextConfig = {
     "prisma",
     "exceljs",
     "bcryptjs",
+    "jspdf",
+    "jspdf-autotable",
+    "qrcode",
   ],
   experimental: {
     ...(isDockerBuild

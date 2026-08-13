@@ -30,13 +30,19 @@ ENV DOCKER_BUILD_CPUS=1
 # Keep heap modest on 2–4 GB VMs (avoids swap storms)
 ENV NODE_OPTIONS=--max-old-space-size=1536
 ENV UV_THREADPOOL_SIZE=2
-ENV DATABASE_URL="postgresql://crm:crm@db:5432/crm_event?schema=public"
+# Dummy URL only for Prisma client init — do NOT use hostname "db" (unresolvable
+# during image build and can stall TCP for minutes if something touches Prisma).
+ENV DATABASE_URL="postgresql://crm:crm@127.0.0.1:5432/crm_event?schema=public"
 ENV AUTH_SECRET="build-time-placeholder-not-used-at-runtime"
 ENV AUTH_URL="http://localhost:3000"
 
-# Persist webpack/Next compile cache between builds (BuildKit)
+# Persist webpack/Next compile cache between builds (BuildKit).
+# If this step looks "stuck": fonts used to fetch from Google (now local);
+# on 2 GB RAM webpack may still take 10–20 min — prefer scripts/docker-build-export.sh
 RUN --mount=type=cache,target=/app/.next/cache \
-    npx next build --webpack
+    sh -c 'echo "[build] next build --webpack starting $(date -u +%H:%M:%S)" && \
+           npx next build --webpack && \
+           echo "[build] next build finished $(date -u +%H:%M:%S)"'
 
 FROM node:22-bookworm-slim AS runner
 WORKDIR /app

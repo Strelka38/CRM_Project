@@ -128,7 +128,7 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-body);
+  --font-sans: "Roboto", system-ui, sans-serif;
 }
 
 body {
@@ -138,12 +138,12 @@ body {
     radial-gradient(600px 300px at 50% 100%, var(--body-glow-3) 0%, transparent 45%),
     var(--bg);
   color: var(--ink);
-  font-family: var(--font-body), system-ui, sans-serif;
+  font-family: "Roboto", system-ui, sans-serif;
   min-height: 100%;
 }
 
 .font-display {
-  font-family: var(--font-body), system-ui, sans-serif;
+  font-family: "Roboto", system-ui, sans-serif;
   font-weight: 300;
   letter-spacing: -0.02em;
 }

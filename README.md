@@ -405,11 +405,28 @@ cat backup-YYYY-MM-DD.sql | docker compose exec -T db psql -U crm -d crm_event
 
 ### Обновление релиза на VPS
 
+На слабом VPS (`next build` в Docker часто «висит» на шаге webpack 10–20+ мин или уходит в swap). Надёжнее собрать образ на ноутбуке:
+
+```bash
+# на ноутбуке, из корня репо
+./scripts/docker-build-export.sh user@VPS:/var/www/bsg-crm
+# на VPS:
+cd /var/www/bsg-crm
+gunzip -c crm-app.tar.gz | docker load
+git pull   # compose/Caddy/миграции
+docker compose up -d
+```
+
+Если всё же собираете на сервере:
+
 ```bash
 git pull
-docker compose up -d --build
+# не используйте --no-cache без нужды
+DOCKER_BUILDKIT=1 docker compose up -d --build
 docker compose logs -f app
 ```
+
+Если шаг `next build` снова стоит дольше ~25 мин — прервите, проверьте `free -h` (нужен swap ≥2G) и соберите образ на ноутбуке.
 
 ---
 
