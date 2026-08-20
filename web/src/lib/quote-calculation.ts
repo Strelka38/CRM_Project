@@ -4,6 +4,7 @@ import {
   normalizeOwners,
   type CatalogOwnerValue,
 } from "@/lib/catalog-owner";
+import { resolveLineEconomics } from "@/lib/calc-line-cost";
 import { calcBlock, type QuoteBlockInput } from "@/lib/quote-calc";
 
 export type LineAmountSplit = {
@@ -34,6 +35,8 @@ export type LineCalcOverride = {
   ownersCustom: boolean;
   owners: CatalogOwnerValue[];
   amounts: LineAmountSplit;
+  /** Абсолютная себестоимость строки; null = из каталога / дефолт (услуга 0, лицензия passthrough). */
+  costOverride?: number | null;
 };
 
 export type LineOwnerInput = {
@@ -41,6 +44,8 @@ export type LineOwnerInput = {
   /** Catalog / kit default owners. */
   catalogOwners: CatalogOwnerValue[];
   override?: LineCalcOverride | null;
+  /** CatalogItem.costPrice (за единицу). */
+  unitCost?: number | null;
 };
 
 export type CompanyBreakdown = {
@@ -51,7 +56,10 @@ export type CompanyBreakdown = {
   autoPercent: number;
   /** Effective share used for settlement (auto or custom). */
   percent: number;
+  /** Маржа (клиент − закуп). Не раздувается себестоимостью Zoom. */
   revenue: number;
+  /** Закуп / себестоимость позиций. */
+  cogs: number;
   expenses: number;
   net: number;
 };
@@ -60,6 +68,8 @@ export type QuoteCalculationResult = {
   subtotal: number;
   discount: number;
   payable: number;
+  cogsTotal: number;
+  marginTotal: number;
   expensesTotal: number;
   netTotal: number;
   sharesCustom: boolean;
@@ -142,10 +152,22 @@ export function computeQuoteCalculation(input: {
   const discountRate = Math.max(0, Number(input.discountPercent) || 0) / 100;
 
   let subtotal = 0;
-  const shareRawByCompany = new Map<CatalogOwnerValue, number>();
-  const amountRawByCompany = new Map<CatalogOwnerValue, number>();
-  let unassignedRaw = 0;
+  const shareAuto = new Map<CatalogOwnerValue, number>();
+  const amountAuto = new Map<CatalogOwnerValue, number>();
+  const cogsRawByCompany = new Map<CatalogOwnerValue, number>();
+  let unassignedRevenue = 0;
+  let cogsRawTotal = 0;
 
+  function addMap(
+    map: Map<CatalogOwnerValue, number>,
+    company: CatalogOwnerValue,
+    value: number,
+  ) {
+    if (value <= 0) return;
+    map.set(company, (map.get(company) ?? 0) + value);
+  }
+
+  const prepared: Array<{ line: LineOwnerInput; lineTotal: number }> = [];
   for (const line of input.lines) {
     const { block } = line;
     if (block.type !== "ITEM" && block.type !== "KIT_HEADER") continue;
@@ -158,52 +180,63 @@ export function computeQuoteCalculation(input: {
     const lineTotal = calc.lineTotalCash;
     if (lineTotal <= 0) continue;
     subtotal += lineTotal;
-
-    const mode = line.override?.mode ?? "SHARE";
-    if (mode === "AMOUNT" && line.override) {
-      const amounts = line.override.amounts;
-      let assigned = 0;
-      for (const company of CATALOG_OWNERS.map((o) => o.value)) {
-        const part = Math.max(0, Number(amounts[company]) || 0);
-        if (part <= 0) continue;
-        amountRawByCompany.set(
-          company,
-          (amountRawByCompany.get(company) ?? 0) + part,
-        );
-        assigned += part;
-      }
-      const rest = Math.max(0, lineTotal - assigned);
-      if (rest > 0.0001) unassignedRaw += rest;
-      continue;
-    }
-
-    const list = effectiveOwners(line);
-    if (list.length === 0) {
-      unassignedRaw += lineTotal;
-      continue;
-    }
-    const part = lineTotal / list.length;
-    for (const company of list) {
-      shareRawByCompany.set(
-        company,
-        (shareRawByCompany.get(company) ?? 0) + part,
-      );
-    }
+    prepared.push({ line, lineTotal });
   }
 
   const discount = subtotal * discountRate;
   const payable = Math.max(0, subtotal - discount);
   const scale = subtotal > 0 ? payable / subtotal : 0;
 
-  const shareAuto = new Map<CatalogOwnerValue, number>();
-  for (const [company, raw] of shareRawByCompany) {
-    shareAuto.set(company, raw * scale);
+  for (const { line, lineTotal } of prepared) {
+    const { block } = line;
+    // Скидка режет клиентскую сумму; закуп (override / каталог) не дисконтируется.
+    const client = lineTotal * scale;
+    const eco = resolveLineEconomics({
+      clientTotal: client,
+      qty: block.qty,
+      itemKind: block.itemKind,
+      name: block.name || block.title,
+      catalogUnitCost: line.unitCost,
+      costOverride: line.override?.costOverride,
+    });
+    cogsRawTotal += eco.cost;
+
+    const mode = line.override?.mode ?? "SHARE";
+    if (mode === "AMOUNT" && line.override) {
+      const amounts = line.override.amounts;
+      let assignedOrig = 0;
+      for (const company of CATALOG_OWNERS.map((o) => o.value)) {
+        const origPart = Math.max(0, Number(amounts[company]) || 0);
+        if (origPart <= 0) continue;
+        assignedOrig += origPart;
+        const ratio = lineTotal > 0 ? origPart / lineTotal : 0;
+        const clientPart = client * ratio;
+        const costPart = eco.cost * ratio;
+        addMap(amountAuto, company, Math.max(0, clientPart - costPart));
+        addMap(cogsRawByCompany, company, costPart);
+      }
+      const restOrig = Math.max(0, lineTotal - assignedOrig);
+      if (restOrig > 0.0001 && lineTotal > 0) {
+        const ratio = restOrig / lineTotal;
+        unassignedRevenue += Math.max(0, client * ratio - eco.cost * ratio);
+      }
+      continue;
+    }
+
+    const list = effectiveOwners(line);
+    if (list.length === 0) {
+      unassignedRevenue += eco.margin;
+      continue;
+    }
+    const marginPart = eco.margin / list.length;
+    const costPart = eco.cost / list.length;
+    for (const company of list) {
+      addMap(shareAuto, company, marginPart);
+      addMap(cogsRawByCompany, company, costPart);
+    }
   }
-  const amountAuto = new Map<CatalogOwnerValue, number>();
-  for (const [company, raw] of amountRawByCompany) {
-    amountAuto.set(company, raw * scale);
-  }
-  const unassignedRevenue = unassignedRaw * scale;
+
+  const cogsTotal = cogsRawTotal;
 
   const autoRevenue = new Map<CatalogOwnerValue, number>();
   for (const company of CATALOG_OWNERS.map((o) => o.value)) {
@@ -213,7 +246,9 @@ export function computeQuoteCalculation(input: {
   }
 
   const companiesPresent = CATALOG_OWNERS.map((o) => o.value).filter(
-    (v) => (autoRevenue.get(v) ?? 0) > 0.0001,
+    (v) =>
+      (autoRevenue.get(v) ?? 0) > 0.0001 ||
+      (cogsRawByCompany.get(v) ?? 0) > 0.0001,
   );
 
   const autoShares = equalShares(companiesPresent);
@@ -266,10 +301,14 @@ export function computeQuoteCalculation(input: {
   );
 
   const expenseByCompany = new Map<CatalogOwnerValue, number>();
-  const revenueForShare = [...effectiveRevenue.entries()].filter(
+  let revenueForShare = [...effectiveRevenue.entries()].filter(
     ([, v]) => v > 0,
   );
-  const revenueShareSum = revenueForShare.reduce((s, [, v]) => s + v, 0);
+  let revenueShareSum = revenueForShare.reduce((s, [, v]) => s + v, 0);
+  if (revenueShareSum <= 0) {
+    revenueForShare = [...cogsRawByCompany.entries()].filter(([, v]) => v > 0);
+    revenueShareSum = revenueForShare.reduce((s, [, v]) => s + v, 0);
+  }
 
   for (const exp of input.expenses) {
     const mode = exp.mode ?? "SHARE";
@@ -322,6 +361,7 @@ export function computeQuoteCalculation(input: {
     (v) =>
       (effectiveRevenue.get(v) ?? 0) > 0.0001 ||
       (expenseByCompany.get(v) ?? 0) > 0.0001 ||
+      (cogsRawByCompany.get(v) ?? 0) > 0.0001 ||
       (autoRevenue.get(v) ?? 0) > 0.0001 ||
       (input.customShares ?? []).some((s) => s.company === v),
   );
@@ -340,6 +380,7 @@ export function computeQuoteCalculation(input: {
   const breakdown: CompanyBreakdown[] = ordered.map((company) => {
     const meta = companyMeta(company);
     const revenue = effectiveRevenue.get(company) ?? 0;
+    const cogs = cogsRawByCompany.get(company) ?? 0;
     const expenses = expenseByCompany.get(company) ?? 0;
     const autoRev = autoRevenue.get(company) ?? 0;
     const autoPercent =
@@ -356,17 +397,22 @@ export function computeQuoteCalculation(input: {
       autoPercent,
       percent,
       revenue: Math.round(revenue),
+      cogs: Math.round(cogs),
       expenses: Math.round(expenses),
+      // Закуп уже вычтен из выручки (маржа). Не минусуем повторно.
       net: Math.round(revenue - expenses),
     };
   });
 
   const netTotal = breakdown.reduce((s, b) => s + b.net, 0);
+  const marginTotal = breakdown.reduce((s, b) => s + b.revenue, 0);
 
   return {
     subtotal: Math.round(subtotal),
     discount: Math.round(discount),
     payable: Math.round(payable),
+    cogsTotal: Math.round(cogsTotal),
+    marginTotal: Math.round(marginTotal),
     expensesTotal: Math.round(expensesTotal),
     netTotal,
     sharesCustom,
@@ -375,6 +421,17 @@ export function computeQuoteCalculation(input: {
     breakdown,
     autoShares,
   };
+}
+
+/** Перенести закуп из базового расчёта в строки после ЗП/агентских. */
+export function attachCogsToBreakdown<
+  T extends { company: CatalogOwnerValue },
+>(rows: T[], calc: QuoteCalculationResult): Array<T & { cogs: number }> {
+  const byCo = new Map(calc.breakdown.map((b) => [b.company, b.cogs]));
+  return rows.map((row) => ({
+    ...row,
+    cogs: byCo.get(row.company) ?? 0,
+  }));
 }
 
 /** Resolve owners for a kit from its components (unique union). */

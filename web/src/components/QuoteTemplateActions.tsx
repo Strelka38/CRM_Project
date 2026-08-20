@@ -214,6 +214,114 @@ export function DuplicateQuoteModal({
   );
 }
 
+export type ApplyTemplateRow = {
+  id: string;
+  name: string;
+  cashless: boolean;
+  cashlessPercent: number;
+  discountPercent: number;
+  notes: string[];
+  payload: unknown;
+  owner: { name: string };
+};
+
+export function ApplyTemplateModal({
+  open,
+  onClose,
+  onApply,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onApply: (template: ApplyTemplateRow) => void | Promise<void>;
+}) {
+  const [templates, setTemplates] = useState<ApplyTemplateRow[]>([]);
+  const [templateId, setTemplateId] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!open) return;
+    setError("");
+    setLoading(true);
+    void fetch("/api/quote-templates")
+      .then((r) => r.json())
+      .then((data) => {
+        if (Array.isArray(data)) {
+          setTemplates(data as ApplyTemplateRow[]);
+          setTemplateId(data[0]?.id || "");
+        }
+      })
+      .finally(() => setLoading(false));
+  }, [open]);
+
+  async function submit() {
+    const template = templates.find((t) => t.id === templateId);
+    if (!template) {
+      setError("Выберите шаблон");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      await onApply(template);
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не удалось применить шаблон");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title="Загрузить из шаблона">
+      <div className="mt-4 flex flex-col gap-3">
+        {loading ? (
+          <p className="text-sm text-[var(--muted)]">Загрузка шаблонов…</p>
+        ) : templates.length === 0 ? (
+          <p className="text-sm text-[var(--muted)]">
+            Шаблонов пока нет. Сначала сохраните смету через «В шаблон».
+          </p>
+        ) : (
+          <>
+            <label className="text-sm">
+              <span className="text-[var(--muted)]">Шаблон</span>
+              <select
+                className="field mt-1"
+                value={templateId}
+                onChange={(e) => setTemplateId(e.target.value)}
+              >
+                {templates.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                    {t.owner?.name ? ` (${t.owner.name})` : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <p className="text-xs text-[var(--muted)]">
+              Зоны и позиции текущей сметы заменятся канвой шаблона. Дата,
+              клиент, площадка и ТЗ не изменятся.
+            </p>
+          </>
+        )}
+        {error && <p className="text-sm text-[var(--danger)]">{error}</p>}
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={onClose} disabled={busy}>
+            Отмена
+          </Button>
+          <Button
+            onClick={() => void submit()}
+            disabled={busy || loading || templates.length === 0}
+          >
+            {busy ? "Загружаем…" : "Подставить канву"}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 export function CreateFromTemplateModal({
   open,
   onClose,

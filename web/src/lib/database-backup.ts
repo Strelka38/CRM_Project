@@ -13,6 +13,7 @@ import {
   emptyBackupCounts,
   type DatabaseBackupCounts,
   type DatabaseBackupFile,
+  type DatabaseBackupTables,
 } from "@/lib/database-backup-format";
 import { newQrToken } from "@/lib/uploads";
 
@@ -103,6 +104,11 @@ function notesOf(v: unknown): string[] {
   return v.filter((x): x is string => typeof x === "string");
 }
 
+function asJson(v: unknown, fallback: Prisma.InputJsonValue = {}): Prisma.InputJsonValue {
+  if (v === undefined || v === null) return fallback;
+  return v as Prisma.InputJsonValue;
+}
+
 function requireId(row: Record<string, unknown>): string | null {
   const id = str(row.id).trim();
   return id || null;
@@ -156,9 +162,14 @@ export async function collectDatabaseBackup(): Promise<DatabaseBackupFile> {
     venues,
     venuePhotos,
     vehicles,
+    legalEntities,
+    legalEntityBankAccounts,
     equipmentUnits,
     equipmentDocuments,
     quoteTemplates,
+    quoteSnapshots,
+    quoteAuditEvents,
+    specRevisions,
   ] = await Promise.all([
     prisma.specialty.findMany({ orderBy: { sortOrder: "asc" } }),
     prisma.user.findMany({ orderBy: { createdAt: "asc" } }),
@@ -171,9 +182,14 @@ export async function collectDatabaseBackup(): Promise<DatabaseBackupFile> {
     prisma.venue.findMany({ orderBy: { name: "asc" } }),
     prisma.venuePhoto.findMany({ orderBy: { sortOrder: "asc" } }),
     prisma.vehicle.findMany({ orderBy: { plateNumber: "asc" } }),
+    prisma.legalEntity.findMany({ orderBy: { shortName: "asc" } }),
+    prisma.legalEntityBankAccount.findMany({ orderBy: { sortOrder: "asc" } }),
     prisma.equipmentUnit.findMany({ orderBy: { unitNumber: "asc" } }),
     prisma.equipmentDocument.findMany({ orderBy: { createdAt: "asc" } }),
     prisma.quoteTemplate.findMany({ orderBy: { name: "asc" } }),
+    prisma.quoteSnapshot.findMany({ orderBy: { createdAt: "asc" } }),
+    prisma.quoteAuditEvent.findMany({ orderBy: { createdAt: "asc" } }),
+    prisma.specRevision.findMany({ orderBy: { createdAt: "asc" } }),
   ]);
 
   return {
@@ -193,9 +209,14 @@ export async function collectDatabaseBackup(): Promise<DatabaseBackupFile> {
         venues,
         venuePhotos,
         vehicles,
+        legalEntities,
+        legalEntityBankAccounts,
         equipmentUnits,
         equipmentDocuments,
         quoteTemplates,
+        quoteSnapshots,
+        quoteAuditEvents,
+        specRevisions,
       }),
     ) as DatabaseBackupTables,
   };
@@ -238,9 +259,14 @@ export function parseDatabaseBackup(raw: unknown): DatabaseBackupFile {
       venues: rowsOf(tables.venues),
       venuePhotos: rowsOf(tables.venuePhotos),
       vehicles: rowsOf(tables.vehicles),
+      legalEntities: rowsOf(tables.legalEntities),
+      legalEntityBankAccounts: rowsOf(tables.legalEntityBankAccounts),
       equipmentUnits: rowsOf(tables.equipmentUnits),
       equipmentDocuments: rowsOf(tables.equipmentDocuments),
       quoteTemplates: rowsOf(tables.quoteTemplates),
+      quoteSnapshots: rowsOf(tables.quoteSnapshots),
+      quoteAuditEvents: rowsOf(tables.quoteAuditEvents),
+      specRevisions: rowsOf(tables.specRevisions),
     },
   };
 }
@@ -318,6 +344,19 @@ export async function applyDatabaseBackup(
         warnings,
       );
       await importVehicles(tx, backup.tables.vehicles, counts, warnings);
+      const legalIds = await importLegalEntities(
+        tx,
+        backup.tables.legalEntities,
+        counts,
+        warnings,
+      );
+      await importLegalEntityAccounts(
+        tx,
+        backup.tables.legalEntityBankAccounts,
+        legalIds,
+        counts,
+        warnings,
+      );
       await importEquipmentUnits(
         tx,
         backup.tables.equipmentUnits,
@@ -339,6 +378,27 @@ export async function applyDatabaseBackup(
         backup.tables.quoteTemplates,
         userIds,
         currentUserId,
+        counts,
+        warnings,
+      );
+      await importQuoteSnapshots(
+        tx,
+        backup.tables.quoteSnapshots,
+        userIds,
+        counts,
+        warnings,
+      );
+      await importQuoteAuditEvents(
+        tx,
+        backup.tables.quoteAuditEvents,
+        userIds,
+        counts,
+        warnings,
+      );
+      await importSpecRevisions(
+        tx,
+        backup.tables.specRevisions,
+        userIds,
         counts,
         warnings,
       );
@@ -368,6 +428,7 @@ async function importSpecialties(
       sortOrder: int(rec.sortOrder, 0),
       hourlyRate: num(rec.hourlyRate, 0),
       shiftRate: num(rec.shiftRate, 0),
+      description: str(rec.description),
       active: bool(rec.active, true),
       createdAt: asDate(rec.createdAt),
     };
@@ -385,6 +446,7 @@ async function importSpecialties(
           sortOrder: data.sortOrder,
           hourlyRate: data.hourlyRate,
           shiftRate: data.shiftRate,
+          description: data.description,
           active: data.active,
         },
       });
@@ -434,6 +496,12 @@ async function importUsers(
       monthlySalary: num(rec.monthlySalary, 0),
       agencyPercent: num(rec.agencyPercent, 5),
       owners: ownersOf(rec.owners),
+      timezone: str(rec.timezone, "Asia/Irkutsk") || "Asia/Irkutsk",
+      weatherPlace: pickEnum(
+        rec.weatherPlace,
+        ["IRKUTSK", "IRKUTSK_OBLAST"] as const,
+        "IRKUTSK" as const,
+      ),
     };
 
     if (target) {
@@ -448,6 +516,8 @@ async function importUsers(
         monthlySalary: profile.monthlySalary,
         agencyPercent: profile.agencyPercent,
         owners: profile.owners,
+        timezone: profile.timezone,
+        weatherPlace: profile.weatherPlace,
       };
       if (!isCurrent) {
         data.email = profile.email;
@@ -622,6 +692,7 @@ async function importCatalogItems(
       basePrice: num(rec.basePrice, 0),
       cashlessOverride: optNum(rec.cashlessOverride),
       estimatedValue: optNum(rec.estimatedValue),
+      costPrice: optNum(rec.costPrice),
       stockQty: int(rec.stockQty, 0),
       width: optNum(rec.width),
       height: optNum(rec.height),
@@ -635,6 +706,7 @@ async function importCatalogItems(
       dayMode: pickEnum(rec.dayMode, DAY_MODES, "HALF_EXTRA" as DayMode),
       itemKind: pickEnum(rec.itemKind, ITEM_KINDS, "EQUIPMENT" as ItemKind),
       active: bool(rec.active, true),
+      showInCatalog: bool(rec.showInCatalog, true),
       sortOrder: int(rec.sortOrder, 0),
     };
 
@@ -880,6 +952,110 @@ async function importVehicles(
   }
 }
 
+async function importLegalEntities(
+  tx: Prisma.TransactionClient,
+  raw: unknown[],
+  counts: DatabaseBackupCounts,
+  warnings: string[],
+): Promise<IdMap> {
+  const map: IdMap = new Map();
+  for (const rec of rowsOf(raw)) {
+    const id = requireId(rec);
+    const inn = str(rec.inn).replace(/\D/g, "");
+    const shortName = str(rec.shortName).trim();
+    if (!id || !inn || !shortName) {
+      warnings.push("Пропущено юрлицо без id, ИНН или названия");
+      continue;
+    }
+    const catalogOwnerRaw = rec.catalogOwner;
+    const catalogOwner =
+      typeof catalogOwnerRaw === "string" && OWNERS.includes(catalogOwnerRaw as CatalogOwner)
+        ? (catalogOwnerRaw as CatalogOwner)
+        : null;
+    const data = {
+      shortName,
+      fullName: str(rec.fullName),
+      inn,
+      ogrnip: str(rec.ogrnip),
+      legalAddress: str(rec.legalAddress),
+      actualAddress: str(rec.actualAddress),
+      phone: str(rec.phone),
+      email: str(rec.email),
+      catalogOwner,
+      signatoryName: str(rec.signatoryName),
+      sealPath: optStr(rec.sealPath),
+      signaturePath: optStr(rec.signaturePath),
+      active: bool(rec.active, true),
+    };
+    const byId = await tx.legalEntity.findUnique({ where: { id } });
+    const byInn = byId
+      ? null
+      : await tx.legalEntity.findUnique({ where: { inn } });
+    const target = byId ?? byInn;
+    if (target) {
+      map.set(id, target.id);
+      await tx.legalEntity.update({ where: { id: target.id }, data });
+    } else {
+      map.set(id, id);
+      await tx.legalEntity.create({
+        data: { id, ...data, createdAt: asDate(rec.createdAt) },
+      });
+    }
+    counts.legalEntities += 1;
+  }
+  return map;
+}
+
+async function importLegalEntityAccounts(
+  tx: Prisma.TransactionClient,
+  raw: unknown[],
+  legalIds: IdMap,
+  counts: DatabaseBackupCounts,
+  warnings: string[],
+) {
+  for (const rec of rowsOf(raw)) {
+    const id = requireId(rec);
+    const legalEntityId = mapped(legalIds, str(rec.legalEntityId));
+    const account = str(rec.account).replace(/\D/g, "");
+    if (!id || !legalEntityId || !account) {
+      warnings.push("Пропущен счёт юрлица: нет юрлица или р/с");
+      continue;
+    }
+    const data = {
+      label: str(rec.label),
+      bankName: str(rec.bankName),
+      account,
+      corrAccount: str(rec.corrAccount),
+      bik: str(rec.bik),
+      isDefault: bool(rec.isDefault, false),
+      sortOrder: int(rec.sortOrder, 0),
+    };
+    const byId = await tx.legalEntityBankAccount.findUnique({ where: { id } });
+    const byPair = byId
+      ? null
+      : await tx.legalEntityBankAccount.findUnique({
+          where: { legalEntityId_account: { legalEntityId, account } },
+        });
+    const target = byId ?? byPair;
+    if (target) {
+      await tx.legalEntityBankAccount.update({
+        where: { id: target.id },
+        data: { ...data, legalEntityId },
+      });
+    } else {
+      await tx.legalEntityBankAccount.create({
+        data: {
+          id,
+          legalEntityId,
+          ...data,
+          createdAt: asDate(rec.createdAt),
+        },
+      });
+    }
+    counts.legalEntityBankAccounts += 1;
+  }
+}
+
 async function importEquipmentUnits(
   tx: Prisma.TransactionClient,
   raw: unknown[],
@@ -1012,5 +1188,130 @@ async function importQuoteTemplates(
       });
     }
     counts.quoteTemplates += 1;
+  }
+}
+
+async function quoteExists(
+  tx: Prisma.TransactionClient,
+  quoteId: string,
+): Promise<boolean> {
+  if (!quoteId) return false;
+  const row = await tx.quote.findUnique({
+    where: { id: quoteId },
+    select: { id: true },
+  });
+  return Boolean(row);
+}
+
+async function importQuoteSnapshots(
+  tx: Prisma.TransactionClient,
+  raw: unknown[],
+  userIds: IdMap,
+  counts: DatabaseBackupCounts,
+  warnings: string[],
+) {
+  for (const rec of rowsOf(raw)) {
+    const id = requireId(rec);
+    const quoteId = str(rec.quoteId).trim();
+    if (!id || !quoteId) {
+      warnings.push("Пропущен снимок сметы без id или quoteId");
+      continue;
+    }
+    if (!(await quoteExists(tx, quoteId))) {
+      warnings.push(`Снимок сметы ${id}: смета ${quoteId} не найдена`);
+      continue;
+    }
+    const createdById = mapped(userIds, str(rec.createdById));
+    const data = {
+      quoteId,
+      title: str(rec.title),
+      payload: asJson(rec.payload),
+      createdById,
+    };
+    const existing = await tx.quoteSnapshot.findUnique({ where: { id } });
+    if (existing) {
+      await tx.quoteSnapshot.update({ where: { id }, data });
+    } else {
+      await tx.quoteSnapshot.create({
+        data: { id, ...data, createdAt: asDate(rec.createdAt) },
+      });
+    }
+    counts.quoteSnapshots += 1;
+  }
+}
+
+async function importQuoteAuditEvents(
+  tx: Prisma.TransactionClient,
+  raw: unknown[],
+  userIds: IdMap,
+  counts: DatabaseBackupCounts,
+  warnings: string[],
+) {
+  for (const rec of rowsOf(raw)) {
+    const id = requireId(rec);
+    const quoteId = str(rec.quoteId).trim();
+    if (!id || !quoteId) {
+      warnings.push("Пропущено событие журнала сметы без id или quoteId");
+      continue;
+    }
+    if (!(await quoteExists(tx, quoteId))) {
+      warnings.push(`Журнал сметы ${id}: смета ${quoteId} не найдена`);
+      continue;
+    }
+    const actorId = mapped(userIds, str(rec.actorId));
+    const data = {
+      quoteId,
+      actorId,
+      action: str(rec.action, "PATCH"),
+      summary: str(rec.summary),
+      diff: rec.diff == null ? undefined : asJson(rec.diff),
+    };
+    const existing = await tx.quoteAuditEvent.findUnique({ where: { id } });
+    if (existing) {
+      await tx.quoteAuditEvent.update({ where: { id }, data });
+    } else {
+      await tx.quoteAuditEvent.create({
+        data: { id, ...data, createdAt: asDate(rec.createdAt) },
+      });
+    }
+    counts.quoteAuditEvents += 1;
+  }
+}
+
+async function importSpecRevisions(
+  tx: Prisma.TransactionClient,
+  raw: unknown[],
+  userIds: IdMap,
+  counts: DatabaseBackupCounts,
+  warnings: string[],
+) {
+  for (const rec of rowsOf(raw)) {
+    const id = requireId(rec);
+    const quoteId = str(rec.quoteId).trim();
+    if (!id || !quoteId) {
+      warnings.push("Пропущен снимок спецификации без id или quoteId");
+      continue;
+    }
+    if (!(await quoteExists(tx, quoteId))) {
+      warnings.push(`Снимок спецификации ${id}: смета ${quoteId} не найдена`);
+      continue;
+    }
+    const createdById = mapped(userIds, str(rec.createdById));
+    const data = {
+      quoteId,
+      title: str(rec.title),
+      lines: asJson(rec.lines, []),
+      note: optStr(rec.note),
+      createdById,
+    };
+    const existing = await tx.specRevision.findUnique({ where: { id } });
+    if (existing) {
+      await tx.specRevision.update({ where: { id }, data });
+    } else {
+      await tx.specRevision.create({
+        data: { id, ...data, createdAt: asDate(rec.createdAt) },
+      });
+    }
+    counts.specRevisions += 1;
   }
 }

@@ -73,6 +73,7 @@ export async function POST(req: NextRequest) {
           itemKind: r.itemKind,
           owners: r.owners,
           active: r.active,
+          showInCatalog: r.showInCatalog,
           sortOrder: r.sortOrder,
           ...(r.equipmentCode != null
             ? { equipmentCode: r.equipmentCode }

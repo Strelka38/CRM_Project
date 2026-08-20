@@ -13,7 +13,8 @@ import {
   getPeriodRange,
   parseStatsPeriod,
 } from "@/lib/period";
-import { calcByZones } from "@/lib/quote-calc";
+import { calcByZones, blocksInActiveZones } from "@/lib/quote-calc";
+import { buildFreelancerExpenseInputs } from "@/lib/calc-labor";
 import {
   amountsFromOverride,
   computeQuoteCalculation,
@@ -52,7 +53,9 @@ export async function GET(req: NextRequest) {
           blocks: {
             orderBy: { sortOrder: "asc" },
             include: {
-              catalogItem: { select: { itemKind: true, owners: true } },
+              catalogItem: {
+                select: { itemKind: true, owners: true, costPrice: true },
+              },
               kit: {
                 select: {
                   components: {
@@ -191,26 +194,34 @@ export async function GET(req: NextRequest) {
           owners: (isFreelancer
             ? a.owners
             : a.user?.owners || []) as CatalogOwnerValue[],
+          isFreelancer,
         };
       });
-      const laborCost = assignmentPays.reduce((s, a) => s + a.pay, 0);
-      const laborAlloc = allocateLaborByEmployeeOwners(assignmentPays);
+      const staffPays = assignmentPays.filter((a) => !a.isFreelancer);
+      const laborCost = staffPays.reduce((s, a) => s + a.pay, 0);
+      const laborAlloc = allocateLaborByEmployeeOwners(staffPays);
 
-      const lines = buildCalcLines(q.blocks, q.calcLineOverrides);
+      const lines = buildCalcLines(
+        blocksInActiveZones(q.zones, q.blocks),
+        q.calcLineOverrides,
+      );
       const companyCalc = computeQuoteCalculation({
         durationDays: q.durationDays,
         discountPercent: q.discountPercent,
         lines,
-        expenses: q.extraExpenses.map((e) => ({
-          ...e,
-          owners: e.owners as CatalogOwnerValue[],
-          amounts: amountsFromOverride(e),
-        })),
+        expenses: [
+          ...q.extraExpenses.map((e) => ({
+            ...e,
+            owners: e.owners as CatalogOwnerValue[],
+            amounts: amountsFromOverride(e),
+          })),
+          ...buildFreelancerExpenseInputs(q.assignments),
+        ],
         sharesCustom: q.sharesCustom,
         customShares: q.calcShares,
       });
 
-      cashRevenueTotal += companyCalc.payable;
+      cashRevenueTotal += companyCalc.marginTotal;
       cashExpensesTotal += companyCalc.expensesTotal;
       unassignedCashTotal += companyCalc.unassignedRevenue;
 
@@ -267,7 +278,7 @@ export async function GET(req: NextRequest) {
         revenue: totals.payable,
         laborCost,
         profit: totals.payable - laborCost,
-        cashRevenue: companyCalc.payable,
+        cashRevenue: companyCalc.marginTotal,
         cashExpenses: companyCalc.expensesTotal,
         cashUnassigned: companyCalc.unassignedRevenue,
         byCompany,

@@ -27,6 +27,7 @@ type Assignment = {
   id: string;
   userId: string | null;
   specialtyId: string;
+  kind?: "EVENT" | "MOUNT";
   payMode: "SHIFT" | "HOURLY";
   hours: number | null;
   rateOverride: number | null;
@@ -122,6 +123,8 @@ export function QuoteAssignments({
   canEdit,
   compact = false,
   hidePay = false,
+  kind = "EVENT",
+  recommendedQty,
   onChanged,
 }: {
   quoteId: string;
@@ -129,9 +132,12 @@ export function QuoteAssignments({
   compact?: boolean;
   /** Hide rates, ФОТ, overrides (for brigadier). Also forced by role. */
   hidePay?: boolean;
+  kind?: "EVENT" | "MOUNT";
+  recommendedQty?: number;
   onChanged?: () => void;
 }) {
   const { data: session } = useSession();
+  const isBrigadier = session?.user?.role === "BRIGADIER";
   const noPay =
     hidePay || !canSeeAssignmentPay(session?.user?.role);
 
@@ -179,8 +185,7 @@ export function QuoteAssignments({
       const list = await uRes.json();
       setUsers(
         list.filter(
-          (u: UserOption & { role: string; active: boolean }) =>
-            u.active && (u.specialties?.length ?? 0) > 0,
+          (u: UserOption & { role: string; active: boolean }) => u.active,
         ),
       );
     }
@@ -200,6 +205,10 @@ export function QuoteAssignments({
 
   const selectedUser = users.find((u) => u.id === userId);
   const userSpecialties = selectedUser?.specialties || [];
+  const staffOptions =
+    kind === "MOUNT"
+      ? users
+      : users.filter((u) => (u.specialties?.length ?? 0) > 0);
 
   useEffect(() => {
     if (
@@ -221,7 +230,8 @@ export function QuoteAssignments({
       body: JSON.stringify({
         isFreelancer: false,
         userId,
-        specialtyId,
+        ...(kind === "MOUNT" ? {} : { specialtyId }),
+        kind,
         payMode: noPay ? "SHIFT" : payMode,
         hours: noPay ? null : payMode === "HOURLY" ? hours : null,
         rateOverride: noPay
@@ -245,7 +255,11 @@ export function QuoteAssignments({
 
   async function addStaff() {
     setError("");
-    if (!userId || !specialtyId) {
+    if (!userId) {
+      setError("Выберите сотрудника");
+      return;
+    }
+    if (kind !== "MOUNT" && !specialtyId) {
       setError("Выберите сотрудника и должность");
       return;
     }
@@ -286,7 +300,7 @@ export function QuoteAssignments({
 
   async function addFreelancer() {
     setError("");
-    if (!freelancerSpecialtyId) {
+    if (kind !== "MOUNT" && !freelancerSpecialtyId) {
       setError("Выберите должность");
       return;
     }
@@ -295,7 +309,8 @@ export function QuoteAssignments({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         isFreelancer: true,
-        specialtyId: freelancerSpecialtyId,
+        ...(kind === "MOUNT" ? {} : { specialtyId: freelancerSpecialtyId }),
+        kind,
         freelancerName: freelancerName.trim(),
         owners: freelancerOwner ? [freelancerOwner] : [],
         rateOverride: noPay
@@ -328,23 +343,82 @@ export function QuoteAssignments({
     id: string,
     body: Record<string, unknown>,
   ) {
-    await fetch(`/api/quotes/${quoteId}/assignments/${id}`, {
+    setError("");
+    const res = await fetch(`/api/quotes/${quoteId}/assignments/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setError(
+        typeof data.error === "string" ? data.error : "Не удалось сохранить",
+      );
+    }
     void load();
     notifyChanged();
   }
 
-  const total = assignments.reduce((s, a) => s + a.pay, 0);
-  const colCount = noPay
-    ? canEdit
-      ? 4
-      : 3
-    : canEdit
-      ? 7
-      : 6;
+  const rows = assignments.filter((a) => (a.kind || "EVENT") === kind);
+  const staffingNeeds = [
+    ...rows.reduce(
+      (groups, assignment) => {
+        const label =
+          kind === "MOUNT"
+            ? "Монтажник"
+            : assignment.specialty?.name || "Должность";
+        const current = groups.get(label) || {
+          label,
+          total: 0,
+          vacant: 0,
+        };
+        current.total += 1;
+        if (!assignment.userId && !assignment.isFreelancer) {
+          current.vacant += 1;
+        }
+        groups.set(label, current);
+        return groups;
+      },
+      new Map<
+        string,
+        { label: string; total: number; vacant: number }
+      >(),
+    ).values(),
+  ];
+
+  async function addEmptySlot() {
+    setError("");
+    const sid =
+      kind === "MOUNT"
+        ? undefined
+        : rows[0]?.specialtyId ||
+          freelancerSpecialtyId ||
+          allSpecialties[0]?.id;
+    if (kind !== "MOUNT" && !sid) {
+      setError("Нет справочника должностей");
+      return;
+    }
+    const res = await fetch(`/api/quotes/${quoteId}/assignments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...(sid ? { specialtyId: sid } : {}),
+        kind,
+      }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setError(data.error || "Не удалось добавить слот");
+      return;
+    }
+    void load();
+    notifyChanged();
+  }
+
+  const mountHideJob = kind === "MOUNT";
+  const total = rows.reduce((s, a) => s + a.pay, 0);
+  const colCount =
+    (noPay ? (canEdit ? 4 : 3) : canEdit ? 7 : 6) - (mountHideJob ? 1 : 0);
 
   if (loading && assignments.length === 0) {
     return (
@@ -358,11 +432,19 @@ export function QuoteAssignments({
     <section className="flex h-full min-h-0 flex-col rounded-xl border border-[var(--line)] bg-[var(--panel)] p-4">
       <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
         <div>
-          <h2 className="font-display text-xl">Сотрудники на мероприятии</h2>
+          <h2 className="font-display text-xl">
+            {kind === "MOUNT"
+              ? "Монтажники"
+              : "Кто работает"}
+          </h2>
           <p className="text-xs text-[var(--muted)]">
-            {noPay
-              ? "Назначение сотрудников и фрилансеров по должности."
-              : "Штатные и фрилансеры; у фрилансера — ставка смены и фирма для расходки."}
+            {kind === "MOUNT"
+              ? recommendedQty != null
+                ? `Рекомендуется по смете: ${recommendedQty}. Можно поставить больше.`
+                : "Монтажники отдельно от участников шоу. Можно добавить слоты сверх сметы."
+              : noPay
+                ? "Пустые строки — должности из сметы; ФИО можно назначить позже."
+                : "Штатные и фрилансеры; у фрилансера — ставка смены и фирма для расходки."}
           </p>
         </div>
         {!noPay && (
@@ -372,6 +454,43 @@ export function QuoteAssignments({
           </p>
         )}
       </div>
+
+      {isBrigadier && (
+        <div className="mb-3 rounded-lg border border-[var(--line)] bg-[var(--selected)]/35 px-3 py-2.5">
+          <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+            Требуется на мероприятии
+          </p>
+          {staffingNeeds.length > 0 ? (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {staffingNeeds.map((need) => (
+                <span
+                  key={need.label}
+                  className="rounded-md border border-[var(--line)] bg-[var(--panel)] px-2.5 py-1.5 text-sm"
+                >
+                  <span className="font-medium">{need.label}</span>
+                  {" × "}
+                  <span className="tabular-nums">{need.total}</span>
+                  <span
+                    className={
+                      need.vacant > 0
+                        ? "ml-2 text-amber-500"
+                        : "ml-2 text-emerald-500"
+                    }
+                  >
+                    {need.vacant > 0
+                      ? `не назначено ${need.vacant}`
+                      : "все назначены"}
+                  </span>
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-1.5 text-sm text-[var(--muted)]">
+              В смете потребность не указана.
+            </p>
+          )}
+        </div>
+      )}
 
       {canEdit && (
         <>
@@ -404,6 +523,15 @@ export function QuoteAssignments({
             >
               Фрилансер
             </button>
+            {kind === "MOUNT" && (
+              <button
+                type="button"
+                className="rounded-md border border-[var(--line)] px-3 py-1 text-[var(--muted)]"
+                onClick={() => void addEmptySlot()}
+              >
+                + Слот
+              </button>
+            )}
           </div>
 
           {mode === "staff" ? (
@@ -426,13 +554,14 @@ export function QuoteAssignments({
                   onChange={(e) => setUserId(e.target.value)}
                 >
                   <option value="">—</option>
-                  {users.map((u) => (
+                  {staffOptions.map((u) => (
                     <option key={u.id} value={u.id}>
                       {u.name}
                     </option>
                   ))}
                 </select>
               </label>
+              {kind !== "MOUNT" && (
               <label
                 className={compact || noPay ? "text-sm" : "text-sm md:col-span-2"}
               >
@@ -452,6 +581,7 @@ export function QuoteAssignments({
                   ))}
                 </select>
               </label>
+              )}
               {!noPay && (
                 <>
                   <label className="text-sm">
@@ -538,6 +668,7 @@ export function QuoteAssignments({
                   onChange={(e) => setFreelancerName(e.target.value)}
                 />
               </label>
+              {kind !== "MOUNT" && (
               <label className="text-sm">
                 <span className="text-[var(--muted)]">Должность</span>
                 <select
@@ -552,6 +683,7 @@ export function QuoteAssignments({
                   ))}
                 </select>
               </label>
+              )}
               <label className="text-sm">
                 <span className="text-[var(--muted)]">Фирма</span>
                 <select
@@ -621,7 +753,9 @@ export function QuoteAssignments({
             <tr>
               <th className="px-2 py-2 text-left">Сотрудник</th>
               <th className="px-2 py-2 text-left">Фирма</th>
-              <th className="px-2 py-2 text-left">Должность</th>
+              {kind !== "MOUNT" && (
+                <th className="px-2 py-2 text-left">Должность</th>
+              )}
               {!noPay && (
                 <>
                   <th className="px-2 py-2 text-left">Режим</th>
@@ -633,13 +767,39 @@ export function QuoteAssignments({
             </tr>
           </thead>
           <tbody>
-            {assignments.map((a) => {
-              const fl = a.isFreelancer || !a.userId;
-              const firmOwners = fl ? a.owners : a.user.owners;
+            {rows.map((a) => {
+              const vacant = !a.userId && !a.isFreelancer;
+              const fl = a.isFreelancer;
+              const firmOwners = fl ? a.owners : a.user?.owners;
               return (
                 <tr key={a.id} className="border-t border-[var(--line)]">
                   <td className="px-2 py-2">
-                    {fl && canEdit ? (
+                    {vacant && canEdit ? (
+                      <div className="flex flex-col gap-0.5">
+                        <select
+                          className="field max-w-[220px]"
+                          defaultValue=""
+                          onChange={(e) => {
+                            const next = e.target.value;
+                            if (next) {
+                              void patchAssignment(a.id, { userId: next });
+                            }
+                          }}
+                        >
+                          <option value="">не назначен</option>
+                          {staffOptions.map((u) => (
+                            <option key={u.id} value={u.id}>
+                              {u.name}
+                            </option>
+                          ))}
+                        </select>
+                        <span className="text-[10px] text-[var(--muted)]">
+                          слот из сметы
+                        </span>
+                      </div>
+                    ) : vacant ? (
+                      <span className="text-[var(--muted)]">не назначен</span>
+                    ) : fl && canEdit ? (
                       <div className="flex flex-col gap-0.5">
                         <input
                           className="field max-w-[200px]"
@@ -661,7 +821,7 @@ export function QuoteAssignments({
                       <span>
                         {fl
                           ? a.freelancerName.trim() || "Фрилансер"
-                          : a.user.name}
+                          : a.user?.name || "Сотрудник"}
                         {fl && (
                           <span className="ml-1 text-[10px] text-[var(--muted)]">
                             (фр.)
@@ -694,7 +854,35 @@ export function QuoteAssignments({
                       <FirmBadges owners={firmOwners} />
                     )}
                   </td>
-                  <td className="px-2 py-2">{a.specialty.name}</td>
+                  {kind !== "MOUNT" && (
+                  <td className="px-2 py-2">
+                    {canEdit && allSpecialties.length > 0 ? (
+                      <select
+                        className="field max-w-[200px]"
+                        value={a.specialtyId}
+                        onChange={(e) => {
+                          const next = e.target.value;
+                          if (next && next !== a.specialtyId) {
+                            void patchAssignment(a.id, { specialtyId: next });
+                          }
+                        }}
+                      >
+                        {!allSpecialties.some((s) => s.id === a.specialtyId) && (
+                          <option value={a.specialtyId}>
+                            {a.specialty.name}
+                          </option>
+                        )}
+                        {allSpecialties.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.name}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      a.specialty.name
+                    )}
+                  </td>
+                  )}
                   {!noPay && (
                     <>
                       <td className="px-2 py-2">
@@ -756,13 +944,15 @@ export function QuoteAssignments({
                 </tr>
               );
             })}
-            {assignments.length === 0 && (
+            {rows.length === 0 && (
               <tr>
                 <td
                   colSpan={colCount}
                   className="px-4 py-6 text-center text-[var(--muted)]"
                 >
-                  Сотрудники ещё не назначены
+                  {kind === "MOUNT"
+                    ? "Монтажники ещё не назначены"
+                    : "Сотрудники ещё не назначены"}
                 </td>
               </tr>
             )}

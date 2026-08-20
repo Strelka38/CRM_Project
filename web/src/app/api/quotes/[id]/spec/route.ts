@@ -1,13 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
+import { ownerShorts, type CatalogOwnerValue } from "@/lib/catalog-owner";
 import { canAccessQuote } from "@/lib/quote-access";
 import {
   applySpecLineOrder,
+  applySpecOverrides,
   buildSpecLines,
+  extrasToSpecLines,
   pruneStaleOverrideKeys,
   sanitizeSpecLineOrder,
+  type SpecLine,
 } from "@/lib/spec-build";
+import {
+  latestSpecRevision,
+  linesFromRevision,
+  writeSpecRevision,
+} from "@/lib/spec-revision";
 import {
   canEditSpec,
   requireSession,
@@ -48,6 +57,7 @@ async function loadAssignments(quoteId: string) {
       userId: true,
       isFreelancer: true,
       freelancerName: true,
+      kind: true,
       user: {
         select: {
           id: true,
@@ -60,21 +70,50 @@ async function loadAssignments(quoteId: string) {
     },
   });
   return rows.map((a) => {
-    const isFreelancer = a.isFreelancer || !a.userId;
-    const fullName = isFreelancer
-      ? (a.freelancerName || "").trim() || "Фрилансер"
-      : [a.user?.lastName, a.user?.firstName].filter(Boolean).join(" ").trim() ||
-        a.user?.name ||
-        "Сотрудник";
+    const vacant = !a.userId && !a.isFreelancer;
+    const isFreelancer = Boolean(a.isFreelancer);
+    const fullName = vacant
+      ? "не назначен"
+      : isFreelancer
+        ? (a.freelancerName || "").trim() || "Фрилансер"
+        : [a.user?.lastName, a.user?.firstName].filter(Boolean).join(" ").trim() ||
+          a.user?.name ||
+          "Сотрудник";
     return {
       id: a.id,
       userId: a.userId,
       isFreelancer,
+      vacant,
+      kind: a.kind || "EVENT",
       name: fullName,
       specialtyId: a.specialty.id,
       specialtyName: a.specialty.name,
     };
   });
+}
+
+async function enrichOwnerLabels(lines: SpecLine[]): Promise<SpecLine[]> {
+  const ids = [
+    ...new Set(
+      lines
+        .map((l) => l.catalogItemId)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ];
+  if (ids.length === 0) {
+    return lines.map((l) => ({ ...l, ownerLabel: l.ownerLabel || "—" }));
+  }
+  const items = await prisma.catalogItem.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, owners: true },
+  });
+  const map = new Map(
+    items.map((i) => [i.id, ownerShorts(i.owners as CatalogOwnerValue[])]),
+  );
+  return lines.map((l) => ({
+    ...l,
+    ownerLabel: l.catalogItemId ? map.get(l.catalogItemId) || "—" : "—",
+  }));
 }
 
 async function loadSpecPayload(id: string) {
@@ -85,6 +124,10 @@ async function loadSpecPayload(id: string) {
       proposalNumber: true,
       eventName: true,
       date: true,
+      mountDate: true,
+      mountDurationDays: true,
+      demountDate: true,
+      demountDurationDays: true,
       place: true,
       client: true,
       lifecycle: true,
@@ -95,29 +138,36 @@ async function loadSpecPayload(id: string) {
   });
   if (!quote) return null;
 
-  const [specOverrides, specExtras, assignments] = await Promise.all([
+  const [specOverrides, specExtras, assignments, revision] = await Promise.all([
     prisma.specOverride.findMany({ where: { quoteId: id } }),
     prisma.specExtraBlock.findMany({
       where: { quoteId: id },
       orderBy: { sortOrder: "asc" },
     }),
     loadAssignments(id),
+    latestSpecRevision(id),
   ]);
 
-  const built = await buildSpecLines(
-    quote.blocks,
-    specOverrides,
-    specExtras,
-  );
+  let built: SpecLine[];
+  let overrides = specOverrides;
+  let hasSnapshot = false;
+  let snapshotAt: string | null = null;
 
-  const staleIds = pruneStaleOverrideKeys(built, specOverrides);
-  if (staleIds.length > 0) {
-    await prisma.specOverride.deleteMany({
-      where: { id: { in: staleIds } },
-    });
+  if (revision) {
+    hasSnapshot = true;
+    snapshotAt = revision.createdAt.toISOString();
+    built = linesFromRevision(revision.lines);
+  } else {
+    built = await buildSpecLines(quote.blocks, specOverrides, specExtras);
+    const staleIds = pruneStaleOverrideKeys(built, specOverrides);
+    if (staleIds.length > 0) {
+      await prisma.specOverride.deleteMany({
+        where: { id: { in: staleIds } },
+      });
+    }
+    overrides = specOverrides.filter((o) => !staleIds.includes(o.id));
   }
 
-  const overrides = specOverrides.filter((o) => !staleIds.includes(o.id));
   const lineOrder = sanitizeSpecLineOrder(built, quote.specLineOrder);
   const lines = applySpecLineOrder(built, lineOrder);
 
@@ -133,11 +183,13 @@ async function loadSpecPayload(id: string) {
 
   return {
     quote,
-    lines,
+    lines: await enrichOwnerLabels(lines),
     lineOrder,
     overrides,
     extras: specExtras,
     assignments,
+    hasSnapshot,
+    snapshotAt,
   };
 }
 
@@ -151,11 +203,17 @@ function serializePayload(
     proposalNumber: payload.quote.proposalNumber,
     eventName: payload.quote.eventName,
     date: payload.quote.date,
+    mountDate: payload.quote.mountDate,
+    mountDurationDays: payload.quote.mountDurationDays,
+    demountDate: payload.quote.demountDate,
+    demountDurationDays: payload.quote.demountDurationDays,
     place: payload.quote.place,
     client: payload.quote.client,
     lifecycle: payload.quote.lifecycle,
     durationDays: payload.quote.durationDays,
     canEdit,
+    hasSnapshot: payload.hasSnapshot,
+    snapshotAt: payload.snapshotAt,
     lines: canEdit ? payload.lines : visible,
     lineOrder: payload.lineOrder,
     overrides: payload.overrides,
@@ -258,6 +316,53 @@ export async function PATCH(
         });
       }
     });
+
+    const revision = await latestSpecRevision(id);
+    const quote = await prisma.quote.findUnique({
+      where: { id },
+      include: {
+        blocks: { orderBy: { sortOrder: "asc" } },
+      },
+    });
+    if (quote) {
+      const extras = await prisma.specExtraBlock.findMany({
+        where: { quoteId: id },
+        orderBy: { sortOrder: "asc" },
+      });
+      let snapshotLines: SpecLine[];
+      if (revision) {
+        const derived = applySpecOverrides(
+          linesFromRevision(revision.lines).filter((l) => l.source === "derived"),
+          body.overrides,
+        );
+        snapshotLines = applySpecLineOrder(
+          [...derived, ...extrasToSpecLines(extras)],
+          body.lineOrder || quote.specLineOrder,
+        );
+      } else {
+        snapshotLines = await buildSpecLines(
+          quote.blocks,
+          body.overrides.map((o) => ({
+            id: "",
+            quoteId: id,
+            deriveKey: o.deriveKey,
+            action: o.action,
+            qty: o.qty ?? null,
+            name: o.name ?? null,
+            catalogItemId: o.catalogItemId ?? null,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          })),
+          extras,
+        );
+      }
+      await writeSpecRevision(
+        id,
+        snapshotLines,
+        session.user.id,
+        revision ? "edit" : "first-save",
+      );
+    }
 
     const payload = await loadSpecPayload(id);
     if (!payload) {

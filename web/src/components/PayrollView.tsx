@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { formatMoney } from "@/lib/format";
 import {
@@ -12,7 +12,22 @@ import {
   type ListPeriod,
   type YearMonth,
 } from "@/lib/period";
-import { Card, PageHeader } from "@/components/ui";
+import {
+  Card,
+  EmptyState,
+  PageHeader,
+  StatusBadge,
+  type LifecycleStatus,
+} from "@/components/ui";
+import {
+  DirectoryCardLink,
+  DirectoryCsvMenu,
+  downloadCsvRows,
+} from "@/components/DirectoryToolbar";
+import {
+  PayrollCompositionChart,
+  PayrollEventsChart,
+} from "@/components/StatisticsCharts";
 
 type Row = {
   id: string;
@@ -75,16 +90,29 @@ type PayrollData = {
   period: { type: ListPeriod; ym: string; label: string };
 };
 
-const LIFE: Record<string, string> = {
-  CALCULATED: "Посчитано",
-  CONFIRMED: "Подтверждено",
-  COMPLETED: "Завершено",
-  CANCELLED: "Отменено",
-};
+const SLICE_COLORS = {
+  salary: "var(--muted)",
+  shifts: "var(--accent)",
+  montage: "var(--lifecycle-completed)",
+  agency: "var(--lifecycle-confirmed)",
+  pending: "var(--lifecycle-calculated)",
+} as const;
 
 function currentYm(): YearMonth {
   const n = new Date();
   return { year: n.getFullYear(), month: n.getMonth() };
+}
+
+function asLifecycle(value: string): LifecycleStatus | null {
+  if (
+    value === "CALCULATED" ||
+    value === "CONFIRMED" ||
+    value === "COMPLETED" ||
+    value === "CANCELLED"
+  ) {
+    return value;
+  }
+  return null;
 }
 
 export function PayrollView() {
@@ -119,7 +147,7 @@ export function PayrollView() {
 
   if (loading && !data) {
     return (
-      <div className="mx-auto max-w-5xl px-4 py-10 text-[var(--muted)]">
+      <div className="mx-auto max-w-6xl px-4 py-10 text-[var(--muted)]">
         Загрузка…
       </div>
     );
@@ -127,12 +155,39 @@ export function PayrollView() {
 
   if (!data) {
     return (
-      <div className="mx-auto max-w-5xl px-4 py-10 text-[var(--danger)]">
+      <div className="mx-auto max-w-6xl px-4 py-10 text-[var(--danger)]">
         {error || "Нет данных"}
       </div>
     );
   }
 
+  return (
+    <PayrollDashboard
+      data={data}
+      period={period}
+      ym={ym}
+      loading={loading}
+      onPeriod={setPeriod}
+      onYm={setYm}
+    />
+  );
+}
+
+function PayrollDashboard({
+  data,
+  period,
+  ym,
+  loading,
+  onPeriod,
+  onYm,
+}: {
+  data: PayrollData;
+  period: ListPeriod;
+  ym: YearMonth;
+  loading: boolean;
+  onPeriod: (v: ListPeriod) => void;
+  onYm: (v: YearMonth | ((prev: YearMonth) => YearMonth)) => void;
+}) {
   const hasAgency =
     (data.agencyConfirmed?.length ?? 0) > 0 ||
     (data.agencyPending?.length ?? 0) > 0 ||
@@ -142,27 +197,121 @@ export function PayrollView() {
   const assignmentsTotal = data.confirmedAssignmentsTotal ?? 0;
   const montageTotal = data.confirmedMontageTotal ?? 0;
   const agencyTotal = data.confirmedAgencyTotal ?? 0;
-  const grandTotal =
-    (data.monthlySalary ?? 0) + (data.estimatedSalary ?? 0);
+  const grandTotal = (data.monthlySalary ?? 0) + (data.estimatedSalary ?? 0);
 
-  const breakdownParts = [
-    data.monthlySalary > 0
-      ? `оклад ${formatMoney(data.monthlySalary)}`
-      : null,
-    assignmentsTotal > 0
-      ? `смены ${formatMoney(assignmentsTotal)}`
-      : null,
-    montageTotal > 0 ? `монт. ${formatMoney(montageTotal)}` : null,
-    hasAgency && agencyTotal > 0
-      ? `агентские ${formatMoney(agencyTotal)}`
-      : null,
-  ].filter(Boolean);
+  const composition = useMemo(() => {
+    return [
+      {
+        key: "salary",
+        name: "Оклад",
+        value: data.monthlySalary,
+        fill: "#8a9abc",
+        css: SLICE_COLORS.salary,
+      },
+      {
+        key: "shifts",
+        name: "Смены",
+        value: assignmentsTotal,
+        fill: "#009ee3",
+        css: SLICE_COLORS.shifts,
+      },
+      {
+        key: "montage",
+        name: "Монтаж",
+        value: montageTotal,
+        fill: "#7c9cff",
+        css: SLICE_COLORS.montage,
+      },
+      {
+        key: "agency",
+        name: "Агентские",
+        value: agencyTotal,
+        fill: "#22c55e",
+        css: SLICE_COLORS.agency,
+      },
+    ].filter((s) => s.value > 0);
+  }, [data.monthlySalary, assignmentsTotal, montageTotal, agencyTotal]);
+
+  const eventRows = useMemo(() => {
+    return [
+      ...data.confirmed.map((r) => ({
+        id: r.id,
+        name: r.quote.eventName || "Без названия",
+        amount: r.pay + (r.montageAmount ?? 0),
+        kind: "confirmed" as const,
+      })),
+      ...data.pending.map((r) => ({
+        id: r.id,
+        name: r.quote.eventName || "Без названия",
+        amount: r.pay + (r.montageAmount ?? 0),
+        kind: "pending" as const,
+      })),
+      ...(data.agencyConfirmed ?? [])
+        .filter((r) => r.agencyTotal > 0)
+        .map((r) => ({
+          id: `ag-${r.id}`,
+          name: r.quote.eventName || "Без названия",
+          amount: r.agencyTotal,
+          kind: "agency" as const,
+        })),
+      ...(data.agencyPending ?? [])
+        .filter((r) => r.agencyTotal > 0)
+        .map((r) => ({
+          id: `agp-${r.id}`,
+          name: r.quote.eventName || "Без названия",
+          amount: r.agencyTotal,
+          kind: "pending" as const,
+        })),
+    ];
+  }, [data]);
+
+  const showCharts = composition.length > 0 || eventRows.length > 0;
+
+  function exportCsv() {
+    const stamp = new Date().toISOString().slice(0, 10);
+    const rows: string[][] = [
+      ["Раздел", "Мероприятие", "Дата", "Должность", "Расчёт", "Сумма"],
+      ...data.confirmed.map((r) => [
+        "Начисления",
+        r.quote.eventName,
+        r.quote.date,
+        r.specialty.name,
+        r.payMode === "HOURLY" ? `${r.hours ?? 0} ч` : "смена",
+        String(r.pay + (r.montageAmount ?? 0)),
+      ]),
+      ...data.pending.map((r) => [
+        "Ожидаемые",
+        r.quote.eventName,
+        r.quote.date,
+        r.specialty.name,
+        r.payMode === "HOURLY" ? `${r.hours ?? 0} ч` : "смена",
+        String(r.pay + (r.montageAmount ?? 0)),
+      ]),
+      ...(data.agencyConfirmed ?? []).map((r) => [
+        "Агентские",
+        r.quote.eventName,
+        r.quote.date,
+        "",
+        r.byCompany.map((c) => c.short).join(";"),
+        String(r.agencyTotal),
+      ]),
+      ...(data.agencyPending ?? []).map((r) => [
+        "Ожидаемые агентские",
+        r.quote.eventName,
+        r.quote.date,
+        "",
+        r.byCompany.map((c) => c.short).join(";"),
+        String(r.agencyTotal),
+      ]),
+    ];
+    downloadCsvRows(`payroll-${stamp}.csv`, rows);
+  }
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-6 md:px-6">
+    <div className="mx-auto max-w-6xl px-4 py-6 md:px-6">
       <PageHeader
         title="Моя зарплата"
-        subtitle="Оклад, начисления по сменам, монтажные и агентские менеджера за выбранный период."
+        subtitle="Оклад, начисления по сменам, монтажные и агентские за выбранный период."
         actions={
           <div className="min-w-[12rem] text-right animate-fade-up">
             <p className="text-xs uppercase tracking-[0.15em] text-[var(--muted)]">
@@ -171,10 +320,8 @@ export function PayrollView() {
             <p className="mt-0.5 text-4xl font-light tracking-tight text-[var(--accent-deep)] tabular-nums sm:text-5xl">
               {formatMoney(grandTotal)}
             </p>
-            {breakdownParts.length > 0 && (
-              <p className="mt-1 max-w-[18rem] text-[11px] leading-snug text-[var(--muted)] ml-auto">
-                {breakdownParts.join(" · ")}
-              </p>
+            {composition.length > 0 && (
+              <CompositionBar parts={composition} total={grandTotal} />
             )}
           </div>
         }
@@ -186,7 +333,7 @@ export function PayrollView() {
           <select
             className="field mt-1 min-w-[10rem]"
             value={period}
-            onChange={(e) => setPeriod(e.target.value as ListPeriod)}
+            onChange={(e) => onPeriod(e.target.value as ListPeriod)}
           >
             {LIST_PERIODS.map((p) => (
               <option key={p.value} value={p.value}>
@@ -201,7 +348,7 @@ export function PayrollView() {
               type="button"
               className="field px-2.5"
               aria-label="Предыдущий месяц"
-              onClick={() => setYm((v) => shiftYearMonth(v, -1))}
+              onClick={() => onYm((v) => shiftYearMonth(v, -1))}
             >
               ←
             </button>
@@ -211,14 +358,14 @@ export function PayrollView() {
                 type="month"
                 className="field mt-1 min-w-[10rem]"
                 value={toYearMonthParam(ym)}
-                onChange={(e) => setYm(parseYearMonth(e.target.value))}
+                onChange={(e) => onYm(parseYearMonth(e.target.value))}
               />
             </label>
             <button
               type="button"
               className="field px-2.5"
               aria-label="Следующий месяц"
-              onClick={() => setYm((v) => shiftYearMonth(v, 1))}
+              onClick={() => onYm((v) => shiftYearMonth(v, 1))}
             >
               →
             </button>
@@ -229,6 +376,9 @@ export function PayrollView() {
             (period === "month" ? formatYearMonthLabel(ym) : "")}
           {loading ? " · обновление…" : ""}
         </p>
+        <div className="ml-auto pb-1">
+          <DirectoryCsvMenu onExport={exportCsv} />
+        </div>
       </div>
 
       <div
@@ -236,53 +386,70 @@ export function PayrollView() {
           hasAgency ? "lg:grid-cols-4" : "lg:grid-cols-3"
         }`}
       >
-        <Card className="p-5">
-          <p className="text-xs uppercase tracking-[0.15em] text-[var(--muted)]">
-            Месячный оклад
-          </p>
-          <p className="mt-1 text-3xl font-light tracking-tight">
-            {formatMoney(data.monthlySalary)}
-          </p>
-        </Card>
-        <Card className="p-5">
-          <p className="text-xs uppercase tracking-[0.15em] text-[var(--muted)]">
-            Итого (подтв. / заверш.)
-          </p>
-          <p className="mt-1 text-3xl font-light tracking-tight text-[var(--accent-deep)]">
-            {formatMoney(data.estimatedSalary)}
-          </p>
-          <p className="mt-1 text-[11px] text-[var(--muted)]">
-            смены {formatMoney(data.confirmedAssignmentsTotal ?? 0)}
-            {(data.confirmedMontageTotal ?? 0) > 0 &&
-              ` · монт. ${formatMoney(data.confirmedMontageTotal)}`}
-            {(data.confirmedAgencyTotal ?? 0) > 0 &&
-              ` · аг. ${formatMoney(data.confirmedAgencyTotal)}`}
-          </p>
-        </Card>
+        <KpiCard
+          label="Месячный оклад"
+          value={data.monthlySalary}
+          share={grandTotal}
+          color={SLICE_COLORS.salary}
+        />
+        <KpiCard
+          label="Итого подтв. / заверш."
+          value={data.estimatedSalary}
+          share={grandTotal}
+          color={SLICE_COLORS.shifts}
+          hint={[
+            `смены ${formatMoney(data.confirmedAssignmentsTotal ?? 0)}`,
+            (data.confirmedMontageTotal ?? 0) > 0
+              ? `монт. ${formatMoney(data.confirmedMontageTotal)}`
+              : null,
+            (data.confirmedAgencyTotal ?? 0) > 0
+              ? `аг. ${formatMoney(data.confirmedAgencyTotal)}`
+              : null,
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+        />
         {hasAgency && (
-          <Card className="p-5">
-            <p className="text-xs uppercase tracking-[0.15em] text-[var(--muted)]">
-              Агентские
-            </p>
-            <p className="mt-1 text-3xl font-light tracking-tight">
-              {formatMoney(data.confirmedAgencyTotal ?? 0)}
-            </p>
-            {(data.pendingAgencyTotal ?? 0) > 0 && (
-              <p className="mt-1 text-[11px] text-[var(--muted)]">
-                ожид. {formatMoney(data.pendingAgencyTotal)}
+          <KpiCard
+            label="Агентские"
+            value={data.confirmedAgencyTotal ?? 0}
+            share={grandTotal}
+            color={SLICE_COLORS.agency}
+            hint={
+              (data.pendingAgencyTotal ?? 0) > 0
+                ? `ожид. ${formatMoney(data.pendingAgencyTotal)}`
+                : undefined
+            }
+          />
+        )}
+        <KpiCard
+          label="Ожидается (посчитано)"
+          value={data.pendingTotal}
+          color={SLICE_COLORS.pending}
+          hint="не входит в итого"
+        />
+      </div>
+
+      {showCharts && (
+        <Card className="mb-6 p-4 md:p-5">
+          <div className="grid gap-6 lg:grid-cols-2 lg:items-center">
+            <PayrollCompositionChart
+              slices={composition.map((s) => ({
+                name: s.name,
+                value: s.value,
+                fill: s.fill,
+              }))}
+            />
+            {eventRows.length > 0 ? (
+              <PayrollEventsChart rows={eventRows} />
+            ) : (
+              <p className="flex h-64 items-center justify-center text-sm text-[var(--muted)]">
+                Нет начислений по мероприятиям
               </p>
             )}
-          </Card>
-        )}
-        <Card className="p-5">
-          <p className="text-xs uppercase tracking-[0.15em] text-[var(--muted)]">
-            Ожидается (посчитано)
-          </p>
-          <p className="mt-1 text-3xl font-light tracking-tight">
-            {formatMoney(data.pendingTotal)}
-          </p>
+          </div>
         </Card>
-      </div>
+      )}
 
       <Section title="Начисления по сменам" rows={data.confirmed} />
       <Section
@@ -311,6 +478,74 @@ export function PayrollView() {
   );
 }
 
+function CompositionBar({
+  parts,
+  total,
+}: {
+  parts: { name: string; value: number; css: string }[];
+  total: number;
+}) {
+  if (total <= 0 || parts.length === 0) return null;
+  return (
+    <div className="mt-2 ml-auto w-full max-w-[18rem] text-left">
+      <div className="flex h-1.5 overflow-hidden rounded-full bg-[var(--line)]">
+        {parts.map((p) => (
+          <div
+            key={p.name}
+            className="h-full"
+            style={{
+              width: `${Math.max(2, (p.value / total) * 100)}%`,
+              background: p.css,
+            }}
+            title={`${p.name}: ${formatMoney(p.value)}`}
+          />
+        ))}
+      </div>
+      <p className="mt-1.5 text-[11px] leading-snug text-[var(--muted)]">
+        {parts.map((p) => `${p.name} ${formatMoney(p.value)}`).join(" · ")}
+      </p>
+    </div>
+  );
+}
+
+function KpiCard({
+  label,
+  value,
+  share,
+  color,
+  hint,
+}: {
+  label: string;
+  value: number;
+  share?: number;
+  color: string;
+  hint?: string;
+}) {
+  const pct =
+    share && share > 0 ? Math.round((value / share) * 100) : null;
+  return (
+    <Card className="p-5">
+      <p className="text-xs uppercase tracking-[0.15em] text-[var(--muted)]">
+        {label}
+      </p>
+      <p className="mt-1 text-3xl font-light tracking-tight tabular-nums">
+        {formatMoney(value)}
+      </p>
+      {pct != null && (
+        <div className="mt-3 h-1 overflow-hidden rounded-full bg-[var(--line)]">
+          <div
+            className="h-full rounded-full"
+            style={{ width: `${Math.min(100, pct)}%`, background: color }}
+          />
+        </div>
+      )}
+      {hint && (
+        <p className="mt-1.5 text-[11px] text-[var(--muted)]">{hint}</p>
+      )}
+    </Card>
+  );
+}
+
 function Section({
   title,
   rows,
@@ -324,64 +559,86 @@ function Section({
     <section
       className={`rounded-xl border border-[var(--line)] bg-[var(--panel)] ${className}`}
     >
-      <h2 className="border-b border-[var(--line)] px-4 py-3 font-display text-lg">
-        {title}
-      </h2>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[640px] text-sm">
-          <thead className="bg-[var(--table-head)] text-xs uppercase text-[var(--muted)]">
-            <tr>
-              <th className="px-3 py-2 text-left">Мероприятие</th>
-              <th className="px-3 py-2 text-left">Дата</th>
-              <th className="px-3 py-2 text-left">Должность</th>
-              <th className="px-3 py-2 text-left">Расчёт</th>
-              <th className="px-3 py-2 text-right">Сумма</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr key={r.id} className="border-t border-[var(--line)]">
-                <td className="px-3 py-2">
-                  <Link
-                    href={`/quotes/${r.quote.id}`}
-                    className="text-[var(--accent)] hover:underline"
-                  >
-                    {r.quote.eventName || "Без названия"}
-                  </Link>
-                  <p className="text-xs text-[var(--muted)]">
-                    {LIFE[r.quote.lifecycle] || r.quote.lifecycle}
-                  </p>
-                </td>
-                <td className="px-3 py-2">{r.quote.date || "—"}</td>
-                <td className="px-3 py-2">{r.specialty.name}</td>
-                <td className="px-3 py-2 text-[var(--muted)]">
-                  {r.rateOverride != null
-                    ? `override ${formatMoney(r.rateOverride)}`
-                    : r.payMode === "HOURLY"
-                      ? `${r.hours ?? 0} ч × ${formatMoney(r.hourlyRate)}`
-                      : `смена ${formatMoney(r.shiftRate)}`}
-                  {(r.bonus ?? 0) > 0 && ` + премия ${formatMoney(r.bonus!)}`}
-                  {(r.montageAmount ?? 0) > 0 &&
-                    ` · монт. ${formatMoney(r.montageAmount!)}`}
-                </td>
-                <td className="px-3 py-2 text-right font-medium tabular-nums">
-                  {formatMoney(r.pay + (r.montageAmount ?? 0))}
-                </td>
-              </tr>
-            ))}
-            {rows.length === 0 && (
-              <tr>
-                <td
-                  colSpan={5}
-                  className="px-4 py-8 text-center text-[var(--muted)]"
-                >
-                  Нет назначений
-                </td>
-              </tr>
+      <div className="flex items-baseline justify-between gap-3 border-b border-[var(--line)] px-4 py-3">
+        <h2 className="font-display text-lg">{title}</h2>
+        {rows.length > 0 && (
+          <p className="text-sm tabular-nums text-[var(--muted)]">
+            {formatMoney(
+              rows.reduce((s, r) => s + r.pay + (r.montageAmount ?? 0), 0),
             )}
-          </tbody>
-        </table>
+          </p>
+        )}
       </div>
+      {rows.length === 0 ? (
+        <EmptyState
+          title="Нет назначений"
+          description="За этот период смены не начислялись."
+        />
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px] text-sm">
+            <thead className="bg-[var(--table-head)] text-xs uppercase text-[var(--muted)]">
+              <tr>
+                <th className="px-4 py-2 text-left">Мероприятие</th>
+                <th className="px-3 py-2 text-left">Дата</th>
+                <th className="px-3 py-2 text-left">Должность</th>
+                <th className="px-3 py-2 text-left">Расчёт</th>
+                <th className="px-3 py-2 text-right">Сумма</th>
+                <th className="w-12 px-3 py-2 text-left" />
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => {
+                const life = asLifecycle(r.quote.lifecycle);
+                return (
+                  <tr
+                    key={r.id}
+                    className="border-t border-[var(--line)] hover:bg-white/[0.03]"
+                  >
+                    <td className="px-4 py-2.5">
+                      <Link
+                        href={`/quotes/${r.quote.id}`}
+                        className="text-[var(--accent)] hover:underline"
+                      >
+                        {r.quote.eventName || "Без названия"}
+                      </Link>
+                      <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                        {life && <StatusBadge status={life} />}
+                        {r.quote.client ? (
+                          <span className="text-xs text-[var(--muted)]">
+                            {r.quote.client}
+                          </span>
+                        ) : null}
+                      </div>
+                    </td>
+                    <td className="px-3 py-2.5 tabular-nums">
+                      {r.quote.date || "—"}
+                    </td>
+                    <td className="px-3 py-2.5">{r.specialty.name}</td>
+                    <td className="px-3 py-2.5 text-[var(--muted)]">
+                      {r.rateOverride != null
+                        ? `override ${formatMoney(r.rateOverride)}`
+                        : r.payMode === "HOURLY"
+                          ? `${r.hours ?? 0} ч × ${formatMoney(r.hourlyRate)}`
+                          : `смена ${formatMoney(r.shiftRate)}`}
+                      {(r.bonus ?? 0) > 0 &&
+                        ` + премия ${formatMoney(r.bonus!)}`}
+                      {(r.montageAmount ?? 0) > 0 &&
+                        ` · монт. ${formatMoney(r.montageAmount!)}`}
+                    </td>
+                    <td className="px-3 py-2.5 text-right font-medium tabular-nums">
+                      {formatMoney(r.pay + (r.montageAmount ?? 0))}
+                    </td>
+                    <td className="px-3 py-2.5 text-left">
+                      <DirectoryCardLink href={`/quotes/${r.quote.id}`} />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </section>
   );
 }
@@ -399,59 +656,77 @@ function AgencySection({
     <section
       className={`rounded-xl border border-[var(--line)] bg-[var(--panel)] ${className}`}
     >
-      <h2 className="border-b border-[var(--line)] px-4 py-3 font-display text-lg">
-        {title}
-      </h2>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[640px] text-sm">
-          <thead className="bg-[var(--table-head)] text-xs uppercase text-[var(--muted)]">
-            <tr>
-              <th className="px-3 py-2 text-left">Мероприятие</th>
-              <th className="px-3 py-2 text-left">Дата</th>
-              <th className="px-3 py-2 text-left">По фирмам</th>
-              <th className="px-3 py-2 text-right">Агентские 5%</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr key={r.id} className="border-t border-[var(--line)]">
-                <td className="px-3 py-2">
-                  <Link
-                    href={`/calculations/${r.quote.id}`}
-                    className="text-[var(--accent)] hover:underline"
-                  >
-                    {r.quote.eventName || "Без названия"}
-                  </Link>
-                  <p className="text-xs text-[var(--muted)]">
-                    {LIFE[r.quote.lifecycle] || r.quote.lifecycle}
-                    {r.quote.client ? ` · ${r.quote.client}` : ""}
-                  </p>
-                </td>
-                <td className="px-3 py-2">{r.quote.date || "—"}</td>
-                <td className="px-3 py-2 text-[var(--muted)]">
-                  {r.byCompany
-                    .filter((c) => c.agency > 0)
-                    .map((c) => `${c.short} ${formatMoney(c.agency)}`)
-                    .join(" · ") || "—"}
-                </td>
-                <td className="px-3 py-2 text-right font-medium tabular-nums">
-                  {formatMoney(r.agencyTotal)}
-                </td>
-              </tr>
-            ))}
-            {rows.length === 0 && (
-              <tr>
-                <td
-                  colSpan={4}
-                  className="px-4 py-8 text-center text-[var(--muted)]"
-                >
-                  Нет агентских за период
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+      <div className="flex items-baseline justify-between gap-3 border-b border-[var(--line)] px-4 py-3">
+        <h2 className="font-display text-lg">{title}</h2>
+        {rows.length > 0 && (
+          <p className="text-sm tabular-nums text-[var(--muted)]">
+            {formatMoney(rows.reduce((s, r) => s + r.agencyTotal, 0))}
+          </p>
+        )}
       </div>
+      {rows.length === 0 ? (
+        <EmptyState
+          title="Нет агентских за период"
+          description="Комиссия появится по вашим подтверждённым проектам."
+        />
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px] text-sm">
+            <thead className="bg-[var(--table-head)] text-xs uppercase text-[var(--muted)]">
+              <tr>
+                <th className="px-4 py-2 text-left">Мероприятие</th>
+                <th className="px-3 py-2 text-left">Дата</th>
+                <th className="px-3 py-2 text-left">По фирмам</th>
+                <th className="px-3 py-2 text-right">Агентские 5%</th>
+                <th className="w-12 px-3 py-2 text-left" />
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => {
+                const life = asLifecycle(r.quote.lifecycle);
+                return (
+                  <tr
+                    key={r.id}
+                    className="border-t border-[var(--line)] hover:bg-white/[0.03]"
+                  >
+                    <td className="px-4 py-2.5">
+                      <Link
+                        href={`/calculations/${r.quote.id}`}
+                        className="text-[var(--accent)] hover:underline"
+                      >
+                        {r.quote.eventName || "Без названия"}
+                      </Link>
+                      <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                        {life && <StatusBadge status={life} />}
+                        {r.quote.client ? (
+                          <span className="text-xs text-[var(--muted)]">
+                            {r.quote.client}
+                          </span>
+                        ) : null}
+                      </div>
+                    </td>
+                    <td className="px-3 py-2.5 tabular-nums">
+                      {r.quote.date || "—"}
+                    </td>
+                    <td className="px-3 py-2.5 text-[var(--muted)]">
+                      {r.byCompany
+                        .filter((c) => c.agency > 0)
+                        .map((c) => `${c.short} ${formatMoney(c.agency)}`)
+                        .join(" · ") || "—"}
+                    </td>
+                    <td className="px-3 py-2.5 text-right font-medium tabular-nums">
+                      {formatMoney(r.agencyTotal)}
+                    </td>
+                    <td className="px-3 py-2.5 text-left">
+                      <DirectoryCardLink href={`/calculations/${r.quote.id}`} />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </section>
   );
 }

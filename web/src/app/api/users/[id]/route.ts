@@ -14,6 +14,7 @@ import {
   canEditUserRole,
   requireSession,
 } from "@/lib/session";
+import { isKnownTimezone } from "@/lib/timezone";
 
 const companyEnum = z.enum(["SHOW_MASTER", "DIAKOM", "NE_EVENT"]);
 
@@ -31,6 +32,8 @@ const userSelect = {
   monthlySalary: true,
   agencyPercent: true,
   owners: true,
+  timezone: true,
+  weatherPlace: true,
   createdAt: true,
   updatedAt: true,
   specialties: {
@@ -126,6 +129,8 @@ const patchSchema = z.object({
   agencyPercent: z.number().min(0).max(100).optional(),
   owners: z.array(companyEnum).max(3).optional(),
   password: z.string().min(6).optional(),
+  timezone: z.string().min(1).optional(),
+  weatherPlace: z.enum(["IRKUTSK", "IRKUTSK_OBLAST"]).optional(),
 });
 
 function displayName(parts: {
@@ -215,6 +220,8 @@ export async function PATCH(
       agencyPercent?: number;
       owners?: CatalogOwnerValue[];
       passwordHash?: string;
+      timezone?: string;
+      weatherPlace?: "IRKUTSK" | "IRKUTSK_OBLAST";
     } = {};
 
     if (body.firstName !== undefined) data.firstName = body.firstName;
@@ -238,6 +245,18 @@ export async function PATCH(
     }
     if (isAdmin(session.user.role) && body.password) {
       data.passwordHash = await bcrypt.hash(body.password, 10);
+    }
+    if (body.timezone !== undefined) {
+      if (!isKnownTimezone(body.timezone)) {
+        return NextResponse.json(
+          { error: "Неизвестный часовой пояс" },
+          { status: 400 },
+        );
+      }
+      data.timezone = body.timezone;
+    }
+    if (body.weatherPlace !== undefined) {
+      data.weatherPlace = body.weatherPlace;
     }
 
     if (

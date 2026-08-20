@@ -38,6 +38,8 @@ type Props = {
   emptyLabel?: string;
   /** Always show calendar (e.g. inside a modal). Default: floating popup. */
   inline?: boolean;
+  /** Tighter label and field spacing. */
+  dense?: boolean;
 };
 
 function sameDay(a: Date, b: Date) {
@@ -57,6 +59,7 @@ export function DateRangePicker({
   label: fieldLabel = "Даты мероприятия",
   emptyLabel = "Выберите даты…",
   inline = false,
+  dense = false,
 }: Props) {
   const start = parseEventDate(date);
   const end = start
@@ -70,38 +73,41 @@ export function DateRangePicker({
   const [pickingEnd, setPickingEnd] = useState(false);
   const [anchor, setAnchor] = useState<Date | null>(null);
   const [open, setOpen] = useState(inline);
-  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (inline) setOpen(true);
   }, [inline]);
 
+  function closePopup() {
+    if (inline) return;
+    setOpen(false);
+    setPickingEnd(false);
+    setAnchor(null);
+  }
+
   useEffect(() => {
     if (inline || !open) return;
     function onDoc(e: MouseEvent) {
       if (!rootRef.current?.contains(e.target as Node)) {
-        if (!pickingEnd) setOpen(false);
+        setOpen(false);
+        setPickingEnd(false);
+        setAnchor(null);
       }
     }
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
-  }, [inline, open, pickingEnd]);
-
-  function showPopup() {
-    if (disabled) return;
-    if (closeTimer.current) {
-      clearTimeout(closeTimer.current);
-      closeTimer.current = null;
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== "Escape") return;
+      setOpen(false);
+      setPickingEnd(false);
+      setAnchor(null);
     }
-    setOpen(true);
-  }
-
-  function hidePopupSoon() {
-    if (inline || pickingEnd) return;
-    if (closeTimer.current) clearTimeout(closeTimer.current);
-    closeTimer.current = setTimeout(() => setOpen(false), 180);
-  }
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [inline, open]);
 
   const cells = useMemo(() => {
     const year = view.getFullYear();
@@ -141,6 +147,7 @@ export function DateRangePicker({
     onChange(formatRuDate(from), daysInclusive(from, to));
     setPickingEnd(false);
     setAnchor(null);
+    if (!inline) setOpen(false);
   }
 
   function inRange(day: Date) {
@@ -175,8 +182,6 @@ export function DateRangePicker({
         "rounded-lg border border-[var(--line)] bg-[var(--panel)] p-2 shadow-lg",
         !inline && "w-[232px]",
       )}
-      onMouseEnter={showPopup}
-      onMouseLeave={hidePopupSoon}
     >
       <div className="mb-1.5 flex items-center justify-between">
         <button
@@ -277,25 +282,30 @@ export function DateRangePicker({
   }
 
   return (
-    <div
-      ref={rootRef}
-      className={cn("relative text-sm", className)}
-      onMouseEnter={showPopup}
-      onMouseLeave={hidePopupSoon}
-    >
-      <span className="text-[var(--muted)]">{fieldLabel}</span>
+    <div ref={rootRef} className={cn("relative text-sm", className)}>
+      <span className={cn(dense && "text-[11px]", "text-[var(--muted)]")}>
+        {fieldLabel}
+      </span>
       <button
         type="button"
         disabled={disabled}
+        aria-expanded={open}
+        aria-haspopup="dialog"
         className={cn(
-          "field mt-1 flex w-full items-center justify-between gap-2 text-left",
+          "field flex w-full items-center justify-between gap-2 text-left",
+          dense ? "mt-0.5" : "mt-1",
           !start && "text-[var(--muted)]",
         )}
         onClick={() => {
           if (disabled) return;
-          setOpen((v) => !v);
+          if (open) {
+            closePopup();
+            return;
+          }
+          const d = parseEventDate(date) || new Date();
+          setView(new Date(d.getFullYear(), d.getMonth(), 1));
+          setOpen(true);
         }}
-        onFocus={showPopup}
       >
         <span className="truncate tabular-nums">{valueLabel}</span>
         <span className="shrink-0 text-[var(--muted)]" aria-hidden>
@@ -304,7 +314,7 @@ export function DateRangePicker({
       </button>
 
       {open && (
-        <div className="absolute left-0 top-full z-30 mt-1">{calendar}</div>
+        <div className="absolute left-0 top-full z-40 mt-1">{calendar}</div>
       )}
     </div>
   );

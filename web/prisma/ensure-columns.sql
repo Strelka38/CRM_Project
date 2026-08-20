@@ -103,6 +103,16 @@ CREATE TABLE IF NOT EXISTS "EquipmentRepair" (
 
 ALTER TABLE "EquipmentRepair" ADD COLUMN IF NOT EXISTS "resolutionComment" TEXT NOT NULL DEFAULT '';
 
+ALTER TABLE "Specialty" ADD COLUMN IF NOT EXISTS "description" TEXT NOT NULL DEFAULT '';
+
+ALTER TABLE "CalendarEntry" ADD COLUMN IF NOT EXISTS "clientId" TEXT;
+CREATE INDEX IF NOT EXISTS "CalendarEntry_clientId_idx" ON "CalendarEntry"("clientId");
+DO $$ BEGIN
+  ALTER TABLE "CalendarEntry" ADD CONSTRAINT "CalendarEntry_clientId_fkey"
+    FOREIGN KEY ("clientId") REFERENCES "Client"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
 CREATE TABLE IF NOT EXISTS "EquipmentRepairPhoto" (
   "id" TEXT NOT NULL,
   "repairId" TEXT NOT NULL,

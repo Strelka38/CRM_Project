@@ -1,18 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   CategorySelect,
   type CategoryOption,
 } from "@/components/CategorySelect";
+import { type PickedCatalogItem } from "@/components/CatalogPicker";
+import { QuoteCatalogSidebar } from "@/components/QuoteCatalogSidebar";
 import { formatMoney } from "@/lib/format";
-
-type CatItem = {
-  id: string;
-  name: string;
-  basePrice: number;
-  category?: { path: string };
-};
 
 type KitComponentRow = {
   catalogItemId: string;
@@ -53,8 +48,6 @@ export function KitEditorModal({
 }: Props) {
   const [name, setName] = useState("");
   const [selectedCategoryId, setSelectedCategoryId] = useState("");
-  const [q, setQ] = useState("");
-  const [search, setSearch] = useState<CatItem[]>([]);
   const [components, setComponents] = useState<KitComponentRow[]>([]);
   const [saving, setSaving] = useState(false);
 
@@ -76,30 +69,24 @@ export function KitEditorModal({
       setSelectedCategoryId(categoryId || "");
       setComponents([]);
     }
-    setQ("");
-    setSearch([]);
   }, [open, kit, categoryId]);
 
-  useEffect(() => {
-    if (!open || !q.trim()) {
-      setSearch([]);
-      return;
-    }
-    const t = setTimeout(async () => {
-      const res = await fetch(`/api/catalog/items?q=${encodeURIComponent(q)}`);
-      setSearch(await res.json());
-    }, 250);
-    return () => clearTimeout(t);
-  }, [q, open]);
+  const currentQtyByItem = useMemo(
+    () => new Map(components.map((c) => [c.catalogItemId, c.qty])),
+    [components],
+  );
 
   if (!open) return null;
 
-  function addComponent(item: CatItem) {
+  function addComponent(item: PickedCatalogItem, qty = 1) {
+    const addQty = Math.max(1, Math.round(qty) || 1);
     setComponents((prev) => {
       const existing = prev.find((c) => c.catalogItemId === item.id);
       if (existing) {
         return prev.map((c) =>
-          c.catalogItemId === item.id ? { ...c, qty: c.qty + 1 } : c,
+          c.catalogItemId === item.id
+            ? { ...c, qty: c.qty + addQty }
+            : c,
         );
       }
       return [
@@ -107,14 +94,13 @@ export function KitEditorModal({
         {
           catalogItemId: item.id,
           name: item.name,
-          qty: 1,
+          qty: addQty,
           price: item.basePrice,
         },
       ];
     });
   }
 
-  const total = components.reduce((s, c) => s + c.qty * c.price, 0);
   const canSave = name.trim().length > 0 && components.length > 0;
 
   async function save() {
@@ -158,7 +144,7 @@ export function KitEditorModal({
       <div
         role="dialog"
         aria-modal="true"
-        className="flex max-h-[90vh] w-full max-w-2xl flex-col rounded-xl border border-[var(--line)] bg-[var(--panel)] shadow-xl"
+        className="flex h-[90vh] max-h-[90vh] w-full max-w-[1680px] flex-col rounded-xl border border-[var(--line)] bg-[var(--panel)] shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3 border-b border-[var(--line)] px-4 py-3">
@@ -177,112 +163,145 @@ export function KitEditorModal({
           </button>
         </div>
 
-        <div className="space-y-3 overflow-y-auto px-4 py-4 text-sm">
-          <label className="block">
-            <span className="text-[10px] uppercase text-[var(--muted)]">
-              Название
-            </span>
-            <input
-              className="field mt-1 w-full"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="LED экран 5×3 м"
-              autoFocus
+        <div className="grid min-h-0 flex-1 grid-rows-[minmax(220px,38vh)_minmax(0,1fr)] gap-3 overflow-hidden p-3 lg:grid-cols-[360px_minmax(0,1fr)] lg:grid-rows-1">
+          <div className="min-h-0">
+            <QuoteCatalogSidebar
+              embedded
+              includeHidden
+              zoneName="комплект"
+              addTargetLabel="комплект"
+              currentQtyByItem={currentQtyByItem}
+              currentQtyLabel="Уже в комплекте"
+              onPickItem={addComponent}
             />
-          </label>
+          </div>
 
-          {categories.length > 0 && (
-            <CategorySelect
-              categories={categories}
-              value={selectedCategoryId}
-              onChange={setSelectedCategoryId}
-              allowEmpty
-              emptyLabel="Без раздела"
-              label="Раздел / подраздел"
-            />
-          )}
+          <div className="flex min-h-0 min-w-0 flex-col gap-3 overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--bg)]/45 p-3">
+            <div className="grid shrink-0 gap-3 xl:grid-cols-2">
+              <label className="block">
+                <span className="text-[10px] uppercase text-[var(--muted)]">
+                  Название
+                </span>
+                <input
+                  className="field mt-1 w-full"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="LED экран 5×3 м"
+                  autoFocus
+                />
+              </label>
 
-          <label className="block">
-            <span className="text-[10px] uppercase text-[var(--muted)]">
-              Добавить позицию
-            </span>
-            <input
-              className="field mt-1 w-full"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Поиск по каталогу…"
-            />
-          </label>
-
-          {search.length > 0 && (
-            <div className="max-h-40 overflow-y-auto rounded-lg border border-[var(--line)]">
-              {search.slice(0, 20).map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  className="flex w-full items-start justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-white/10"
-                  onClick={() => addComponent(item)}
-                >
-                  <span className="min-w-0 flex-1 break-words text-[var(--ink)]">
-                    {item.name}
-                    <span className="mt-0.5 block text-xs text-[var(--muted)]">
-                      {item.category?.path}
-                    </span>
+              {categories.length > 0 ? (
+                <CategorySelect
+                  categories={categories}
+                  value={selectedCategoryId}
+                  onChange={setSelectedCategoryId}
+                  allowEmpty
+                  emptyLabel="Без раздела"
+                  label="Раздел / подраздел"
+                />
+              ) : categoryPath ? (
+                <div className="text-sm">
+                  <span className="text-[10px] uppercase text-[var(--muted)]">
+                    Раздел / подраздел
                   </span>
-                  <span className="shrink-0 tabular-nums text-[var(--ink)]">
-                    {formatMoney(item.basePrice)}
-                  </span>
-                </button>
-              ))}
+                  <p className="field mt-1">{categoryPath}</p>
+                </div>
+              ) : null}
             </div>
-          )}
 
-          {components.length > 0 && (
-            <ul className="space-y-2">
-              {components.map((c) => (
-                <li
-                  key={c.catalogItemId}
-                  className="grid grid-cols-[minmax(0,1fr)_4.5rem_1.75rem] items-center gap-2 rounded-lg border border-[var(--line)] px-3 py-2"
-                >
-                  <span className="break-words text-sm leading-snug text-[var(--ink)]">
-                    {c.name}
-                  </span>
-                  <input
-                    type="number"
-                    min={0.1}
-                    step={1}
-                    className="field !w-full shrink-0"
-                    value={c.qty}
-                    onChange={(e) =>
-                      setComponents((prev) =>
-                        prev.map((x) =>
-                          x.catalogItemId === c.catalogItemId
-                            ? { ...x, qty: Number(e.target.value) || 1 }
-                            : x,
-                        ),
-                      )
-                    }
-                  />
-                  <button
-                    type="button"
-                    className="justify-self-center text-[var(--danger)]"
-                    onClick={() =>
-                      setComponents((prev) =>
-                        prev.filter(
-                          (x) => x.catalogItemId !== c.catalogItemId,
-                        ),
-                      )
-                    }
-                  >
-                    ×
-                  </button>
-                </li>
-              ))}
-              <li className="font-medium text-[var(--ink)]">
-                Итого: {formatMoney(total)}
-              </li>
-            </ul>
-          )}
+            <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-[var(--line)] bg-[var(--panel)]">
+              <table className="w-full min-w-[680px] table-fixed text-sm">
+                <colgroup>
+                  <col />
+                  <col className="w-24" />
+                  <col className="w-32" />
+                  <col className="w-14" />
+                </colgroup>
+                <thead className="sticky top-0 z-[1] bg-[var(--table-head)] text-xs uppercase text-[var(--muted)]">
+                  <tr>
+                    <th className="px-3 py-2 text-left">Комплектующая позиция</th>
+                    <th className="px-2 py-2">Кол-во</th>
+                    <th className="px-2 py-2 text-right">Цена за ед.</th>
+                    <th className="px-2 py-2" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {components.map((component) => (
+                    <tr
+                      key={component.catalogItemId}
+                      className="border-t border-[var(--line)]"
+                    >
+                      <td className="px-3 py-2">
+                        <p className="line-clamp-4 break-words leading-5 text-[var(--ink)]">
+                          {component.name}
+                        </p>
+                      </td>
+                      <td className="px-2 py-2">
+                        <input
+                          type="number"
+                          min={0.1}
+                          step={1}
+                          aria-label={`Количество ${component.name}`}
+                          className="field text-center tabular-nums"
+                          value={component.qty}
+                          onChange={(e) =>
+                            setComponents((prev) =>
+                              prev.map((row) =>
+                                row.catalogItemId === component.catalogItemId
+                                  ? {
+                                      ...row,
+                                      qty: Math.max(
+                                        0.1,
+                                        Number(e.target.value) || 1,
+                                      ),
+                                    }
+                                  : row,
+                              ),
+                            )
+                          }
+                        />
+                      </td>
+                      <td className="px-2 py-2 text-right font-medium tabular-nums">
+                        {formatMoney(component.price)}
+                      </td>
+                      <td className="px-2 py-2 text-center">
+                        <button
+                          type="button"
+                          className="btn-icon text-[var(--danger)]"
+                          aria-label={`Удалить ${component.name}`}
+                          onClick={() =>
+                            setComponents((prev) =>
+                              prev.filter(
+                                (row) =>
+                                  row.catalogItemId !== component.catalogItemId,
+                              ),
+                            )
+                          }
+                        >
+                          ×
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {components.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={4}
+                        className="px-4 py-12 text-center text-[var(--muted)]"
+                      >
+                        Добавьте комплектующие из каталога слева
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+
+            <p className="shrink-0 text-xs text-[var(--muted)]">
+              Позиций в комплекте: {components.length}
+            </p>
+          </div>
         </div>
 
         <div className="flex justify-end gap-2 border-t border-[var(--line)] p-4">

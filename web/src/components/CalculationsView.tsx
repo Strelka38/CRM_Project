@@ -4,13 +4,12 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { formatMoney } from "@/lib/format";
 import { LIST_PERIODS, type ListPeriod } from "@/lib/period";
+import { Card, EmptyState, StatusBadge, type LifecycleStatus } from "@/components/ui";
 import {
-  Card,
-  EmptyState,
-  PageHeader,
-  StatusBadge,
-  type LifecycleStatus,
-} from "@/components/ui";
+  DirectoryCardLink,
+  DirectoryCsvMenu,
+  downloadCsvRows,
+} from "@/components/DirectoryToolbar";
 
 type Breakdown = {
   company: string;
@@ -54,6 +53,7 @@ export function CalculationsView() {
   });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     let cancelled = false;
@@ -74,6 +74,7 @@ export function CalculationsView() {
       }
       const data = await res.json();
       setRows(data.rows ?? []);
+      setSelected(new Set());
       setTotals(
         data.totals ?? {
           payable: 0,
@@ -90,59 +91,102 @@ export function CalculationsView() {
     };
   }, [mine, lifecycle, period]);
 
-  return (
-    <div className="mx-auto max-w-6xl px-4 py-6 md:px-6">
-      <PageHeader
-        title="Калькуляции"
-        subtitle="Финальное распределение выручки между ШМ, ДК и NE. Суммы всегда в наличных (безнал пересчитывается в кэш). Доли — по владельцам позиций, с возможностью правки в каждой смете."
-        actions={
-          <div className="flex flex-wrap items-end gap-3">
-            <label className="block text-sm">
-              <span className="text-xs text-[var(--muted)]">Период</span>
-              <select
-                className="field mt-1 min-w-[11rem]"
-                value={period}
-                onChange={(e) => setPeriod(e.target.value as ListPeriod)}
-              >
-                {LIST_PERIODS.map((p) => (
-                  <option key={p.value} value={p.value}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block text-sm">
-              <span className="text-xs text-[var(--muted)]">Проекты</span>
-              <select
-                className="field mt-1 min-w-[10rem]"
-                value={mine ? "mine" : "all"}
-                onChange={(e) => setMine(e.target.value === "mine")}
-              >
-                <option value="mine">Мои</option>
-                <option value="all">Все менеджеры</option>
-              </select>
-            </label>
-            <label className="block text-sm">
-              <span className="text-xs text-[var(--muted)]">Статус</span>
-              <select
-                className="field mt-1 min-w-[12rem]"
-                value={lifecycle}
-                onChange={(e) => setLifecycle(e.target.value)}
-              >
-                <option value="settlement">Подтверждено + завершено</option>
-                <option value="CONFIRMED">Подтверждено</option>
-                <option value="COMPLETED">Завершено</option>
-                <option value="CALCULATED">Посчитано</option>
-                <option value="all">Все (кроме отменённых)</option>
-              </select>
-            </label>
-          </div>
-        }
-      />
+  const allSelected = rows.length > 0 && rows.every((r) => selected.has(r.id));
 
-      {periodLabel && (
-        <p className="mb-4 -mt-4 text-sm text-[var(--muted)]">{periodLabel}</p>
-      )}
+  function toggleAll() {
+    setSelected(allSelected ? new Set() : new Set(rows.map((r) => r.id)));
+  }
+
+  function toggleOne(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function exportCsv() {
+    const list = selected.size ? rows.filter((r) => selected.has(r.id)) : rows;
+    const stamp = new Date().toISOString().slice(0, 10);
+    downloadCsvRows(`calculations-${stamp}.csv`, [
+      ["ID", "№", "Проект", "Дата", "Клиент", "Менеджер", "Статус", "Выручка", "Расходы", "Нетто", "Доли"],
+      ...list.map((r) => [
+        r.id,
+        r.proposalNumber,
+        r.eventName,
+        r.date,
+        r.client,
+        r.owner.name,
+        r.lifecycle,
+        String(r.payable),
+        String(r.expensesTotal),
+        String(r.netTotal),
+        r.breakdown.map((b) => `${b.short}:${b.percent}`).join(";"),
+      ]),
+    ]);
+  }
+
+  return (
+    <div className="w-full px-4 py-6 md:px-6">
+      <header className="mb-8 animate-fade-up">
+        <p className="text-xs uppercase tracking-[0.15em] text-[var(--muted)]">
+          CRM
+        </p>
+        <h1 className="mt-1 text-3xl font-light tracking-tight">Калькуляции</h1>
+        <p className="mt-1 max-w-3xl text-sm text-[var(--muted)]">
+          Финальное распределение выручки между ШМ, ДК и NE. Суммы всегда в
+          наличных (безнал пересчитывается в кэш). Доли — по владельцам
+          позиций, с возможностью правки в каждой смете.
+        </p>
+      </header>
+
+      <div className="mb-4 flex flex-wrap items-end gap-3">
+        <label className="block text-sm">
+          <span className="text-xs text-[var(--muted)]">Период</span>
+          <select
+            className="field mt-1 min-w-[11rem]"
+            value={period}
+            onChange={(e) => setPeriod(e.target.value as ListPeriod)}
+          >
+            {LIST_PERIODS.map((p) => (
+              <option key={p.value} value={p.value}>
+                {p.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block text-sm">
+          <span className="text-xs text-[var(--muted)]">Проекты</span>
+          <select
+            className="field mt-1 min-w-[10rem]"
+            value={mine ? "mine" : "all"}
+            onChange={(e) => setMine(e.target.value === "mine")}
+          >
+            <option value="mine">Мои</option>
+            <option value="all">Все менеджеры</option>
+          </select>
+        </label>
+        <label className="block text-sm">
+          <span className="text-xs text-[var(--muted)]">Статус</span>
+          <select
+            className="field mt-1 min-w-[12rem]"
+            value={lifecycle}
+            onChange={(e) => setLifecycle(e.target.value)}
+          >
+            <option value="settlement">Подтверждено + завершено</option>
+            <option value="CONFIRMED">Подтверждено</option>
+            <option value="COMPLETED">Завершено</option>
+            <option value="CALCULATED">Посчитано</option>
+            <option value="all">Все (кроме отменённых)</option>
+          </select>
+        </label>
+        <DirectoryCsvMenu onExport={exportCsv} />
+      </div>
+
+      {periodLabel ? (
+        <p className="mb-4 text-sm text-[var(--muted)]">{periodLabel}</p>
+      ) : null}
 
       <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <SummaryCard label="Выручка" value={formatMoney(totals.payable)} />
@@ -176,22 +220,41 @@ export function CalculationsView() {
               <table className="w-full text-left text-sm">
                 <thead className="bg-[var(--table-head)] text-[11px] uppercase tracking-wider text-[var(--muted)]">
                   <tr>
-                    <th className="px-4 py-3">Проект</th>
+                    <th className="w-10 px-3 py-2 text-left">
+                      <input
+                        type="checkbox"
+                        checked={allSelected}
+                        onChange={toggleAll}
+                        aria-label="Выбрать все"
+                      />
+                    </th>
+                    <th className="px-4 py-3 text-left">Проект</th>
                     <th className="px-4 py-3">Дата</th>
                     <th className="px-4 py-3">Менеджер</th>
                     <th className="px-4 py-3">Статус</th>
-                    <th className="px-4 py-3 text-right">Выручка</th>
-                    <th className="px-4 py-3 text-right">Расходы</th>
+                    <th className="px-4 py-3 text-left">Выручка</th>
+                    <th className="px-4 py-3 text-left">Расходы</th>
                     <th className="px-4 py-3">Доли</th>
-                    <th className="px-4 py-3 text-right">Нетто</th>
+                    <th className="px-4 py-3 text-left">Нетто</th>
+                    <th className="w-12 px-3 py-2 text-left" />
                   </tr>
                 </thead>
                 <tbody>
                   {rows.map((r) => (
                     <tr
                       key={r.id}
-                      className="border-t border-[var(--line)] transition-colors hover:bg-subtle"
+                      className={`border-t border-[var(--line)] transition-colors hover:bg-subtle ${
+                        selected.has(r.id) ? "bg-[var(--selected)]/40" : ""
+                      }`}
                     >
+                      <td className="px-3 py-2 text-left">
+                        <input
+                          type="checkbox"
+                          checked={selected.has(r.id)}
+                          onChange={() => toggleOne(r.id)}
+                          aria-label={`Выбрать №${r.proposalNumber}`}
+                        />
+                      </td>
                       <td className="px-4 py-3">
                         <Link
                           href={`/calculations/${r.id}`}
@@ -216,10 +279,10 @@ export function CalculationsView() {
                           status={r.lifecycle as LifecycleStatus}
                         />
                       </td>
-                      <td className="px-4 py-3 text-right tabular-nums">
+                      <td className="px-4 py-3 text-left tabular-nums">
                         {formatMoney(r.payable)}
                       </td>
-                      <td className="px-4 py-3 text-right tabular-nums">
+                      <td className="px-4 py-3 text-left tabular-nums">
                         {formatMoney(r.expensesTotal)}
                       </td>
                       <td className="px-4 py-3">
@@ -241,8 +304,11 @@ export function CalculationsView() {
                           )}
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-right tabular-nums font-medium">
+                      <td className="px-4 py-3 text-left tabular-nums font-medium">
                         {formatMoney(r.netTotal)}
+                      </td>
+                      <td className="px-3 py-2 text-left">
+                        <DirectoryCardLink href={`/calculations/${r.id}`} />
                       </td>
                     </tr>
                   ))}

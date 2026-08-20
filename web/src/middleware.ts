@@ -27,7 +27,7 @@ export default auth((req) => {
   }
 
   if (isLoggedIn && isLogin) {
-    return NextResponse.redirect(new URL("/quotes", req.nextUrl.origin));
+    return NextResponse.redirect(new URL("/calendar", req.nextUrl.origin));
   }
 
   const role =
@@ -40,6 +40,7 @@ export default auth((req) => {
     pathname.startsWith("/users") ||
     pathname.startsWith("/kits") ||
     pathname.startsWith("/clients") ||
+    pathname.startsWith("/legal-entities") ||
     pathname.startsWith("/venues") ||
     pathname.startsWith("/vehicles") ||
     pathname.startsWith("/equipment") ||
@@ -51,7 +52,7 @@ export default auth((req) => {
     pathname.startsWith("/calculations") || pathname.startsWith("/unpaid");
 
   if (isLoggedIn && isDatabasePath && !canAccessDatabase(role)) {
-    return NextResponse.redirect(new URL("/quotes", req.nextUrl.origin));
+    return NextResponse.redirect(new URL("/calendar", req.nextUrl.origin));
   }
 
   if (
@@ -59,11 +60,11 @@ export default auth((req) => {
     pathname.startsWith("/statistics") &&
     !canAccessWorkloadStats(role)
   ) {
-    return NextResponse.redirect(new URL("/quotes", req.nextUrl.origin));
+    return NextResponse.redirect(new URL("/calendar", req.nextUrl.origin));
   }
 
   if (isLoggedIn && isAccountingPath && !isManager(role)) {
-    return NextResponse.redirect(new URL("/quotes", req.nextUrl.origin));
+    return NextResponse.redirect(new URL("/calendar", req.nextUrl.origin));
   }
 
   return NextResponse.next();

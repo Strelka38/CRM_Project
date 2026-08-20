@@ -13,6 +13,7 @@ import {
   type CatalogOwnerValue,
 } from "@/lib/catalog-owner";
 import { formatMoney } from "@/lib/format";
+import { SideDrawer } from "@/components/ui/SideDrawer";
 
 export type DrawerItem = {
   id: string;
@@ -22,6 +23,7 @@ export type DrawerItem = {
   manufacturer?: string | null;
   basePrice: number;
   estimatedValue?: number | null;
+  costPrice?: number | null;
   stockQty: number;
   available?: number;
   reserved?: number;
@@ -37,6 +39,7 @@ export type DrawerItem = {
   owner?: CatalogOwnerValue | null;
   itemKind: string;
   dayMode: string;
+  showInCatalog?: boolean;
   category?: { id?: string; name: string; path: string };
 };
 
@@ -45,6 +48,7 @@ export type DrawerItemPatch = {
   categoryId?: string;
   basePrice?: number;
   estimatedValue?: number | null;
+  costPrice?: number | null;
   stockQty?: number;
   width?: number | null;
   height?: number | null;
@@ -53,6 +57,7 @@ export type DrawerItemPatch = {
   weight?: number | null;
   comment?: string | null;
   owners?: CatalogOwnerValue[];
+  showInCatalog?: boolean;
 };
 
 type Props = {
@@ -71,8 +76,10 @@ type Draft = {
   name: string;
   categoryId: string;
   owners: CatalogOwnerValue[];
+  showInCatalog: boolean;
   basePrice: string;
   estimatedValue: string;
+  costPrice: string;
   stockQty: string;
   width: string;
   height: string;
@@ -87,9 +94,11 @@ function toDraft(item: DrawerItem): Draft {
     name: item.name,
     categoryId: item.categoryId || item.category?.id || "",
     owners: normalizeOwners(item.owners, item.owner),
+    showInCatalog: item.showInCatalog !== false,
     basePrice: String(item.basePrice ?? 0),
     estimatedValue:
       item.estimatedValue != null ? String(item.estimatedValue) : "",
+    costPrice: item.costPrice != null ? String(item.costPrice) : "",
     stockQty: String(item.stockQty ?? 0),
     width: item.width != null ? String(item.width) : "",
     height: item.height != null ? String(item.height) : "",
@@ -148,8 +157,10 @@ export function ItemDrawer({
       name,
       ...(draft.categoryId ? { categoryId: draft.categoryId } : {}),
       owners: draft.owners,
+      showInCatalog: draft.showInCatalog,
       basePrice: Math.max(0, Number(draft.basePrice) || 0),
       estimatedValue: parseOptionalNumber(draft.estimatedValue),
+      costPrice: parseOptionalNumber(draft.costPrice),
       ...(lockStock
         ? {}
         : { stockQty: Math.max(0, Math.round(Number(draft.stockQty) || 0)) }),
@@ -215,11 +226,8 @@ export function ItemDrawer({
   const imgSrc = photoUrl(item.id, item.photoPath);
 
   return (
-    <div className="fixed inset-0 z-[80] flex justify-end bg-black/25" onClick={onClose}>
-      <aside
-        className="flex h-full w-full max-w-md flex-col border-l border-[var(--line)] bg-[var(--panel)] shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <SideDrawer open onClose={onClose} zIndex={80}>
+      <div className="flex h-full min-h-0 flex-col overflow-hidden">
         <div className="flex items-start justify-between gap-3 border-b border-[var(--line)] px-4 py-3">
           <div className="min-w-0 flex-1">
             <p className="text-xs uppercase tracking-wide text-[var(--muted)]">
@@ -311,6 +319,23 @@ export function ItemDrawer({
                 onChange={(owners) => setField("owners", owners)}
                 label="Чья? (можно несколько — общая покупка)"
               />
+              <label className="flex items-start gap-3 rounded-lg border border-[var(--line)] px-3 py-2">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={draft.showInCatalog}
+                  onChange={(e) => setField("showInCatalog", e.target.checked)}
+                />
+                <span>
+                  <span className="block font-medium">
+                    Отражать товар в каталоге
+                  </span>
+                  <span className="text-[11px] text-[var(--muted)]">
+                    Если выключить, менеджер не увидит позицию в каталоге сметы.
+                    В комплекты и спецификации её по-прежнему можно добавлять.
+                  </span>
+                </span>
+              </label>
               <h4 className="text-xs uppercase text-[var(--muted)]">
                 Характеристики
               </h4>
@@ -326,6 +351,12 @@ export function ItemDrawer({
                   type="number"
                   value={draft.estimatedValue}
                   onChange={(v) => setField("estimatedValue", v)}
+                />
+                <Field
+                  label="Себестоимость (закуп)"
+                  type="number"
+                  value={draft.costPrice}
+                  onChange={(v) => setField("costPrice", v)}
                 />
                 {lockStock ? (
                   <Stat label="На складе" value={String(item.stockQty)} />
@@ -510,8 +541,8 @@ export function ItemDrawer({
             )}
           </div>
         )}
-      </aside>
-    </div>
+      </div>
+    </SideDrawer>
   );
 }
 

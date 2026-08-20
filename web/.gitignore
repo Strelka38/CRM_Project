@@ -43,3 +43,7 @@ next-env.d.ts
 # uploaded attachments
 /uploads
 
+# локальные образцы реквизитов — не коммитить
+/legal-source
+
+

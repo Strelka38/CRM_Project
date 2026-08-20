@@ -1,5 +1,5 @@
 export const DATABASE_BACKUP_KIND = "baikal-crm-database";
-export const DATABASE_BACKUP_VERSION = 1;
+export const DATABASE_BACKUP_VERSION = 3;
 
 export type DatabaseBackupTables = {
   specialties: unknown[];
@@ -13,9 +13,14 @@ export type DatabaseBackupTables = {
   venues: unknown[];
   venuePhotos: unknown[];
   vehicles: unknown[];
+  legalEntities: unknown[];
+  legalEntityBankAccounts: unknown[];
   equipmentUnits: unknown[];
   equipmentDocuments: unknown[];
   quoteTemplates: unknown[];
+  quoteSnapshots: unknown[];
+  quoteAuditEvents: unknown[];
+  specRevisions: unknown[];
 };
 
 export type DatabaseBackupFile = {
@@ -42,9 +47,14 @@ export function emptyBackupCounts(): DatabaseBackupCounts {
     venues: 0,
     venuePhotos: 0,
     vehicles: 0,
+    legalEntities: 0,
+    legalEntityBankAccounts: 0,
     equipmentUnits: 0,
     equipmentDocuments: 0,
     quoteTemplates: 0,
+    quoteSnapshots: 0,
+    quoteAuditEvents: 0,
+    specRevisions: 0,
   };
 }
 

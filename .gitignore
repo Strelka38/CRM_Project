@@ -9,5 +9,6 @@ dist/
 .env*.local
 web/.env
 web/uploads/
+web/legal-source/
 _extracted_catalog.json
 .vercel

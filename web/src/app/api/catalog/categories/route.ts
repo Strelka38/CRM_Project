@@ -8,16 +8,40 @@ export async function GET(req: NextRequest) {
     await requireSession();
     const tree = req.nextUrl.searchParams.get("tree") === "1";
     const includeInactive = req.nextUrl.searchParams.get("all") === "1";
+    const forQuote = req.nextUrl.searchParams.get("forQuote") === "1";
     const parentId = req.nextUrl.searchParams.get("parentId");
 
     if (tree) {
-      const categories = await prisma.catalogCategory.findMany({
+      let categories = await prisma.catalogCategory.findMany({
         where: includeInactive ? {} : { active: true },
         orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
         include: {
-          _count: { select: { items: true, children: true } },
+          _count: { select: { items: true, children: true, kits: true } },
         },
       });
+
+      if (forQuote) {
+        const visible = await prisma.catalogItem.findMany({
+          where: {
+            active: true,
+            showInCatalog: true,
+            itemKind: { not: "COMPONENT" },
+          },
+          select: { category: { select: { path: true } } },
+        });
+        const visiblePaths = new Set(
+          visible.map((v) => v.category.path).filter(Boolean),
+        );
+        const keep = new Set<string>();
+        for (const path of visiblePaths) {
+          const parts = path.split("/");
+          for (let i = 1; i <= parts.length; i++) {
+            keep.add(parts.slice(0, i).join("/"));
+          }
+        }
+        categories = categories.filter((c) => keep.has(c.path));
+      }
+
       return NextResponse.json(categories);
     }
 
@@ -83,6 +107,17 @@ export async function POST(req: NextRequest) {
     if (e instanceof Response) return e;
     if (e instanceof z.ZodError) {
       return NextResponse.json({ error: e.flatten() }, { status: 400 });
+    }
+    if (
+      typeof e === "object" &&
+      e &&
+      "code" in e &&
+      (e as { code?: string }).code === "P2002"
+    ) {
+      return NextResponse.json(
+        { error: "Раздел с таким именем уже есть" },
+        { status: 409 },
+      );
     }
     throw e;
   }

@@ -1,5 +1,6 @@
-import { EquipmentAdmin } from "@/components/EquipmentAdmin";
+import { redirect } from "next/navigation";
 
-export default function EquipmentPage() {
-  return <EquipmentAdmin />;
+/** Бывший «Склад» объединён с редактором каталога. */
+export default function EquipmentRedirectPage() {
+  redirect("/catalog");
 }

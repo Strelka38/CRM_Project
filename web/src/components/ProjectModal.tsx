@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { QuoteAssignments } from "@/components/QuoteAssignments";
+import { SideDrawer } from "@/components/ui/SideDrawer";
 import {
   endDateFromDuration,
   formatRuDate,
@@ -15,6 +15,7 @@ type Assignment = {
   userId?: string | null;
   isFreelancer?: boolean;
   freelancerName?: string;
+  kind?: string;
   user: {
     id: string;
     name: string;
@@ -47,6 +48,7 @@ type Project = {
     lastName: string;
   } | null;
   assignments: Assignment[];
+  recommendedMountSlots?: number;
   isManager: boolean;
   canManageAssignments?: boolean;
   canEditBrief?: boolean;
@@ -68,6 +70,7 @@ type Attachment = {
   mimeType: string;
   size: number;
   createdAt: string;
+  invoiceSent?: boolean;
   uploader: { id: string; name: string };
 };
 
@@ -129,15 +132,18 @@ function isExcel(mime: string) {
 
 export function ProjectModal({
   quoteId,
+  open,
   onClose,
 }: {
-  quoteId: string;
+  quoteId: string | null;
+  open: boolean;
   onClose: () => void;
 }) {
   const [project, setProject] = useState<Project | null>(null);
   const [brief, setBrief] = useState("");
   const [comments, setComments] = useState<Comment[]>([]);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [filesError, setFilesError] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [commentText, setCommentText] = useState("");
@@ -158,8 +164,10 @@ export function ProjectModal({
   const savedBriefRef = useRef("");
 
   const load = useCallback(async () => {
+    if (!quoteId) return;
     setLoading(true);
     setError("");
+    setFilesError("");
     try {
       const [pRes, cRes, aRes] = await Promise.all([
         fetch(`/api/quotes/${quoteId}/project`),
@@ -187,22 +195,35 @@ export function ProjectModal({
       setProject(p);
       setBrief(p.brief || "");
       savedBriefRef.current = p.brief || "";
-      setComments(cRes.ok ? await cRes.json() : []);
-      setAttachments(aRes.ok ? await aRes.json() : []);
+      if (cRes.ok) {
+        const data: unknown = await cRes.json().catch(() => []);
+        setComments(Array.isArray(data) ? (data as Comment[]) : []);
+      } else {
+        setComments([]);
+      }
+      if (aRes.ok) {
+        const data: unknown = await aRes.json().catch(() => []);
+        setAttachments(Array.isArray(data) ? (data as Attachment[]) : []);
+      } else {
+        setAttachments([]);
+        setFilesError("Не удалось загрузить файлы");
+      }
     } finally {
       setLoading(false);
     }
   }, [quoteId]);
 
   useEffect(() => {
+    if (!open || !quoteId) return;
     void load();
-  }, [load]);
+  }, [load, open, quoteId]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [comments]);
 
   useEffect(() => {
+    if (!open || !quoteId) return;
     const tick = async () => {
       const res = await fetch(`/api/quotes/${quoteId}/comments`);
       if (!res.ok) return;
@@ -223,7 +244,7 @@ export function ProjectModal({
     };
     const id = window.setInterval(() => void tick(), 8000);
     return () => window.clearInterval(id);
-  }, [quoteId]);
+  }, [quoteId, open]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -360,6 +381,25 @@ export function ProjectModal({
     }
   }
 
+  async function toggleInvoiceSent(a: Attachment) {
+    if (!quoteId || !project?.isManager) return;
+    const next = !a.invoiceSent;
+    setAttachments((prev) =>
+      prev.map((f) => ({
+        ...f,
+        invoiceSent: f.id === a.id ? next : next ? false : f.invoiceSent,
+      })),
+    );
+    const res = await fetch(`/api/quotes/${quoteId}/attachments/${a.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ invoiceSent: next }),
+    });
+    if (!res.ok) {
+      await load();
+    }
+  }
+
   const fileUrl = (a: Attachment) =>
     `/api/quotes/${quoteId}/attachments/${a.id}/file`;
 
@@ -372,17 +412,14 @@ export function ProjectModal({
 
   return (
     <>
-      <div
-        className="fixed inset-0 z-50 flex items-end justify-center bg-black/35 p-3 sm:items-center"
-        onClick={onClose}
+      <SideDrawer
+        open={open}
+        onClose={onClose}
+        wide
+        labelledBy="project-title"
+        zIndex={55}
       >
-        <div
-          className="flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--panel)] shadow-xl"
-          onClick={(e) => e.stopPropagation()}
-          role="dialog"
-          aria-modal="true"
-          aria-label="Мероприятие"
-        >
+        <div className="flex h-full min-h-0 flex-col overflow-hidden">
           <div className="flex items-start justify-between gap-3 border-b border-[var(--line)] px-4 py-3">
             <div className="min-w-0">
               <p className="text-xs uppercase tracking-wider text-[var(--muted)]">
@@ -392,7 +429,10 @@ export function ProjectModal({
                 <p className="text-[var(--muted)]">Загрузка…</p>
               ) : project ? (
                 <>
-                  <h2 className="font-display truncate text-2xl text-[var(--ink)]">
+                  <h2
+                    id="project-title"
+                    className="font-display truncate text-2xl text-[var(--ink)]"
+                  >
                     {project.eventName || project.client || "Без названия"}
                   </h2>
                   <p className="text-sm text-[var(--muted)]">
@@ -487,60 +527,12 @@ export function ProjectModal({
                 </section>
 
                 <section>
-                  {project.canManageAssignments && !project.isManager ? (
-                    <QuoteAssignments
-                      quoteId={quoteId}
-                      canEdit
-                      compact
-                      hidePay
-                    />
-                  ) : (
-                    <>
-                      <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-[var(--muted)]">
-                        Кто работает
-                      </h3>
-                      {project.assignments.length === 0 ? (
-                        <p className="text-sm text-[var(--muted)]">
-                          Никто не назначен
-                        </p>
-                      ) : (
-                        <ul className="space-y-1.5 text-sm">
-                          {project.assignments.map((a) => {
-                            const fl = a.isFreelancer || !a.userId || !a.user;
-                            const name = fl
-                              ? (a.freelancerName || "").trim() || "Фрилансер"
-                              : personName(a.user!);
-                            return (
-                              <li
-                                key={a.id}
-                                className="flex items-baseline justify-between gap-2 border-b border-[var(--line)]/60 py-1"
-                              >
-                                <span>
-                                  {name}
-                                  {fl && (
-                                    <span className="ml-1 text-[10px] text-[var(--muted)]">
-                                      фр.
-                                    </span>
-                                  )}
-                                </span>
-                                <span className="text-xs text-[var(--muted)]">
-                                  {a.specialty.name}
-                                </span>
-                              </li>
-                            );
-                          })}
-                        </ul>
-                      )}
-                    </>
-                  )}
-                </section>
-
-                <section>
                   <div className="mb-2 flex items-center justify-between gap-2">
                     <h3 className="text-xs font-medium uppercase tracking-wider text-[var(--muted)]">
                       Файлы
+                      {attachments.length > 0 ? ` · ${attachments.length}` : ""}
                     </h3>
-                    {project.isManager && (
+                    {project.isManager ? (
                       <>
                         <input
                           ref={fileRef}
@@ -562,28 +554,46 @@ export function ProjectModal({
                           {uploading ? "Загрузка…" : "+ Прикрепить"}
                         </button>
                       </>
-                    )}
+                    ) : null}
                   </div>
-                  {attachments.length === 0 ? (
+                  {filesError ? (
+                    <p className="text-sm text-[var(--danger)]">{filesError}</p>
+                  ) : attachments.length === 0 ? (
                     <p className="text-sm text-[var(--muted)]">Нет вложений</p>
                   ) : (
                     <ul className="space-y-2">
                       {attachments.map((a) => (
                         <li
                           key={a.id}
-                          className="flex items-center justify-between gap-2 rounded-lg border border-[var(--line)] px-2.5 py-2 text-sm"
+                          className="flex items-start justify-between gap-2 rounded-lg border border-[var(--line)] px-2.5 py-2 text-sm"
                         >
-                          <button
-                            type="button"
-                            className="min-w-0 truncate text-left hover:text-[var(--accent)]"
-                            onClick={() => setPreview(a)}
-                            title={a.filename}
-                          >
-                            {a.filename}
-                            <span className="ml-2 text-[10px] text-[var(--muted)]">
-                              {formatBytes(a.size)}
-                            </span>
-                          </button>
+                          <div className="flex min-w-0 items-start gap-2">
+                            <input
+                              type="checkbox"
+                              className="mt-0.5 size-3.5 shrink-0 accent-[var(--accent)]"
+                              checked={Boolean(a.invoiceSent)}
+                              disabled={!project.isManager}
+                              title="Счёт отправлен"
+                              aria-label="Счёт отправлен"
+                              onChange={() => void toggleInvoiceSent(a)}
+                            />
+                            <button
+                              type="button"
+                              className="min-w-0 truncate text-left hover:text-[var(--accent)]"
+                              onClick={() => setPreview(a)}
+                              title={a.filename}
+                            >
+                              {a.filename}
+                              <span className="ml-2 text-[10px] text-[var(--muted)]">
+                                {formatBytes(a.size)}
+                              </span>
+                              {a.invoiceSent ? (
+                                <span className="ml-2 text-[10px] text-[var(--accent)]">
+                                  счёт отправлен
+                                </span>
+                              ) : null}
+                            </button>
+                          </div>
                           <div className="flex shrink-0 gap-2">
                             <a
                               href={fileUrl(a)}
@@ -593,7 +603,7 @@ export function ProjectModal({
                             >
                               Открыть
                             </a>
-                            {project.isManager && (
+                            {project.isManager ? (
                               <button
                                 type="button"
                                 className="text-xs text-[var(--danger)]"
@@ -601,7 +611,7 @@ export function ProjectModal({
                               >
                                 Удал.
                               </button>
-                            )}
+                            ) : null}
                           </div>
                         </li>
                       ))}
@@ -609,14 +619,133 @@ export function ProjectModal({
                   )}
                 </section>
 
+                <section className="space-y-4">
+                      <div>
+                        <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-[var(--muted)]">
+                          {project.canManageAssignments && !project.isManager
+                            ? "Кто требуется / назначен"
+                            : "Кто работает"}
+                        </h3>
+                        {project.assignments.filter(
+                          (a) => (a.kind || "EVENT") !== "MOUNT",
+                        ).length === 0 ? (
+                          <p className="text-sm text-[var(--muted)]">
+                            Никто не назначен
+                          </p>
+                        ) : (
+                          <ul className="space-y-1.5 text-sm">
+                            {project.assignments
+                              .filter((a) => (a.kind || "EVENT") !== "MOUNT")
+                              .map((a) => {
+                                const vacant = !a.userId && !a.isFreelancer;
+                                const fl = Boolean(a.isFreelancer);
+                                const name = vacant
+                                  ? "не назначен"
+                                  : fl
+                                    ? (a.freelancerName || "").trim() ||
+                                      "Фрилансер"
+                                    : a.user
+                                      ? personName(a.user)
+                                      : "не назначен";
+                                return (
+                                  <li
+                                    key={a.id}
+                                    className="flex items-baseline justify-between gap-2 border-b border-[var(--line)]/60 py-1"
+                                  >
+                                    <span
+                                      className={
+                                        vacant
+                                          ? "text-[var(--muted)]"
+                                          : undefined
+                                      }
+                                    >
+                                      {name}
+                                      {fl && (
+                                        <span className="ml-1 text-[10px] text-[var(--muted)]">
+                                          фр.
+                                        </span>
+                                      )}
+                                    </span>
+                                    <span className="text-xs text-[var(--muted)]">
+                                      {a.specialty.name}
+                                    </span>
+                                  </li>
+                                );
+                              })}
+                          </ul>
+                        )}
+                      </div>
+                      <div>
+                        <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-[var(--muted)]">
+                          Монтажники
+                          {project.recommendedMountSlots
+                            ? ` · смета ${project.recommendedMountSlots}`
+                            : ""}
+                        </h3>
+                        {project.assignments.filter(
+                          (a) => a.kind === "MOUNT",
+                        ).length === 0 ? (
+                          <p className="text-sm text-[var(--muted)]">
+                            Монтажники не назначены
+                          </p>
+                        ) : (
+                          <ul className="space-y-1.5 text-sm">
+                            {project.assignments
+                              .filter((a) => a.kind === "MOUNT")
+                              .map((a) => {
+                                const vacant = !a.userId && !a.isFreelancer;
+                                const fl = Boolean(a.isFreelancer);
+                                const name = vacant
+                                  ? "не назначен"
+                                  : fl
+                                    ? (a.freelancerName || "").trim() ||
+                                      "Фрилансер"
+                                    : a.user
+                                      ? personName(a.user)
+                                      : "не назначен";
+                                return (
+                                  <li
+                                    key={a.id}
+                                    className="flex items-baseline justify-between gap-2 border-b border-[var(--line)]/60 py-1"
+                                  >
+                                    <span
+                                      className={
+                                        vacant
+                                          ? "text-[var(--muted)]"
+                                          : undefined
+                                      }
+                                    >
+                                      {name}
+                                      {fl && (
+                                        <span className="ml-1 text-[10px] text-[var(--muted)]">
+                                          фр.
+                                        </span>
+                                      )}
+                                    </span>
+                                  </li>
+                                );
+                              })}
+                          </ul>
+                        )}
+                      </div>
+                </section>
+
                 <div className="flex flex-wrap gap-2 pt-1">
                   {project.isManager && (
-                    <Link
-                      href={`/quotes/${project.id}`}
-                      className="rounded-md bg-[var(--solid)] px-3 py-2 text-sm text-[var(--on-solid)]"
-                    >
-                      Смета
-                    </Link>
+                    <>
+                      <Link
+                        href={`/quotes/${project.id}`}
+                        className="rounded-md bg-[var(--solid)] px-3 py-2 text-sm text-[var(--on-solid)]"
+                      >
+                        Смета
+                      </Link>
+                      <Link
+                        href={`/calculations/${project.id}`}
+                        className="rounded-md border border-[var(--line)] bg-[var(--bg)] px-3 py-2 text-sm text-[var(--ink)]"
+                      >
+                        Калькуляция
+                      </Link>
+                    </>
                   )}
                   <Link
                     href={`/quotes/${project.id}/spec`}
@@ -752,7 +881,7 @@ export function ProjectModal({
             </div>
           )}
         </div>
-      </div>
+      </SideDrawer>
 
       {preview && (
         <div

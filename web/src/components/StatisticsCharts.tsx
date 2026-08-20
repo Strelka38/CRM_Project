@@ -872,3 +872,148 @@ export function EmployeeDetailChart({
     </div>
   );
 }
+
+export function PayrollCompositionChart({
+  slices,
+}: {
+  slices: { name: string; value: number; fill: string }[];
+}) {
+  const data = slices.filter((s) => s.value > 0);
+  if (data.length === 0) return null;
+
+  return (
+    <div className="h-64 min-h-[16rem] w-full">
+      <p className="mb-2 px-1 text-xs uppercase tracking-[0.15em] text-[var(--muted)]">
+        Из чего складывается итого
+      </p>
+      <ResponsiveContainer width="100%" height="90%">
+        <PieChart>
+          <Pie
+            data={data}
+            dataKey="value"
+            nameKey="name"
+            cx="50%"
+            cy="46%"
+            innerRadius={52}
+            outerRadius={78}
+            paddingAngle={2}
+            stroke="none"
+          >
+            {data.map((entry) => (
+              <Cell key={entry.name} fill={entry.fill} />
+            ))}
+          </Pie>
+          <Tooltip content={<MoneyTooltip />} />
+          <Legend
+            verticalAlign="bottom"
+            height={36}
+            formatter={(value) => (
+              <span className="text-xs text-[var(--muted)]">{value}</span>
+            )}
+          />
+        </PieChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+export function PayrollEventsChart({
+  rows,
+}: {
+  rows: {
+    id: string;
+    name: string;
+    amount: number;
+    kind: "confirmed" | "pending" | "agency";
+  }[];
+}) {
+  const COLORS = useChartColors();
+  if (rows.length === 0) return null;
+
+  const kindLabel: Record<(typeof rows)[number]["kind"], string> = {
+    confirmed: "Подтверждено",
+    pending: "Ожидается",
+    agency: "Агентские",
+  };
+  const kindFill: Record<(typeof rows)[number]["kind"], string> = {
+    confirmed: COLORS.confirmed,
+    pending: COLORS.pending,
+    agency: COLORS.profit,
+  };
+
+  const data = [...rows]
+    .sort((a, b) => b.amount - a.amount)
+    .slice(0, 12)
+    .map((r) => ({
+      id: r.id,
+      name: shortLabel(r.name, 18),
+      fullName: r.name,
+      kind: kindLabel[r.kind],
+      Сумма: Math.round(r.amount),
+      fill: kindFill[r.kind],
+    }));
+
+  const height = Math.max(220, data.length * 36 + 56);
+
+  return (
+    <div className="w-full" style={{ height }}>
+      <p className="mb-2 px-1 text-xs uppercase tracking-[0.15em] text-[var(--muted)]">
+        По мероприятиям{rows.length > 12 ? " (топ-12)" : ""}
+      </p>
+      <ResponsiveContainer width="100%" height="90%">
+        <BarChart
+          data={data}
+          layout="vertical"
+          margin={{ top: 4, right: 16, left: 4, bottom: 4 }}
+        >
+          <CartesianGrid
+            strokeDasharray="3 3"
+            stroke={COLORS.line}
+            horizontal={false}
+          />
+          <XAxis
+            type="number"
+            tickFormatter={moneyTick}
+            tick={{ fill: COLORS.muted, fontSize: 11 }}
+            axisLine={false}
+            tickLine={false}
+          />
+          <YAxis
+            type="category"
+            dataKey="name"
+            width={108}
+            tick={{ fill: COLORS.muted, fontSize: 11 }}
+            axisLine={false}
+            tickLine={false}
+          />
+          <Tooltip
+            content={({ active, payload }) => {
+              if (!active || !payload?.length) return null;
+              const row = payload[0]?.payload as {
+                fullName?: string;
+                kind?: string;
+              };
+              return (
+                <MoneyTooltip
+                  active={active}
+                  label={row?.fullName}
+                  payload={payload.map((p) => ({
+                    name: row?.kind || String(p.name),
+                    value: Number(p.value),
+                    color: String(p.color ?? COLORS.confirmed),
+                  }))}
+                />
+              );
+            }}
+            cursor={{ fill: "rgba(0,158,227,0.06)" }}
+          />
+          <Bar dataKey="Сумма" radius={[0, 6, 6, 0]} maxBarSize={22} name="Сумма">
+            {data.map((entry) => (
+              <Cell key={entry.id} fill={entry.fill} />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}

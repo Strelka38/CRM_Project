@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "SpecRevision" ADD COLUMN IF NOT EXISTS "title" TEXT NOT NULL DEFAULT '';

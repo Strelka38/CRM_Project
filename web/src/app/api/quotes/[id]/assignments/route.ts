@@ -10,6 +10,7 @@ import {
   requireSession,
 } from "@/lib/session";
 import { serializeAssignmentPay } from "@/lib/quote-assignments";
+import { ensureMountSpecialtyId } from "@/lib/quote-assignment-slots";
 
 async function getAccessibleQuote(id: string, userId: string, role: string) {
   const quote = await prisma.quote.findUnique({ where: { id } });
@@ -125,7 +126,8 @@ export async function GET(
 const createSchema = z.object({
   isFreelancer: z.boolean().optional().default(false),
   userId: z.string().min(1).optional(),
-  specialtyId: z.string().min(1),
+  specialtyId: z.string().min(1).optional(),
+  kind: z.enum(["EVENT", "MOUNT"]).optional().default("EVENT"),
   freelancerName: z.string().optional().default(""),
   owners: z.array(companyEnum).optional().default([]),
   payMode: z.enum(["SHIFT", "HOURLY"]).default("SHIFT"),
@@ -151,10 +153,34 @@ export async function POST(
 
     const body = createSchema.parse(await req.json());
     const showPay = canSeeAssignmentPay(session.user.role);
+    const kind = body.kind ?? "EVENT";
+    const specialtyId =
+      kind === "MOUNT"
+        ? body.specialtyId || (await ensureMountSpecialtyId(prisma))
+        : body.specialtyId;
+    if (!specialtyId) {
+      return NextResponse.json(
+        { error: "Выберите должность" },
+        { status: 400 },
+      );
+    }
+
+    async function emptySlot() {
+      return prisma.quoteAssignment.findFirst({
+        where: {
+          quoteId: id,
+          kind,
+          userId: null,
+          isFreelancer: false,
+          ...(kind === "MOUNT" ? {} : { specialtyId }),
+        },
+        orderBy: { createdAt: "asc" },
+      });
+    }
 
     if (body.isFreelancer) {
       const specialty = await prisma.specialty.findFirst({
-        where: { id: body.specialtyId, active: true },
+        where: { id: specialtyId, active: true },
         select: { id: true, name: true },
       });
       if (!specialty) {
@@ -164,23 +190,43 @@ export async function POST(
         );
       }
 
-      const created = await prisma.quoteAssignment.create({
-        data: {
-          quoteId: id,
-          userId: null,
-          specialtyId: body.specialtyId,
-          payMode: "SHIFT",
-          hours: null,
-          rateOverride: showPay ? (body.rateOverride ?? null) : null,
-          isFreelancer: true,
-          freelancerName: (body.freelancerName || "").trim(),
-          owners: body.owners ?? [],
-        },
-        include: {
-          user: { select: userSelect },
-          specialty: { select: { id: true, name: true } },
-        },
-      });
+      const vacant = await emptySlot();
+      const created = vacant
+        ? await prisma.quoteAssignment.update({
+            where: { id: vacant.id },
+            data: {
+              userId: null,
+              payMode: "SHIFT",
+              hours: null,
+              rateOverride: showPay ? (body.rateOverride ?? null) : null,
+              isFreelancer: true,
+              freelancerName: (body.freelancerName || "").trim(),
+              owners: body.owners ?? [],
+              kind,
+            },
+            include: {
+              user: { select: userSelect },
+              specialty: { select: { id: true, name: true } },
+            },
+          })
+        : await prisma.quoteAssignment.create({
+            data: {
+              quoteId: id,
+              userId: null,
+              specialtyId,
+              kind,
+              payMode: "SHIFT",
+              hours: null,
+              rateOverride: showPay ? (body.rateOverride ?? null) : null,
+              isFreelancer: true,
+              freelancerName: (body.freelancerName || "").trim(),
+              owners: body.owners ?? [],
+            },
+            include: {
+              user: { select: userSelect },
+              specialty: { select: { id: true, name: true } },
+            },
+          });
 
       const full = serializeAssignmentPay({ ...created, user: null });
       return NextResponse.json(showPay ? full : stripPay(full), {
@@ -189,25 +235,54 @@ export async function POST(
     }
 
     if (!body.userId) {
-      return NextResponse.json(
-        { error: "Выберите сотрудника" },
-        { status: 400 },
-      );
+      const specialty = await prisma.specialty.findFirst({
+        where: { id: specialtyId, active: true },
+        select: { id: true, name: true },
+      });
+      if (!specialty) {
+        return NextResponse.json(
+          { error: "Должность не найдена" },
+          { status: 400 },
+        );
+      }
+      const created = await prisma.quoteAssignment.create({
+        data: {
+          quoteId: id,
+          userId: null,
+          specialtyId,
+          kind,
+          payMode: "SHIFT",
+          hours: null,
+          rateOverride: null,
+          isFreelancer: false,
+          freelancerName: "",
+          owners: [],
+        },
+        include: {
+          user: { select: userSelect },
+          specialty: { select: { id: true, name: true } },
+        },
+      });
+      const full = serializeAssignmentPay({ ...created, user: null });
+      return NextResponse.json(showPay ? full : stripPay(full), {
+        status: 201,
+      });
     }
 
     const payMode = showPay ? body.payMode : "SHIFT";
     const hours = showPay && payMode === "HOURLY" ? (body.hours ?? 0) : null;
     const rateOverride = showPay ? (body.rateOverride ?? null) : null;
 
+    const vacant = await emptySlot();
     const userSpec = await prisma.userSpecialty.findUnique({
       where: {
         userId_specialtyId: {
           userId: body.userId,
-          specialtyId: body.specialtyId,
+          specialtyId,
         },
       },
     });
-    if (!userSpec) {
+    if (kind !== "MOUNT" && !userSpec && !vacant) {
       return NextResponse.json(
         { error: "У сотрудника нет этой специальности" },
         { status: 400 },
@@ -232,23 +307,42 @@ export async function POST(
       );
     }
 
-    const created = await prisma.quoteAssignment.create({
-      data: {
-        quoteId: id,
-        userId: body.userId,
-        specialtyId: body.specialtyId,
-        payMode,
-        hours,
-        rateOverride,
-        isFreelancer: false,
-        freelancerName: "",
-        owners: [],
-      },
-      include: {
-        user: { select: userSelect },
-        specialty: { select: { id: true, name: true } },
-      },
-    });
+    const created = vacant
+      ? await prisma.quoteAssignment.update({
+          where: { id: vacant.id },
+          data: {
+            userId: body.userId,
+            payMode,
+            hours,
+            rateOverride,
+            isFreelancer: false,
+            freelancerName: "",
+            owners: [],
+            kind,
+          },
+          include: {
+            user: { select: userSelect },
+            specialty: { select: { id: true, name: true } },
+          },
+        })
+      : await prisma.quoteAssignment.create({
+          data: {
+            quoteId: id,
+            userId: body.userId,
+            specialtyId,
+            kind,
+            payMode,
+            hours,
+            rateOverride,
+            isFreelancer: false,
+            freelancerName: "",
+            owners: [],
+          },
+          include: {
+            user: { select: userSelect },
+            specialty: { select: { id: true, name: true } },
+          },
+        });
 
     await notifyEmployeeOfAssignment(
       {
@@ -269,8 +363,8 @@ export async function POST(
             specialties: [
               {
                 specialtyId: created.specialtyId,
-                hourlyRate: userSpec.hourlyRate,
-                shiftRate: userSpec.shiftRate,
+                hourlyRate: userSpec?.hourlyRate ?? 0,
+                shiftRate: userSpec?.shiftRate ?? 0,
               },
             ],
           }

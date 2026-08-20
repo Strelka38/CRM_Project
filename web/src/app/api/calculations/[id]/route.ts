@@ -3,11 +3,17 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { CATALOG_OWNERS, type CatalogOwnerValue } from "@/lib/catalog-owner";
 import { applyManagerAgency } from "@/lib/calc-agency";
-import { buildLaborAndMontageBreakdown } from "@/lib/calc-labor";
+import {
+  buildFreelancerExpenseInputs,
+  buildLaborAndMontageBreakdown,
+} from "@/lib/calc-labor";
 import { buildCalcLines, defaultLineOverride } from "@/lib/calc-lines";
-import { calcBlock } from "@/lib/quote-calc";
+import { resolveLineEconomics } from "@/lib/calc-line-cost";
+import { calcBlock, blocksInActiveZones } from "@/lib/quote-calc";
+import { montageBudgetFromBlocks } from "@/lib/quote-assignment-slots";
 import {
   amountsFromOverride,
+  attachCogsToBreakdown,
   computeQuoteCalculation,
   equalShares,
 } from "@/lib/quote-calculation";
@@ -25,6 +31,7 @@ const lineOverrideSchema = z.object({
     DIAKOM: z.number().min(0),
     NE_EVENT: z.number().min(0),
   }),
+  costOverride: z.number().min(0).nullable().optional(),
 });
 
 const patchSchema = z.object({
@@ -81,7 +88,13 @@ async function loadQuote(id: string) {
         orderBy: { sortOrder: "asc" },
         include: {
           catalogItem: {
-            select: { id: true, name: true, itemKind: true, owners: true },
+            select: {
+              id: true,
+              name: true,
+              itemKind: true,
+              owners: true,
+              costPrice: true,
+            },
           },
           kit: {
             select: {
@@ -123,17 +136,20 @@ async function loadQuote(id: string) {
 }
 
 function serialize(quote: NonNullable<Awaited<ReturnType<typeof loadQuote>>>) {
-  const lines = buildCalcLines(quote.blocks, quote.calcLineOverrides);
+  const activeBlocks = blocksInActiveZones(quote.zones, quote.blocks);
+  const lines = buildCalcLines(activeBlocks, quote.calcLineOverrides);
+  const freelancerExpenses = buildFreelancerExpenseInputs(quote.assignments);
+  const extraMapped = quote.extraExpenses.map((e) => ({
+    ...e,
+    owners: e.owners as CatalogOwnerValue[],
+    amounts: amountsFromOverride(e),
+  }));
   const baseCalc = computeQuoteCalculation({
     cashless: quote.cashless,
     durationDays: quote.durationDays,
     discountPercent: quote.discountPercent,
     lines,
-    expenses: quote.extraExpenses.map((e) => ({
-      ...e,
-      owners: e.owners as CatalogOwnerValue[],
-      amounts: amountsFromOverride(e),
-    })),
+    expenses: [...extraMapped, ...freelancerExpenses],
     sharesCustom: quote.sharesCustom,
     customShares: quote.calcShares,
   });
@@ -141,6 +157,39 @@ function serialize(quote: NonNullable<Awaited<ReturnType<typeof loadQuote>>>) {
   const overrideByBlock = new Map(
     quote.calcLineOverrides.map((o) => [o.blockId, o]),
   );
+
+  const zoneById = new Map(quote.zones.map((z) => [z.id, z]));
+  const estimateBlocks = quote.blocks
+    .filter((b) => b.type !== "NOTE")
+    .map((b) => {
+      const asItem = b.type === "ITEM" || b.type === "KIT_HEADER";
+      const c = calcBlock(
+        {
+          ...b,
+          type: asItem ? "ITEM" : b.type,
+          itemKind: b.catalogItem?.itemKind ?? null,
+        },
+        false,
+        quote.durationDays,
+      );
+      const zone = b.zoneId ? zoneById.get(b.zoneId) : undefined;
+      return {
+        id: b.id,
+        type: b.type,
+        zoneId: b.zoneId,
+        zoneName: zone?.name ?? "",
+        zoneActive: zone ? zone.active !== false : true,
+        name: b.name || b.catalogItem?.name || b.kit?.name || "",
+        title: b.title,
+        qty: b.qty,
+        unitPrice: b.unitPrice,
+        dayMode: b.dayMode,
+        dayCoef: c.dayCoef,
+        lineTotal: Math.round(c.lineTotalCash),
+        isKit: Boolean(b.kitId && !b.catalogItemId) || b.type === "KIT_HEADER",
+        itemKind: b.catalogItem?.itemKind ?? null,
+      };
+    });
 
   const lineDetails = lines
     .map((line) => {
@@ -161,12 +210,27 @@ function serialize(quote: NonNullable<Awaited<ReturnType<typeof loadQuote>>>) {
       const owners = effective.ownersCustom
         ? effective.owners
         : catalogOwners;
+      const eco = resolveLineEconomics({
+        clientTotal: lineTotal,
+        qty: block.qty,
+        itemKind: block.itemKind,
+        name: block.name || block.title || kitName,
+        catalogUnitCost: line.unitCost,
+        costOverride: effective.costOverride,
+      });
 
       return {
         id: block.id,
         name: block.name || block.title || kitName || "Позиция",
         type: block.type,
+        itemKind: block.itemKind ?? null,
         lineTotal,
+        clientTotal: Math.round(eco.client),
+        costTotal: Math.round(eco.cost),
+        margin: Math.round(eco.margin),
+        costSource: eco.costSource,
+        costOverride:
+          stored?.costOverride == null ? null : Number(stored.costOverride),
         catalogOwners,
         owners,
         ownersCustom: effective.ownersCustom,
@@ -179,7 +243,13 @@ function serialize(quote: NonNullable<Awaited<ReturnType<typeof loadQuote>>>) {
     id: string;
     name: string;
     type: string;
+    itemKind: string | null;
     lineTotal: number;
+    clientTotal: number;
+    costTotal: number;
+    margin: number;
+    costSource: string;
+    costOverride: number | null;
     catalogOwners: CatalogOwnerValue[];
     owners: CatalogOwnerValue[];
     ownersCustom: boolean;
@@ -199,6 +269,21 @@ function serialize(quote: NonNullable<Awaited<ReturnType<typeof loadQuote>>>) {
     assignments: quote.assignments,
     revenueByCompany,
     expensesByCompany,
+    montageBudget: montageBudgetFromBlocks(
+      activeBlocks.map((b) => ({
+        type: b.type,
+        name: b.name,
+        title: b.title,
+        qty: b.qty,
+        unitPrice: b.unitPrice,
+        dayMode: b.dayMode,
+        dayCoefOverride: b.dayCoefOverride,
+        itemKind: b.catalogItem?.itemKind ?? null,
+        catalogName: b.catalogItem?.name ?? null,
+        zoneId: b.zoneId,
+      })),
+      quote.durationDays,
+    ),
   });
 
   const withPercents = laborMontage.breakdown.map((row) => {
@@ -215,18 +300,23 @@ function serialize(quote: NonNullable<Awaited<ReturnType<typeof loadQuote>>>) {
     quote.owner.owners as CatalogOwnerValue[],
     quote.owner.agencyPercent,
   );
+  const breakdownWithCogs = attachCogsToBreakdown(breakdown, baseCalc);
 
   const calc = {
     ...baseCalc,
     laborTotal: laborMontage.laborTotal,
     montageTotal: laborMontage.montageTotal,
+    montageBudget: laborMontage.montageBudget,
+    montageActual: laborMontage.montageActual,
+    montageOverage: laborMontage.montageOverage,
     agencyTotal: agency.total,
     agencyDeductedTotal,
     agency,
-    breakdown,
+    breakdown: breakdownWithCogs,
     // Нетто фирм: выручка − расходы − ЗП − монтажные − агентские (только списанные с фирм менеджера)
     netTotal: Math.round(
       baseCalc.payable -
+        baseCalc.cogsTotal -
         baseCalc.expensesTotal -
         laborMontage.laborTotal -
         laborMontage.montageTotal -
@@ -279,7 +369,14 @@ function serialize(quote: NonNullable<Awaited<ReturnType<typeof loadQuote>>>) {
         sortOrder: e.sortOrder,
       };
     }),
+    autoExpenses: freelancerExpenses.map((e) => ({
+      name: e.name,
+      amount: e.amount,
+      owners: (e.owners ?? []) as CatalogOwnerValue[],
+      sortOrder: e.sortOrder ?? 0,
+    })),
     companies: CATALOG_OWNERS,
+    estimateBlocks,
     lineDetails,
     assignments: laborMontage.assignmentRows,
     calculation: calc,
@@ -322,7 +419,7 @@ export async function PATCH(
       include: {
         blocks: {
           include: {
-            catalogItem: { select: { owners: true } },
+            catalogItem: { select: { owners: true, costPrice: true, itemKind: true } },
             kit: {
               select: {
                 components: {
@@ -436,6 +533,8 @@ export async function PATCH(
               amountShowMaster: o.amounts.SHOW_MASTER,
               amountDiakom: o.amounts.DIAKOM,
               amountNeEvent: o.amounts.NE_EVENT,
+              costOverride:
+                o.costOverride == null ? null : Math.max(0, o.costOverride),
             })),
           });
         }

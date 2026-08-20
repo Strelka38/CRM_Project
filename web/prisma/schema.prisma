@@ -63,11 +63,27 @@ enum NotificationType {
   EVENT_CREATED
   EVENT_ASSIGNED
   CHAT_MESSAGE
+  /// Смета подтверждена — бригадиру нужна бригада монтажников
+  MOUNT_CONFIRMED
+  /// Задача на дату прошла, не отмечена выполненной
+  TASK_OPEN
+}
+
+/// Погода на дашборде: город Иркутск или Иркутская область
+enum WeatherPlace {
+  IRKUTSK
+  IRKUTSK_OBLAST
 }
 
 enum PayMode {
   SHIFT
   HOURLY
+}
+
+/// EVENT = участник шоу; MOUNT = монтажник (не путать)
+enum AssignmentKind {
+  EVENT
+  MOUNT
 }
 
 /// Режим распределения строки в калькуляции
@@ -118,6 +134,9 @@ model User {
   agencyPercent Float            @default(5)
   /// К каким фирмам относится сотрудник (ШМ / ДК / NE) — для учёта ЗП в доходности
   owners        CatalogOwner[]   @default([])
+  /// IANA, по умолчанию Иркутск (UTC+8)
+  timezone      String           @default("Asia/Irkutsk")
+  weatherPlace  WeatherPlace     @default(IRKUTSK)
   createdAt     DateTime         @default(now())
   updatedAt     DateTime         @updatedAt
   quotes             Quote[]
@@ -132,19 +151,24 @@ model User {
   equipmentRepairsResolved EquipmentRepair[] @relation("EquipmentRepairResolvedBy")
   calendarEntriesCreated      CalendarEntry[]           @relation("CalendarEntryCreatedBy")
   calendarEntriesResponsible  CalendarEntry[]           @relation("CalendarEntryResponsible")
+  calendarEntriesCompleted    CalendarEntry[]           @relation("CalendarEntryCompletedBy")
   calendarEntryAssignments    CalendarEntryAssignee[]
+  quoteSnapshotsCreated       QuoteSnapshot[]           @relation("QuoteSnapshotCreatedBy")
+  quoteAuditEvents            QuoteAuditEvent[]         @relation("QuoteAuditEventActor")
+  specRevisionsCreated        SpecRevision[]            @relation("SpecRevisionCreatedBy")
 }
 
 model Specialty {
-  id         String           @id @default(cuid())
-  name       String           @unique
-  sortOrder  Int              @default(0)
-  hourlyRate Float            @default(0)
-  shiftRate  Float            @default(0)
-  active     Boolean          @default(true)
-  createdAt  DateTime         @default(now())
-  updatedAt  DateTime         @updatedAt
-  users      UserSpecialty[]
+  id          String           @id @default(cuid())
+  name        String           @unique
+  sortOrder   Int              @default(0)
+  hourlyRate  Float            @default(0)
+  shiftRate   Float            @default(0)
+  description String           @default("")
+  active      Boolean          @default(true)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  users       UserSpecialty[]
   assignments QuoteAssignment[]
 }
 
@@ -184,10 +208,12 @@ model QuoteAssignment {
   freelancerName String         @default("")
   /// Фирма для ЗП фрилансера (ШМ / ДК / NE); у штатных — с User.owners
   owners         CatalogOwner[] @default([])
+  /// Участник шоу vs монтажник. Один человек может быть и EVENT, и MOUNT.
+  kind           AssignmentKind @default(EVENT)
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  @@unique([quoteId, userId, specialtyId])
+  @@index([quoteId, kind])
   @@index([userId])
   @@index([specialtyId])
 }
@@ -221,6 +247,8 @@ model CatalogItem {
   basePrice        Float           @default(0)
   cashlessOverride Float?
   estimatedValue   Float?
+  /// Себестоимость единицы (закуп Zoom / лицензии). Null = не задана.
+  costPrice        Float?
   stockQty         Int             @default(0)
   width            Float?
   height           Float?
@@ -236,6 +264,8 @@ model CatalogItem {
   dayMode          DayMode         @default(HALF_EXTRA)
   itemKind         ItemKind        @default(EQUIPMENT)
   active           Boolean         @default(true)
+  /// Показывать позицию менеджеру в каталоге сметы. false = конструктив: комплекты и спека.
+  showInCatalog    Boolean         @default(true)
   sortOrder        Int             @default(0)
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
@@ -248,6 +278,7 @@ model CatalogItem {
   @@index([categoryId])
   @@index([itemKind])
   @@index([name])
+  @@index([showInCatalog])
 }
 
 model EquipmentUnit {
@@ -355,22 +386,66 @@ model KitComponent {
 }
 
 model Client {
-  id           String   @id @default(cuid())
-  companyName  String
-  contactName  String   @default("")
-  phone        String   @default("")
-  email        String   @default("")
-  comment      String   @default("")
-  inn          String   @default("")
-  legalAddress String   @default("")
-  legalDetails String   @default("")
-  active       Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  quotes       Quote[]
+  id              String          @id @default(cuid())
+  companyName     String
+  contactName     String          @default("")
+  phone           String          @default("")
+  email           String          @default("")
+  comment         String          @default("")
+  inn             String          @default("")
+  legalAddress    String          @default("")
+  legalDetails    String          @default("")
+  active          Boolean         @default(true)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  quotes          Quote[]
+  calendarEntries CalendarEntry[]
 
   @@index([companyName])
   @@index([inn])
+}
+
+/// Юрлицо исполнителя для договор/счёт/акт. Рядом с CatalogOwner, не вместо тегов склада.
+model LegalEntity {
+  id            String                  @id @default(cuid())
+  shortName     String
+  fullName      String                  @default("")
+  inn           String                  @unique
+  ogrnip        String                  @default("")
+  legalAddress  String                  @default("")
+  actualAddress String                  @default("")
+  phone         String                  @default("")
+  email         String                  @default("")
+  /// Опциональная привязка к тегу склада (SHM / DK / NE). Склад по-прежнему CatalogOwner на позициях.
+  catalogOwner  CatalogOwner?
+  signatoryName String                  @default("")
+  sealPath      String?
+  signaturePath String?
+  active        Boolean                 @default(true)
+  createdAt     DateTime                @default(now())
+  updatedAt     DateTime                @updatedAt
+  bankAccounts  LegalEntityBankAccount[]
+
+  @@index([catalogOwner])
+  @@index([active])
+}
+
+model LegalEntityBankAccount {
+  id            String      @id @default(cuid())
+  legalEntityId String
+  legalEntity   LegalEntity @relation(fields: [legalEntityId], references: [id], onDelete: Cascade)
+  label         String      @default("")
+  bankName      String      @default("")
+  account       String
+  corrAccount   String      @default("")
+  bik           String      @default("")
+  isDefault     Boolean     @default(false)
+  sortOrder     Int         @default(0)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@unique([legalEntityId, account])
+  @@index([legalEntityId])
 }
 
 model Venue {
@@ -458,6 +533,9 @@ model Quote {
   paymentComment  String            @default("")
   /// true = доли компаний заданы вручную (QuoteCalcShare), иначе — авто из владельцев позиций
   sharesCustom    Boolean           @default(false)
+  /// Сколько слотов уже импортировано из сметы. Ключ: "MOUNT:specialtyId" → qty.
+  /// Не уменьшается: удалённые слоты не добираются повторно.
+  assignmentImportWatermark Json    @default("{}")
   ownerId         String
   owner           User              @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   createdAt       DateTime          @default(now())
@@ -475,6 +553,9 @@ model Quote {
   calcShares         QuoteCalcShare[]
   extraExpenses      QuoteExtraExpense[]
   calcLineOverrides  QuoteCalcLineOverride[]
+  snapshots          QuoteSnapshot[]
+  auditEvents        QuoteAuditEvent[]
+  specRevisions      SpecRevision[]
 
   @@index([ownerId])
   @@index([eventDate])
@@ -510,6 +591,8 @@ model QuoteCalcLineOverride {
   amountShowMaster Float    @default(0)
   amountDiakom     Float    @default(0)
   amountNeEvent    Float    @default(0)
+  /// Себестоимость строки в калькуляции (абсолют). Null = каталог / дефолт (услуга 0).
+  costOverride     Float?
   /// Монтажные по факту калькуляции (отдельно от суммы позиции)
   montageAmount    Float    @default(0)
   createdAt    DateTime     @default(now())
@@ -549,11 +632,60 @@ model QuoteZone {
   quote     Quote        @relation(fields: [quoteId], references: [id], onDelete: Cascade)
   name      String
   sortOrder Int          @default(0)
+  /// false = выключена (фаза 1.2): не в сумме и не в резерве. Пока не скрывать в UI.
+  active    Boolean      @default(true)
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
   blocks    QuoteBlock[]
 
   @@index([quoteId])
+}
+
+/// Снимок тела сметы (meta + zones + blocks). Хранить не больше 3 на quote.
+model QuoteSnapshot {
+  id          String   @id @default(cuid())
+  quoteId     String
+  quote       Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  title       String   @default("")
+  payload     Json
+  createdById String?
+  createdBy   User?    @relation("QuoteSnapshotCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+
+  @@index([quoteId, createdAt])
+  @@index([createdById])
+}
+
+/// Журнал правок сметы. UI лога — фаза 1.4.
+model QuoteAuditEvent {
+  id        String   @id @default(cuid())
+  quoteId   String
+  quote     Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  actorId   String?
+  actor     User?    @relation("QuoteAuditEventActor", fields: [actorId], references: [id], onDelete: SetNull)
+  action    String
+  summary   String
+  diff      Json?
+  createdAt DateTime @default(now())
+
+  @@index([quoteId, createdAt])
+  @@index([actorId])
+}
+
+/// Снимок спецификации. После first-save / import — источник правды для GET.
+model SpecRevision {
+  id          String   @id @default(cuid())
+  quoteId     String
+  quote       Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  title       String   @default("")
+  lines       Json
+  note        String?
+  createdById String?
+  createdBy   User?    @relation("SpecRevisionCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+
+  @@index([quoteId, createdAt])
+  @@index([createdById])
 }
 
 model QuoteTemplate {
@@ -634,6 +766,8 @@ model QuoteAttachment {
   mimeType    String
   size        Int
   storagePath String
+  /// Этот файл отмечен как отправленный заказчику счёт (не больше одного на смету)
+  invoiceSent Boolean  @default(false)
   createdAt   DateTime @default(now())
 
   @@index([quoteId])
@@ -678,10 +812,13 @@ model Notification {
   title     String
   body      String
   read      Boolean          @default(false)
+  calendarEntryId String?
+  calendarEntry   CalendarEntry?  @relation(fields: [calendarEntryId], references: [id], onDelete: Cascade)
   createdAt DateTime         @default(now())
 
   @@index([userId, read])
   @@index([quoteId])
+  @@index([calendarEntryId])
 }
 
 model CalendarEntry {
@@ -697,17 +834,32 @@ model CalendarEntry {
   /// Аренда: ответственный за выдачу
   responsibleUserId String?
   responsibleUser   User?             @relation("CalendarEntryResponsible", fields: [responsibleUserId], references: [id], onDelete: SetNull)
+  /// Аренда: клиент, которому выдают оборудование
+  clientId          String?
+  client            Client?           @relation(fields: [clientId], references: [id], onDelete: SetNull)
   createdById       String
   createdBy         User              @relation("CalendarEntryCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+  completedAt       DateTime?
+  completedById     String?
+  completedBy       User?             @relation("CalendarEntryCompletedBy", fields: [completedById], references: [id], onDelete: SetNull)
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
   lines             CalendarEntryLine[]
   assignees         CalendarEntryAssignee[]
+  notifications     Notification[]
 
   @@index([date])
   @@index([kind, date])
   @@index([createdById])
   @@index([responsibleUserId])
+  @@index([completedById])
+  @@index([clientId])
+}
+
+/// Ключ-значение: мастер-часовой пояс компании и т.п.
+model AppSetting {
+  key   String @id
+  value String
 }
 
 model CalendarEntryLine {

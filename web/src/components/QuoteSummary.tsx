@@ -172,9 +172,21 @@ export function QuoteSummary({
             </thead>
             <tbody>
               {summary.zones.map((z, i) => (
-                <tr key={z.zoneId} className="border-t border-[var(--line)]">
+                <tr
+                  key={z.zoneId}
+                  className={`border-t border-[var(--line)] ${
+                    z.active === false ? "opacity-50" : ""
+                  }`}
+                >
                   <td className="px-3 py-2 text-[var(--muted)]">{i + 1}</td>
-                  <td className="px-3 py-2 font-medium">{z.name}</td>
+                  <td className="px-3 py-2 font-medium">
+                    {z.name}
+                    {z.active === false ? (
+                      <span className="ml-2 text-[10px] font-normal uppercase tracking-wide text-[var(--muted)]">
+                        выкл.
+                      </span>
+                    ) : null}
+                  </td>
                   <td className="px-3 py-2 text-right tabular-nums">
                     {formatMoney(z.equipmentTotal + z.consumablesTotal)}
                   </td>

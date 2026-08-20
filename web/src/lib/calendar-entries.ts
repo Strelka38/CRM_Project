@@ -4,6 +4,7 @@ import {
   canCreateCalendarRental,
   canCreateCalendarTask,
   canEditCalendarEntry,
+  isManager,
 } from "@/lib/roles";
 
 export const CALENDAR_ENTRY_INCLUDE = {
@@ -12,6 +13,14 @@ export const CALENDAR_ENTRY_INCLUDE = {
   },
   createdBy: {
     select: { id: true, name: true },
+  },
+  client: {
+    select: {
+      id: true,
+      companyName: true,
+      contactName: true,
+      phone: true,
+    },
   },
   assignees: {
     include: {
@@ -53,6 +62,18 @@ export function canMutateEntry(
   // Brigadier may only edit kinds they can create
   if (role === "BRIGADIER") return canCreateEntryKind(role, kind);
   return true;
+}
+
+/** Отметить задачу выполненной: исполнитель, автор или менеджер. */
+export function canCompleteTask(opts: {
+  role: string | null | undefined;
+  userId: string;
+  createdById: string;
+  assigneeIds: string[];
+}): boolean {
+  if (isManager(opts.role)) return true;
+  if (opts.createdById === opts.userId) return true;
+  return opts.assigneeIds.includes(opts.userId);
 }
 
 export function displayUserName(u: {

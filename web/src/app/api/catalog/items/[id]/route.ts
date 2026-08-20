@@ -2,8 +2,21 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { parseEventDate } from "@/lib/dates";
+import { ensureQuoteSchemaColumns } from "@/lib/ensure-schema";
 import { requireDatabaseAccess, requireSession } from "@/lib/session";
 import { getAvailability } from "@/lib/stock";
+
+let ensureOnce: Promise<void> | null = null;
+
+function ensureSchemaOnce() {
+  if (!ensureOnce) {
+    ensureOnce = ensureQuoteSchemaColumns().catch((e) => {
+      ensureOnce = null;
+      throw e;
+    });
+  }
+  return ensureOnce;
+}
 
 export async function GET(
   req: NextRequest,
@@ -11,6 +24,7 @@ export async function GET(
 ) {
   try {
     await requireSession();
+    await ensureSchemaOnce();
     const { id } = await params;
     const item = await prisma.catalogItem.findUnique({
       where: { id },
@@ -23,7 +37,11 @@ export async function GET(
       req.nextUrl.searchParams.get("eventDate") || undefined,
     );
     const days = Number(req.nextUrl.searchParams.get("days") || 1);
-    const av = await getAvailability(item.id, eventDate, days);
+    const av = await getAvailability(item.id, {
+      date: req.nextUrl.searchParams.get("eventDate") || "",
+      eventDate,
+      durationDays: days,
+    });
     return NextResponse.json({ ...item, ...av });
   } catch (e) {
     if (e instanceof Response) return e;
@@ -41,6 +59,7 @@ const patchSchema = z.object({
   manufacturer: z.string().nullable().optional(),
   comment: z.string().nullable().optional(),
   estimatedValue: z.number().nullable().optional(),
+  costPrice: z.number().nullable().optional(),
   width: z.number().nullable().optional(),
   height: z.number().nullable().optional(),
   depth: z.number().nullable().optional(),
@@ -63,6 +82,7 @@ const patchSchema = z.object({
     .array(z.enum(["SHOW_MASTER", "DIAKOM", "NE_EVENT"]))
     .max(3)
     .optional(),
+  showInCatalog: z.boolean().optional(),
 });
 
 export async function PATCH(
@@ -71,6 +91,7 @@ export async function PATCH(
 ) {
   try {
     await requireDatabaseAccess();
+    await ensureSchemaOnce();
     const { id } = await params;
     const body = patchSchema.parse(await req.json());
     const item = await prisma.catalogItem.update({

@@ -8,7 +8,7 @@ import {
   type DrawerItem,
   type DrawerItemPatch,
 } from "./ItemDrawer";
-import { Button, Modal } from "@/components/ui";
+import { Button, Modal, SideDrawer } from "@/components/ui";
 
 type Doc = {
   id: string;
@@ -45,7 +45,17 @@ type ApiItem = EquipmentCardData &
     equipmentDocuments: Doc[];
   };
 
-export function EquipmentItemPage({ itemId }: { itemId: string }) {
+export function EquipmentItemPage({
+  itemId,
+  variant = "page",
+  onClose,
+  onChanged,
+}: {
+  itemId: string;
+  variant?: "page" | "drawer";
+  onClose?: () => void;
+  onChanged?: () => void;
+}) {
   const [item, setItem] = useState<ApiItem | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [error, setError] = useState("");
@@ -68,6 +78,11 @@ export function EquipmentItemPage({ itemId }: { itemId: string }) {
     }
     setItem(await res.json());
   }, [itemId]);
+
+  const reload = useCallback(async () => {
+    await load();
+    onChanged?.();
+  }, [load, onChanged]);
 
   useEffect(() => {
     void load();
@@ -98,7 +113,7 @@ export function EquipmentItemPage({ itemId }: { itemId: string }) {
         setError(data.error || "Не удалось добавить единицу");
         return;
       }
-      await load();
+      await reload();
     } finally {
       setBusy(false);
     }
@@ -118,7 +133,7 @@ export function EquipmentItemPage({ itemId }: { itemId: string }) {
         setError(data.error || "Не удалось создать единицы");
         return;
       }
-      await load();
+      await reload();
     } finally {
       setBusy(false);
     }
@@ -134,7 +149,7 @@ export function EquipmentItemPage({ itemId }: { itemId: string }) {
       setError("Не удалось сохранить метку");
       return;
     }
-    await load();
+    await reload();
   }
 
   async function submitWriteOff() {
@@ -158,7 +173,7 @@ export function EquipmentItemPage({ itemId }: { itemId: string }) {
       }
       setWriteOffId(null);
       setWriteOffComment("");
-      await load();
+      await reload();
     } catch {
       setWriteOffError("Не удалось списать");
     } finally {
@@ -181,7 +196,7 @@ export function EquipmentItemPage({ itemId }: { itemId: string }) {
         setError(data.error || "Не удалось загрузить фото");
         return;
       }
-      await load();
+      await reload();
     } finally {
       setBusy(false);
     }
@@ -199,7 +214,7 @@ export function EquipmentItemPage({ itemId }: { itemId: string }) {
         setError("Не удалось удалить фото");
         return;
       }
-      await load();
+      await reload();
     } finally {
       setBusy(false);
     }
@@ -220,7 +235,7 @@ export function EquipmentItemPage({ itemId }: { itemId: string }) {
         setError(data.error || "Не удалось загрузить файл");
         return;
       }
-      await load();
+      await reload();
     } finally {
       setBusy(false);
     }
@@ -239,7 +254,7 @@ export function EquipmentItemPage({ itemId }: { itemId: string }) {
         setError("Не удалось удалить файл");
         return;
       }
-      await load();
+      await reload();
     } finally {
       setBusy(false);
     }
@@ -255,13 +270,41 @@ export function EquipmentItemPage({ itemId }: { itemId: string }) {
       const payload = await res.json().catch(() => ({}));
       throw new Error(payload.error || "Не удалось сохранить");
     }
-    await load();
+    await reload();
     setDrawerOpen(false);
   }
 
+  async function toggleShowInCatalog(value: boolean) {
+    setBusy(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/catalog/items/${itemId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ showInCatalog: value }),
+      });
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        setError(payload.error || "Не удалось сохранить");
+        return;
+      }
+      await reload();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const isDrawer = variant === "drawer";
+
   if (!item && !error) {
     return (
-      <div className="mx-auto max-w-3xl px-4 py-6 text-sm text-[var(--muted)]">
+      <div
+        className={
+          isDrawer
+            ? "px-4 py-6 text-sm text-[var(--muted)]"
+            : "mx-auto max-w-3xl px-4 py-6 text-sm text-[var(--muted)]"
+        }
+      >
         Загрузка…
       </div>
     );
@@ -269,11 +312,27 @@ export function EquipmentItemPage({ itemId }: { itemId: string }) {
 
   if (!item) {
     return (
-      <div className="mx-auto max-w-3xl space-y-3 px-4 py-6">
+      <div
+        className={
+          isDrawer
+            ? "space-y-3 px-4 py-6"
+            : "mx-auto max-w-3xl space-y-3 px-4 py-6"
+        }
+      >
         <p className="text-sm text-[var(--danger)]">{error || "Не найдено"}</p>
-        <Link href="/equipment" className="text-sm text-[var(--accent)]">
-          ← К складу
-        </Link>
+        {isDrawer ? (
+          <button
+            type="button"
+            className="text-sm text-[var(--accent)]"
+            onClick={onClose}
+          >
+            Закрыть
+          </button>
+        ) : (
+          <Link href="/equipment" className="text-sm text-[var(--accent)]">
+            ← К складу
+          </Link>
+        )}
       </div>
     );
   }
@@ -290,45 +349,8 @@ export function EquipmentItemPage({ itemId }: { itemId: string }) {
     fileUrl: `/api/equipment/items/${item.id}/documents/${d.id}/file`,
   }));
 
-  return (
-    <div className="mx-auto max-w-3xl space-y-4 px-4 py-6">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <Link
-          href="/equipment"
-          className="inline-block text-sm text-[var(--muted)] hover:text-[var(--accent)]"
-        >
-          ← Склад
-        </Link>
-        <button
-          type="button"
-          className="rounded-md border border-[var(--line)] px-3 py-1.5 text-sm hover:bg-[var(--panel-muted)]"
-          onClick={() => setDrawerOpen(true)}
-        >
-          Редактировать позицию
-        </button>
-      </div>
-      {error ? <p className="text-sm text-[var(--danger)]">{error}</p> : null}
-      <EquipmentCard
-        item={cardItem}
-        documents={documents}
-        units={item.equipmentUnits}
-        editable
-        busy={busy}
-        onUploadPhoto={uploadPhoto}
-        onRemovePhoto={removePhoto}
-        onUploadDoc={uploadDoc}
-        onDeleteDoc={deleteDoc}
-        onSyncUnits={syncUnits}
-        onAddUnit={addUnit}
-        onWriteOff={(id) => {
-          setWriteOffId(id);
-          setWriteOffReason("DAMAGED");
-          setWriteOffComment("");
-          setWriteOffError("");
-        }}
-        onSaveLabel={saveLabel}
-      />
-
+  const editors = (
+    <>
       {drawerOpen ? (
         <ItemDrawer
           item={item}
@@ -336,7 +358,7 @@ export function EquipmentItemPage({ itemId }: { itemId: string }) {
           lockStock
           onClose={() => setDrawerOpen(false)}
           onSave={saveItem}
-          onPhotoChange={() => void load()}
+          onPhotoChange={() => void reload()}
         />
       ) : null}
 
@@ -396,6 +418,123 @@ export function EquipmentItemPage({ itemId }: { itemId: string }) {
           </Button>
         </div>
       </Modal>
+    </>
+  );
+
+  const card = (
+    <EquipmentCard
+      item={cardItem}
+      documents={documents}
+      units={item.equipmentUnits}
+      editable
+      busy={busy}
+      onUploadPhoto={uploadPhoto}
+      onRemovePhoto={removePhoto}
+      onUploadDoc={uploadDoc}
+      onDeleteDoc={deleteDoc}
+      onSyncUnits={syncUnits}
+      onAddUnit={addUnit}
+      onWriteOff={(id) => {
+        setWriteOffId(id);
+        setWriteOffReason("DAMAGED");
+        setWriteOffComment("");
+        setWriteOffError("");
+      }}
+      onSaveLabel={saveLabel}
+      onToggleShowInCatalog={toggleShowInCatalog}
+    />
+  );
+
+  if (isDrawer) {
+    return (
+      <div className="flex h-full min-h-0 flex-col">
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[var(--line)] px-4 py-3">
+          <h2
+            id="equipment-card-title"
+            className="truncate text-base font-semibold"
+          >
+            Карточка
+          </h2>
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              className="rounded-md border border-[var(--line)] px-3 py-1.5 text-sm hover:bg-[var(--panel-muted)]"
+              onClick={() => setDrawerOpen(true)}
+            >
+              Редактировать
+            </button>
+            <button
+              type="button"
+              className="text-sm text-[var(--muted)] hover:text-[var(--ink)]"
+              onClick={onClose}
+            >
+              Закрыть
+            </button>
+          </div>
+        </div>
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
+          {error ? (
+            <p className="text-sm text-[var(--danger)]">{error}</p>
+          ) : null}
+          {card}
+        </div>
+        {editors}
+      </div>
+    );
+  }
+
+  return (
+    <div className="mx-auto max-w-3xl space-y-4 px-4 py-6">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <Link
+          href="/equipment"
+          className="inline-block text-sm text-[var(--muted)] hover:text-[var(--accent)]"
+        >
+          ← Склад
+        </Link>
+        <button
+          type="button"
+          className="rounded-md border border-[var(--line)] px-3 py-1.5 text-sm hover:bg-[var(--panel-muted)]"
+          onClick={() => setDrawerOpen(true)}
+        >
+          Редактировать позицию
+        </button>
+      </div>
+      {error ? <p className="text-sm text-[var(--danger)]">{error}</p> : null}
+      {card}
+      {editors}
     </div>
+  );
+}
+
+export function EquipmentCardDrawer({
+  itemId,
+  onClose,
+  onChanged,
+}: {
+  itemId: string | null;
+  onClose: () => void;
+  onChanged?: () => void;
+}) {
+  return (
+    <SideDrawer
+      open={!!itemId}
+      onClose={onClose}
+      side="right"
+      wide
+      labelledBy="equipment-card-title"
+      className="!max-w-[min(42rem,100%)]"
+    >
+      {itemId ? (
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <EquipmentItemPage
+            itemId={itemId}
+            variant="drawer"
+            onClose={onClose}
+            onChanged={onChanged}
+          />
+        </div>
+      ) : null}
+    </SideDrawer>
   );
 }

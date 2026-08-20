@@ -8,7 +8,9 @@ type NotificationType =
   | "SYSTEM"
   | "EVENT_CREATED"
   | "EVENT_ASSIGNED"
-  | "CHAT_MESSAGE";
+  | "CHAT_MESSAGE"
+  | "MOUNT_CONFIRMED"
+  | "TASK_OPEN";
 
 type N = {
   id: string;
@@ -22,19 +24,24 @@ type N = {
     eventName: string;
     proposalNumber: string;
   } | null;
+  calendarEntry?: { id: string; title: string } | null;
 };
 
 function quoteHref(n: N) {
+  if (n.type === "TASK_OPEN" && n.calendarEntry) {
+    return `/calendar?entry=${n.calendarEntry.id}`;
+  }
   if (!n.quote) return null;
-  if (n.type === "EVENT_ASSIGNED" || n.type === "CHAT_MESSAGE") {
+  if (n.type === "EVENT_ASSIGNED" || n.type === "CHAT_MESSAGE" || n.type === "MOUNT_CONFIRMED") {
     return `/calendar?quote=${n.quote.id}`;
   }
-  return `/quotes/${n.quote.id}`;
+  return `/quotes/${n.quote.id}?tab=main`;
 }
 
 function quoteLinkLabel(n: N) {
+  if (n.type === "TASK_OPEN") return "Открыть задачу";
   if (!n.quote) return "Открыть";
-  if (n.type === "EVENT_ASSIGNED" || n.type === "CHAT_MESSAGE") {
+  if (n.type === "EVENT_ASSIGNED" || n.type === "CHAT_MESSAGE" || n.type === "MOUNT_CONFIRMED") {
     return n.quote.eventName?.trim()
       ? `Открыть «${n.quote.eventName.trim()}»`
       : "Открыть мероприятие";
@@ -44,8 +51,10 @@ function quoteLinkLabel(n: N) {
 
 export function NotificationsBell({
   showUnpaidLink = false,
+  placement = "header",
 }: {
   showUnpaidLink?: boolean;
+  placement?: "header" | "sidebar";
 }) {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<N[]>([]);
@@ -132,7 +141,13 @@ export function NotificationsBell({
         )}
       </button>
       {open && (
-        <div className="absolute right-0 z-50 mt-2 w-80 overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--panel)] shadow-xl">
+        <div
+          className={
+            placement === "sidebar"
+              ? "absolute bottom-full left-0 z-50 mb-2 w-[min(20rem,calc(100vw-4rem))] overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--panel)] shadow-xl"
+              : "absolute right-0 z-50 mt-2 w-[min(20rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--panel)] shadow-xl"
+          }
+        >
           <div className="flex items-center justify-between border-b border-[var(--line)] px-3 py-2">
             <span className="text-sm font-medium text-[var(--ink)]">Уведомления</span>
             <button

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatMoney } from "@/lib/format";
+import { LegalCardImport } from "@/components/LegalCardImport";
 
 type ProjectRow = {
   id: string;
@@ -279,6 +280,31 @@ export function ClientEditor({ clientId }: { clientId: string }) {
             </div>
           </div>
         </section>
+      </div>
+
+      <div className="mt-4">
+        <LegalCardImport
+          confirmLabel="Записать в клиента"
+          onConfirm={async (patch) => {
+            if (Object.keys(patch).length === 0) {
+              throw new Error("В тексте нет реквизитов, которые можно записать");
+            }
+            const res = await fetch(`/api/clients/${clientId}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(patch),
+            });
+            if (!res.ok) {
+              const data = await res.json().catch(() => ({}));
+              throw new Error(
+                typeof data.error === "string"
+                  ? data.error
+                  : "Не удалось записать реквизиты",
+              );
+            }
+            await load();
+          }}
+        />
       </div>
 
       <section className="mt-4 rounded-xl border border-[var(--line)] bg-[var(--panel)] p-4">

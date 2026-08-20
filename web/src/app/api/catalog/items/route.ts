@@ -2,12 +2,26 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { parseEventDate } from "@/lib/dates";
+import { ensureQuoteSchemaColumns } from "@/lib/ensure-schema";
 import { requireDatabaseAccess, requireSession } from "@/lib/session";
 import { getAvailability } from "@/lib/stock";
+
+let ensureOnce: Promise<void> | null = null;
+
+function ensureSchemaOnce() {
+  if (!ensureOnce) {
+    ensureOnce = ensureQuoteSchemaColumns().catch((e) => {
+      ensureOnce = null;
+      throw e;
+    });
+  }
+  return ensureOnce;
+}
 
 export async function GET(req: NextRequest) {
   try {
     await requireSession();
+    await ensureSchemaOnce();
     const q = req.nextUrl.searchParams.get("q")?.trim();
     const kind = req.nextUrl.searchParams.get("kind");
     const categoryId = req.nextUrl.searchParams.get("categoryId");
@@ -17,9 +31,12 @@ export async function GET(req: NextRequest) {
     );
     const durationDays = Number(req.nextUrl.searchParams.get("days") || 1);
 
+    const includeHidden = req.nextUrl.searchParams.get("includeHidden") === "1";
+
     const items = await prisma.catalogItem.findMany({
       where: {
         active: true,
+        ...(includeHidden ? {} : { showInCatalog: true }),
         ...(categoryId ? { categoryId } : {}),
         ...(pathPrefix
           ? { category: { path: { startsWith: pathPrefix } } }
@@ -31,8 +48,19 @@ export async function GET(req: NextRequest) {
         kind === "COMPONENT" ||
         kind === "OTHER"
           ? { itemKind: kind }
+          : includeHidden
+            ? {}
+            : { itemKind: { not: "COMPONENT" as const } }),
+        ...(q
+          ? {
+              OR: [
+                { name: { contains: q, mode: "insensitive" as const } },
+                { model: { contains: q, mode: "insensitive" as const } },
+                { manufacturer: { contains: q, mode: "insensitive" as const } },
+                { comment: { contains: q, mode: "insensitive" as const } },
+              ],
+            }
           : {}),
-        ...(q ? { name: { contains: q, mode: "insensitive" as const } } : {}),
       },
       orderBy: [{ category: { path: "asc" } }, { sortOrder: "asc" }],
       include: { category: true },
@@ -41,7 +69,11 @@ export async function GET(req: NextRequest) {
 
     const withStock = await Promise.all(
       items.map(async (item) => {
-        const av = await getAvailability(item.id, eventDate, durationDays);
+        const av = await getAvailability(item.id, {
+          date: req.nextUrl.searchParams.get("eventDate") || "",
+          eventDate,
+          durationDays,
+        });
         return {
           ...item,
           reserved: av?.reserved ?? 0,
@@ -67,6 +99,7 @@ const createSchema = z.object({
   manufacturer: z.string().nullable().optional(),
   comment: z.string().nullable().optional(),
   estimatedValue: z.number().nullable().optional(),
+  costPrice: z.number().nullable().optional(),
   width: z.number().nullable().optional(),
   height: z.number().nullable().optional(),
   depth: z.number().nullable().optional(),
@@ -89,6 +122,7 @@ const createSchema = z.object({
     .array(z.enum(["SHOW_MASTER", "DIAKOM", "NE_EVENT"]))
     .max(3)
     .optional(),
+  showInCatalog: z.boolean().optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -99,9 +133,12 @@ export async function POST(req: NextRequest) {
       where: { categoryId: body.categoryId },
       _max: { sortOrder: true },
     });
+    const showInCatalog =
+      body.showInCatalog ?? body.itemKind !== "COMPONENT";
     const item = await prisma.catalogItem.create({
       data: {
         ...body,
+        showInCatalog,
         sortOrder: (max._max.sortOrder ?? 0) + 1,
       },
     });

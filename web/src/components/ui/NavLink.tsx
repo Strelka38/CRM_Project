@@ -21,9 +21,9 @@ export function NavLink({
       href={href}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "rounded-full px-3.5 py-1.5 text-sm transition-all duration-200",
+        "flex items-center rounded-md px-2.5 py-1.5 text-sm transition-colors",
         active
-          ? "bg-[var(--header-active-bg)] text-[var(--accent)] ring-1 ring-[var(--accent-glow)]/40"
+          ? "bg-[var(--header-active-bg)] text-[var(--accent)]"
           : "text-[var(--header-muted)] hover:bg-[var(--header-hover)] hover:text-[var(--header-ink)]",
         className,
       )}

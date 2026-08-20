@@ -1,0 +1,1 @@
+ALTER TABLE "QuoteAttachment" ADD COLUMN IF NOT EXISTS "invoiceSent" BOOLEAN NOT NULL DEFAULT false;

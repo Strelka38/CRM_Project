@@ -1,7 +1,17 @@
 "use client";
 
-import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
+import {
+  DirectoryAddButton,
+  DirectoryCardLink,
+  DirectoryCsvMenu,
+  DirectorySelectionActions,
+  IconPlusFolder,
+  downloadCsvExport,
+  postBulkAction,
+  uploadCsvImport,
+} from "@/components/DirectoryToolbar";
 
 type VenueRow = {
   id: string;
@@ -19,6 +29,13 @@ export function VenuesAdmin() {
   const [mapUrl, setMapUrl] = useState("");
   const [error, setError] = useState("");
   const [q, setQ] = useState("");
+  const [showCreate, setShowCreate] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState(false);
+  const [csvBusy, setCsvBusy] = useState(false);
+  const [csvMessage, setCsvMessage] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const csvImportRef = useRef<HTMLInputElement>(null);
 
   async function load(search = q) {
     const params = new URLSearchParams();
@@ -30,7 +47,12 @@ export function VenuesAdmin() {
       setVenues([]);
       return;
     }
-    setVenues(await res.json());
+    const rows: VenueRow[] = await res.json();
+    setVenues(rows);
+    setSelected((prev) => {
+      const ids = new Set(rows.map((r) => r.id));
+      return new Set([...prev].filter((id) => ids.has(id)));
+    });
   }
 
   useEffect(() => {
@@ -62,6 +84,7 @@ export function VenuesAdmin() {
     setName("");
     setAddress("");
     setMapUrl("");
+    setShowCreate(false);
     void load(q);
   }
 
@@ -74,11 +97,70 @@ export function VenuesAdmin() {
     void load(q);
   }
 
+  function toggleAll() {
+    const ids = venues.map((v) => v.id);
+    const all = ids.length > 0 && ids.every((id) => selected.has(id));
+    setSelected(all ? new Set() : new Set(ids));
+  }
+
+  function toggleOne(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function bulk(action: "delete" | "copy") {
+    if (selected.size === 0) return;
+    setBusy(true);
+    setError("");
+    try {
+      await postBulkAction("/api/venues/bulk", action, [...selected]);
+      setSelected(new Set());
+      setConfirmDelete(false);
+      void load(q);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не удалось выполнить");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function exportCsv() {
+    setCsvBusy(true);
+    setCsvMessage("");
+    try {
+      setCsvMessage(await downloadCsvExport("/api/venues/csv"));
+    } catch (e) {
+      setCsvMessage(e instanceof Error ? e.message : "Не удалось экспортировать");
+    } finally {
+      setCsvBusy(false);
+    }
+  }
+
+  async function importCsv(file: File) {
+    setCsvBusy(true);
+    setCsvMessage("");
+    try {
+      setCsvMessage(await uploadCsvImport("/api/venues/csv", file));
+      void load(q);
+    } catch (e) {
+      setCsvMessage(e instanceof Error ? e.message : "Не удалось импортировать");
+    } finally {
+      setCsvBusy(false);
+    }
+  }
+
+  const allSelected =
+    venues.length > 0 && venues.every((v) => selected.has(v.id));
+
   return (
-    <div className="mx-auto max-w-5xl px-4 py-6 md:px-6">
+    <div className="w-full px-4 py-6 md:px-6">
       <header className="mb-8 animate-fade-up">
         <p className="text-xs uppercase tracking-[0.15em] text-[var(--muted)]">
-          CRM
+          База данных
         </p>
         <h1 className="mt-1 text-3xl font-light tracking-tight">Площадки</h1>
         <p className="mt-1 text-sm text-[var(--muted)]">
@@ -87,119 +169,180 @@ export function VenuesAdmin() {
         </p>
       </header>
 
-      <section className="mb-6 grid gap-3 rounded-xl border border-[var(--line)] bg-[var(--panel)] p-4 md:grid-cols-2">
-        <label className="text-sm md:col-span-2">
-          <span className="text-[var(--muted)]">Название площадки</span>
-          <input
-            className="field mt-1"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Крокус Сити Холл, зал A…"
+      <section className="rounded-xl border border-[var(--line)] bg-[var(--panel)]">
+        <div className="flex w-full items-center gap-2 border-b border-[var(--line)] px-4 py-3">
+          <DirectoryAddButton
+            title="+ Площадка"
+            icon={<IconPlusFolder />}
+            onClick={() => setShowCreate((v) => !v)}
           />
-        </label>
-        <label className="text-sm md:col-span-2">
-          <span className="text-[var(--muted)]">Адрес</span>
           <input
-            className="field mt-1"
-            value={address}
-            onChange={(e) => setAddress(e.target.value)}
+            type="search"
+            className="field max-w-md py-1.5 text-sm"
+            placeholder="Поиск по названию, адресу, комментарию…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
           />
-        </label>
-        <label className="text-sm md:col-span-2">
-          <span className="text-[var(--muted)]">Ссылка на точку</span>
+          <div className="ml-auto flex items-center gap-1">
+            <DirectorySelectionActions
+              count={selected.size}
+              disabled={busy}
+              onDelete={() => setConfirmDelete(true)}
+              onCopy={() => void bulk("copy")}
+            />
+            <DirectoryCsvMenu
+              busy={csvBusy}
+              onExport={() => void exportCsv()}
+              onImport={() => csvImportRef.current?.click()}
+            />
+          </div>
           <input
-            className="field mt-1"
-            value={mapUrl}
-            onChange={(e) => setMapUrl(e.target.value)}
-            placeholder="https://yandex.ru/maps/…"
+            ref={csvImportRef}
+            type="file"
+            accept=".csv,text/csv"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (file) void importCsv(file);
+            }}
           />
-        </label>
-        {error && <p className="text-sm text-[var(--danger)] md:col-span-2">{error}</p>}
-        <button
-          type="button"
-          onClick={createVenue}
-          className="rounded-md bg-[var(--accent)] px-4 py-2 text-sm text-white md:col-span-2 md:w-fit"
-        >
-          Создать площадку
-        </button>
+        </div>
+        {csvMessage ? (
+          <p className="border-b border-[var(--line)] px-4 py-2 text-xs text-[var(--muted)]">
+            {csvMessage}
+          </p>
+        ) : null}
+        {error ? (
+          <p className="border-b border-[var(--line)] px-4 py-2 text-sm text-[var(--danger)]">
+            {error}
+          </p>
+        ) : null}
+
+        {showCreate ? (
+          <div className="grid gap-3 border-b border-[var(--line)] p-4 md:grid-cols-2">
+            <label className="text-sm md:col-span-2">
+              <span className="text-[var(--muted)]">Название площадки</span>
+              <input
+                className="field mt-1"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Крокус Сити Холл, зал A…"
+              />
+            </label>
+            <label className="text-sm md:col-span-2">
+              <span className="text-[var(--muted)]">Адрес</span>
+              <input
+                className="field mt-1"
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+              />
+            </label>
+            <label className="text-sm md:col-span-2">
+              <span className="text-[var(--muted)]">Ссылка на точку</span>
+              <input
+                className="field mt-1"
+                value={mapUrl}
+                onChange={(e) => setMapUrl(e.target.value)}
+                placeholder="https://yandex.ru/maps/…"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={createVenue}
+              className="rounded-md bg-[var(--accent)] px-4 py-2 text-sm text-white md:col-span-2 md:w-fit"
+            >
+              Создать площадку
+            </button>
+          </div>
+        ) : null}
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-[var(--table-head)] text-xs uppercase text-[var(--muted)]">
+              <tr>
+                <th className="w-10 px-3 py-2 text-left">
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    onChange={toggleAll}
+                    aria-label="Выбрать все"
+                  />
+                </th>
+                <th className="px-3 py-2 text-left">Площадка</th>
+                <th className="px-3 py-2 text-left">Адрес</th>
+                <th className="px-3 py-2 text-left">Фото</th>
+                <th className="px-3 py-2 text-left">КП</th>
+                <th className="px-3 py-2 text-left">Статус</th>
+                <th className="w-12 px-3 py-2 text-left" />
+              </tr>
+            </thead>
+            <tbody>
+              {venues.map((v) => (
+                <tr
+                  key={v.id}
+                  className={`border-t border-[var(--line)] ${
+                    selected.has(v.id) ? "bg-[var(--selected)]/40" : ""
+                  }`}
+                >
+                  <td className="px-3 py-2 text-left">
+                    <input
+                      type="checkbox"
+                      checked={selected.has(v.id)}
+                      onChange={() => toggleOne(v.id)}
+                      aria-label={`Выбрать ${v.name}`}
+                    />
+                  </td>
+                  <td className="px-3 py-2 text-left">{v.name}</td>
+                  <td className="px-3 py-2 text-left text-[var(--muted)]">
+                    {v.address || "—"}
+                  </td>
+                  <td className="px-3 py-2 text-left tabular-nums">
+                    {v._count?.photos ?? 0}
+                  </td>
+                  <td className="px-3 py-2 text-left tabular-nums">
+                    {v._count?.quotes ?? 0}
+                  </td>
+                  <td className="px-3 py-2 text-left">
+                    <button
+                      type="button"
+                      onClick={() => void patchVenue(v.id, { active: !v.active })}
+                      className={
+                        v.active ? "text-[var(--accent)]" : "text-[var(--danger)]"
+                      }
+                    >
+                      {v.active ? "Активна" : "Отключена"}
+                    </button>
+                  </td>
+                  <td className="px-3 py-2 text-left">
+                    <DirectoryCardLink href={`/venues/${v.id}`} />
+                  </td>
+                </tr>
+              ))}
+              {venues.length === 0 && (
+                <tr>
+                  <td
+                    colSpan={7}
+                    className="px-3 py-8 text-left text-[var(--muted)]"
+                  >
+                    Площадок пока нет
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </section>
 
-      <div className="mb-3">
-        <input
-          type="search"
-          className="field max-w-md"
-          placeholder="Поиск по названию, адресу, комментарию…"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-        />
-      </div>
-
-      <div className="overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--panel)]">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-[var(--table-head)] text-xs uppercase text-[var(--muted)]">
-            <tr>
-              <th className="px-4 py-3">Площадка</th>
-              <th className="px-4 py-3">Адрес</th>
-              <th className="px-4 py-3">Фото</th>
-              <th className="px-4 py-3">КП</th>
-              <th className="px-4 py-3">Статус</th>
-              <th className="px-4 py-3" />
-            </tr>
-          </thead>
-          <tbody>
-            {venues.map((v) => (
-              <tr key={v.id} className="border-t border-[var(--line)]">
-                <td className="px-4 py-3">
-                  <Link
-                    href={`/venues/${v.id}`}
-                    className="text-[var(--accent)] hover:underline"
-                  >
-                    {v.name}
-                  </Link>
-                </td>
-                <td className="px-4 py-3 text-[var(--muted)]">
-                  {v.address || "—"}
-                </td>
-                <td className="px-4 py-3 tabular-nums">
-                  {v._count?.photos ?? 0}
-                </td>
-                <td className="px-4 py-3 tabular-nums">
-                  {v._count?.quotes ?? 0}
-                </td>
-                <td className="px-4 py-3">
-                  <button
-                    type="button"
-                    onClick={() => void patchVenue(v.id, { active: !v.active })}
-                    className={
-                      v.active ? "text-[var(--accent)]" : "text-[var(--danger)]"
-                    }
-                  >
-                    {v.active ? "Активна" : "Отключена"}
-                  </button>
-                </td>
-                <td className="px-4 py-3">
-                  <Link
-                    href={`/venues/${v.id}`}
-                    className="text-sm text-[var(--muted)] underline"
-                  >
-                    Карточка
-                  </Link>
-                </td>
-              </tr>
-            ))}
-            {venues.length === 0 && (
-              <tr>
-                <td
-                  colSpan={6}
-                  className="px-4 py-8 text-center text-[var(--muted)]"
-                >
-                  Площадок пока нет
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      <ConfirmDialog
+        open={confirmDelete}
+        title="Отключить площадки"
+        message={`Отключить выбранные площадки (${selected.size})? КП не удаляются.`}
+        confirmLabel="Отключить"
+        busy={busy}
+        onConfirm={() => void bulk("delete")}
+        onCancel={() => setConfirmDelete(false)}
+      />
     </div>
   );
 }

@@ -6,6 +6,7 @@ import {
   type PickedCatalogItem,
   type PickedKit,
 } from "@/components/CatalogPicker";
+import { ClientQuickSearch, type PickedClient } from "@/components/ClientQuickSearch";
 import { Button, Modal } from "@/components/ui";
 import {
   ENTRY_KIND_LABELS,
@@ -38,6 +39,13 @@ type EntryPayload = {
   startTime: string | null;
   endTime: string | null;
   responsibleUserId: string | null;
+  clientId: string | null;
+  client: {
+    id: string;
+    companyName: string;
+    contactName?: string;
+    phone?: string;
+  } | null;
   assignees: Array<{ userId: string }>;
   lines: Array<{ catalogItemId: string; qty: number; catalogItem: { name: string } }>;
 };
@@ -64,6 +72,13 @@ export function CalendarEntryFormModal({
   const [title, setTitle] = useState("");
   const [note, setNote] = useState("");
   const [responsibleUserId, setResponsibleUserId] = useState("");
+  const [clientId, setClientId] = useState("");
+  const [clientName, setClientName] = useState("");
+  const [showCreateClient, setShowCreateClient] = useState(false);
+  const [newCompany, setNewCompany] = useState("");
+  const [newContact, setNewContact] = useState("");
+  const [newPhone, setNewPhone] = useState("");
+  const [creatingClient, setCreatingClient] = useState(false);
   const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
   const [startTime, setStartTime] = useState("09:00");
   const [endTime, setEndTime] = useState("18:00");
@@ -95,6 +110,12 @@ export function CalendarEntryFormModal({
       setTitle("");
       setNote("");
       setResponsibleUserId("");
+      setClientId("");
+      setClientName("");
+      setShowCreateClient(false);
+      setNewCompany("");
+      setNewContact("");
+      setNewPhone("");
       setAssigneeIds([]);
       setStartTime("09:00");
       setEndTime("18:00");
@@ -113,6 +134,9 @@ export function CalendarEntryFormModal({
         setTitle(data.title || "");
         setNote(data.note || "");
         setResponsibleUserId(data.responsibleUserId || "");
+        setClientId(data.clientId || data.client?.id || "");
+        setClientName(data.client?.companyName || "");
+        setShowCreateClient(false);
         setAssigneeIds(data.assignees.map((a) => a.userId));
         setStartTime(data.startTime || "09:00");
         setEndTime(data.endTime || "18:00");
@@ -166,6 +190,55 @@ export function CalendarEntryFormModal({
     setPickerOpen(false);
   }
 
+  function pickClient(c: PickedClient) {
+    setClientId(c.id);
+    setClientName(c.companyName);
+    setShowCreateClient(false);
+  }
+
+  function clearClient() {
+    setClientId("");
+    setClientName("");
+  }
+
+  async function createClient() {
+    const company = newCompany.trim() || clientName.trim();
+    if (!company) {
+      setError("Укажите название компании");
+      return;
+    }
+    setCreatingClient(true);
+    setError("");
+    try {
+      const res = await fetch("/api/clients", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          companyName: company,
+          contactName: newContact.trim(),
+          phone: newPhone.trim(),
+        }),
+      });
+      const data = (await res.json().catch(() => null)) as PickedClient | {
+        error?: string;
+      } | null;
+      if (!res.ok || !data || !("id" in data)) {
+        setError(
+          data && "error" in data && typeof data.error === "string"
+            ? data.error
+            : "Не удалось создать клиента",
+        );
+        return;
+      }
+      pickClient(data);
+      setNewCompany("");
+      setNewContact("");
+      setNewPhone("");
+    } finally {
+      setCreatingClient(false);
+    }
+  }
+
   async function submit() {
     setSaving(true);
     setError("");
@@ -177,6 +250,7 @@ export function CalendarEntryFormModal({
       };
       if (kind === "RENTAL") {
         body.responsibleUserId = responsibleUserId || null;
+        body.clientId = clientId || null;
         body.lines = lines.map((l) => ({
           catalogItemId: l.catalogItemId,
           qty: l.qty,
@@ -228,7 +302,7 @@ export function CalendarEntryFormModal({
           onClose();
         }}
         title={`${entryId ? "Изменить" : "Создать"}: ${ENTRY_KIND_LABELS[kind]}`}
-        className="max-w-lg"
+        className="max-w-lg max-h-[90vh] overflow-y-auto"
       >
         {loading ? (
           <p className="text-sm text-[var(--muted)]">Загрузка…</p>
@@ -278,6 +352,96 @@ export function CalendarEntryFormModal({
                     ))}
                   </select>
                 </label>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs text-[var(--muted)]">Клиент</span>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setShowCreateClient((v) => {
+                          const next = !v;
+                          if (next && !newCompany && clientName && !clientId) {
+                            setNewCompany(clientName);
+                          }
+                          return next;
+                        });
+                      }}
+                    >
+                      {showCreateClient ? "Скрыть форму" : "Добавить клиента"}
+                    </Button>
+                  </div>
+                  <ClientQuickSearch
+                    value={clientName}
+                    onChange={(text) => {
+                      setClientName(text);
+                      setClientId("");
+                    }}
+                    onPick={pickClient}
+                  />
+                  {clientId ? (
+                    <p className="flex items-center justify-between gap-2 text-[11px] text-[var(--muted)]">
+                      <span>Привязан к профилю клиента</span>
+                      <button
+                        type="button"
+                        className="text-[var(--danger)]"
+                        onClick={clearClient}
+                      >
+                        Отвязать
+                      </button>
+                    </p>
+                  ) : (
+                    <p className="text-[11px] text-[var(--muted)]">
+                      Найдите существующего или создайте нового
+                    </p>
+                  )}
+                  {showCreateClient && (
+                    <div className="space-y-2 rounded-lg border border-[var(--line)] p-3">
+                      <label className="block space-y-1">
+                        <span className="text-xs text-[var(--muted)]">
+                          Компания
+                        </span>
+                        <input
+                          className="field w-full"
+                          value={newCompany}
+                          onChange={(e) => setNewCompany(e.target.value)}
+                          placeholder="ООО «Ромашка»"
+                        />
+                      </label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <label className="block space-y-1">
+                          <span className="text-xs text-[var(--muted)]">
+                            Контакт
+                          </span>
+                          <input
+                            className="field w-full"
+                            value={newContact}
+                            onChange={(e) => setNewContact(e.target.value)}
+                          />
+                        </label>
+                        <label className="block space-y-1">
+                          <span className="text-xs text-[var(--muted)]">
+                            Телефон
+                          </span>
+                          <input
+                            className="field w-full"
+                            value={newPhone}
+                            onChange={(e) => setNewPhone(e.target.value)}
+                          />
+                        </label>
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => void createClient()}
+                        disabled={creatingClient}
+                      >
+                        {creatingClient ? "Создание…" : "Создать и выбрать"}
+                      </Button>
+                    </div>
+                  )}
+                </div>
                 <div className="space-y-2">
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-xs text-[var(--muted)]">

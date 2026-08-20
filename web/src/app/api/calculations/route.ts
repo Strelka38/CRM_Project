@@ -1,11 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { applyManagerAgency } from "@/lib/calc-agency";
-import { buildLaborAndMontageBreakdown } from "@/lib/calc-labor";
+import {
+  buildFreelancerExpenseInputs,
+  buildLaborAndMontageBreakdown,
+} from "@/lib/calc-labor";
 import { buildCalcLines } from "@/lib/calc-lines";
 import type { CatalogOwnerValue } from "@/lib/catalog-owner";
+import { blocksInActiveZones } from "@/lib/quote-calc";
+import { montageBudgetFromBlocks } from "@/lib/quote-assignment-slots";
 import {
   amountsFromOverride,
+  attachCogsToBreakdown,
   computeQuoteCalculation,
 } from "@/lib/quote-calculation";
 import {
@@ -63,12 +69,14 @@ export async function GET(req: NextRequest) {
         },
         zones: {
           orderBy: { sortOrder: "asc" },
-          select: { id: true, name: true, sortOrder: true },
+          select: { id: true, name: true, sortOrder: true, active: true },
         },
         blocks: {
           orderBy: { sortOrder: "asc" },
           include: {
-            catalogItem: { select: { itemKind: true, owners: true } },
+            catalogItem: {
+              select: { name: true, itemKind: true, owners: true, costPrice: true },
+            },
             kit: {
               select: {
                 components: {
@@ -103,17 +111,22 @@ export async function GET(req: NextRequest) {
     });
 
     const rows = quotes.map((q) => {
-      const lines = buildCalcLines(q.blocks, q.calcLineOverrides);
+      const activeBlocks = blocksInActiveZones(q.zones, q.blocks);
+      const lines = buildCalcLines(activeBlocks, q.calcLineOverrides);
+      const freelancerExpenses = buildFreelancerExpenseInputs(q.assignments);
       const baseCalc = computeQuoteCalculation({
         cashless: q.cashless,
         durationDays: q.durationDays,
         discountPercent: q.discountPercent,
         lines,
-        expenses: q.extraExpenses.map((e) => ({
-          ...e,
-          owners: e.owners as CatalogOwnerValue[],
-          amounts: amountsFromOverride(e),
-        })),
+        expenses: [
+          ...q.extraExpenses.map((e) => ({
+            ...e,
+            owners: e.owners as CatalogOwnerValue[],
+            amounts: amountsFromOverride(e),
+          })),
+          ...freelancerExpenses,
+        ],
         sharesCustom: q.sharesCustom,
         customShares: q.calcShares,
       });
@@ -129,6 +142,21 @@ export async function GET(req: NextRequest) {
         assignments: q.assignments,
         revenueByCompany,
         expensesByCompany,
+        montageBudget: montageBudgetFromBlocks(
+          activeBlocks.map((b) => ({
+            type: b.type,
+            name: b.name,
+            title: b.title,
+            qty: b.qty,
+            unitPrice: b.unitPrice,
+            dayMode: b.dayMode,
+            dayCoefOverride: b.dayCoefOverride,
+            itemKind: b.catalogItem?.itemKind ?? null,
+            catalogName: b.catalogItem?.name ?? null,
+            zoneId: b.zoneId,
+          })),
+          q.durationDays,
+        ),
       });
 
       const withPercents = laborMontage.breakdown.map((row) => {
@@ -145,6 +173,7 @@ export async function GET(req: NextRequest) {
         q.owner.owners as CatalogOwnerValue[],
         q.owner.agencyPercent,
       );
+      const breakdownWithCogs = attachCogsToBreakdown(breakdown, baseCalc);
 
       return {
         id: q.id,
@@ -163,14 +192,18 @@ export async function GET(req: NextRequest) {
         },
         expensesCount: q.extraExpenses.length,
         ...baseCalc,
-        breakdown,
+        breakdown: breakdownWithCogs,
         laborTotal: laborMontage.laborTotal,
         montageTotal: laborMontage.montageTotal,
+        montageBudget: laborMontage.montageBudget,
+        montageActual: laborMontage.montageActual,
+        montageOverage: laborMontage.montageOverage,
         agencyTotal: agency.total,
         agencyDeductedTotal,
         agency,
         netTotal: Math.round(
           baseCalc.payable -
+            baseCalc.cogsTotal -
             baseCalc.expensesTotal -
             laborMontage.laborTotal -
             laborMontage.montageTotal -

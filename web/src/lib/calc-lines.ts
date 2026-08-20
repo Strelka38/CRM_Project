@@ -13,10 +13,14 @@ type BlockLike = {
   catalogItem?: {
     owners?: CatalogOwnerValue[] | null;
     itemKind?: string | null;
+    costPrice?: number | null;
   } | null;
   kit?: {
     components: {
-      catalogItem?: { owners?: CatalogOwnerValue[] | null } | null;
+      catalogItem?: {
+        owners?: CatalogOwnerValue[] | null;
+        costPrice?: number | null;
+      } | null;
     }[];
   } | null;
   [key: string]: unknown;
@@ -30,6 +34,7 @@ type OverrideLike = {
   amountShowMaster: number;
   amountDiakom: number;
   amountNeEvent: number;
+  costOverride?: number | null;
 };
 
 export function catalogOwnersForBlock(b: BlockLike): CatalogOwnerValue[] {
@@ -57,8 +62,14 @@ export function buildCalcLines(
         ownersCustom: ov.ownersCustom,
         owners: ov.owners as CatalogOwnerValue[],
         amounts: amountsFromOverride(ov),
+        costOverride:
+          ov.costOverride == null ? null : Number(ov.costOverride),
       };
     }
+    const unitCost =
+      b.catalogItem?.costPrice == null
+        ? null
+        : Number(b.catalogItem.costPrice);
     return {
       block: {
         ...(b as LineOwnerInput["block"]),
@@ -67,6 +78,7 @@ export function buildCalcLines(
       },
       catalogOwners,
       override,
+      unitCost,
     };
   });
 }
@@ -91,5 +103,6 @@ export function defaultLineOverride(
     ownersCustom: false,
     owners,
     amounts,
+    costOverride: null,
   };
 }

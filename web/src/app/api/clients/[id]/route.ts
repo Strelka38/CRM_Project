@@ -138,8 +138,14 @@ export async function GET(
   }
 }
 
+function blankToUndef(value: unknown) {
+  if (typeof value !== "string") return value;
+  const t = value.trim();
+  return t.length > 0 ? t : undefined;
+}
+
 const patchSchema = z.object({
-  companyName: z.string().min(1).optional(),
+  companyName: z.preprocess(blankToUndef, z.string().min(1).optional()),
   contactName: z.string().optional(),
   phone: z.string().optional(),
   email: z.string().optional(),
