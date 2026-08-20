@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ItemDrawer, type DrawerItem } from "@/components/ItemDrawer";
 import { formatMoney } from "@/lib/format";
@@ -38,6 +38,10 @@ type Props = {
   onPickKit?: (kit: PickedKit, qty?: number) => void;
   eventDate?: string;
   durationDays?: number;
+  /** Активная вкладка сметы — позиции падают сюда */
+  zoneName?: string;
+  /** Включать позиции, скрытые из каталога сметы (комплекты, спецификация). */
+  includeHidden?: boolean;
 };
 
 function QtyAddControl({
@@ -104,6 +108,8 @@ export function CatalogPicker({
   onPickKit,
   eventDate,
   durationDays = 1,
+  zoneName,
+  includeHidden = false,
 }: Props) {
   const [tab, setTab] = useState<"items" | "kits">("items");
   const [kind, setKind] = useState<"ALL" | "EQUIPMENT" | "PERSONNEL" | "SERVICE">(
@@ -120,6 +126,7 @@ export function CatalogPicker({
   const [toast, setToast] = useState<{ text: string; key: number } | null>(
     null,
   );
+  const searchRef = useRef<HTMLInputElement>(null);
 
   function noteAdded(id: string, name: string, qty: number) {
     setAddedCounts((prev) => ({
@@ -139,7 +146,10 @@ export function CatalogPicker({
     if (!open) {
       setAddedCounts({});
       setToast(null);
+      return;
     }
+    const t = window.setTimeout(() => searchRef.current?.focus(), 40);
+    return () => window.clearTimeout(t);
   }, [open]);
 
   const roots = useMemo(
@@ -159,10 +169,13 @@ export function CatalogPicker({
 
   useEffect(() => {
     if (!open) return;
-    void fetch("/api/catalog/categories?tree=1")
+    const qs = includeHidden
+      ? "/api/catalog/categories?tree=1"
+      : "/api/catalog/categories?tree=1&forQuote=1";
+    void fetch(qs)
       .then((r) => r.json())
       .then(setCategories);
-  }, [open]);
+  }, [open, includeHidden]);
 
   useEffect(() => {
     if (!open) return;
@@ -180,12 +193,13 @@ export function CatalogPicker({
       if (pathFilter) params.set("path", pathFilter);
       if (eventDate) params.set("eventDate", eventDate);
       params.set("days", String(durationDays));
+      if (includeHidden) params.set("includeHidden", "1");
       const res = await fetch(`/api/catalog/items?${params}`);
       setItems(await res.json());
       setLoading(false);
     }, 200);
     return () => clearTimeout(t);
-  }, [open, q, kind, pathFilter, tab, eventDate, durationDays]);
+  }, [open, q, kind, pathFilter, tab, eventDate, durationDays, includeHidden]);
 
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
@@ -215,7 +229,16 @@ export function CatalogPicker({
           )}
 
           <div className="flex items-center justify-between border-b border-[var(--line)] px-4 py-3">
-            <h3 className="font-display text-xl font-semibold">Добавить в смету</h3>
+            <div>
+              <h3 className="font-display text-xl font-semibold">
+                Добавить в смету
+              </h3>
+              {zoneName ? (
+                <p className="text-xs text-[var(--muted)]">
+                  Активная вкладка: {zoneName} · qty на строке, Enter добавляет
+                </p>
+              ) : null}
+            </div>
             <button type="button" onClick={onClose} className="text-[var(--muted)]">
               Закрыть
             </button>
@@ -255,8 +278,15 @@ export function CatalogPicker({
                 </button>
               ))}
             <input
+              ref={searchRef}
               value={q}
               onChange={(e) => setQ(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  onClose();
+                }
+              }}
               placeholder="Поиск…"
               className="field ml-auto max-w-xs"
             />

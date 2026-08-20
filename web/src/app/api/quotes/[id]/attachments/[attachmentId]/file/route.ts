@@ -6,7 +6,7 @@ import { requireSession } from "@/lib/session";
 import { resolveUploadPath } from "@/lib/uploads";
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   {
     params,
   }: { params: Promise<{ id: string; attachmentId: string }> },
@@ -28,10 +28,12 @@ export async function GET(
 
     const abs = resolveUploadPath(attachment.storagePath);
     const data = await readFile(abs);
+    const asDownload = req.nextUrl.searchParams.get("download") === "1";
+    const disposition = asDownload ? "attachment" : "inline";
     return new NextResponse(data, {
       headers: {
         "Content-Type": attachment.mimeType,
-        "Content-Disposition": `inline; filename*=UTF-8''${encodeURIComponent(attachment.filename)}`,
+        "Content-Disposition": `${disposition}; filename*=UTF-8''${encodeURIComponent(attachment.filename)}`,
         "Content-Length": String(attachment.size),
         "Cache-Control": "private, max-age=3600",
       },

@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { syncInvoiceNotifications } from "@/lib/notifications";
+import {
+  syncInvoiceNotifications,
+  syncOpenTaskNotifications,
+} from "@/lib/notifications";
 import { requireSession } from "@/lib/session";
 
 export async function GET() {
   try {
     const session = await requireSession();
     await syncInvoiceNotifications();
+    await syncOpenTaskNotifications();
     const notifications = await prisma.notification.findMany({
       where: { userId: session.user.id },
       orderBy: { createdAt: "desc" },
@@ -20,6 +24,9 @@ export async function GET() {
             invoiceSent: true,
             paid: true,
           },
+        },
+        calendarEntry: {
+          select: { id: true, title: true },
         },
       },
     });

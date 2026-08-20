@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button, Modal } from "@/components/ui";
 import { EQUIPMENT_FAULT_TYPES } from "@/lib/equipment-repairs";
 
@@ -24,6 +24,14 @@ export function EquipmentRepairFormModal({
   const [files, setFiles] = useState<File[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!open) return;
+    setFaultType(EQUIPMENT_FAULT_TYPES[0].id);
+    setComment("");
+    setFiles([]);
+    setError("");
+  }, [open, token]);
 
   async function submit() {
     setSaving(true);

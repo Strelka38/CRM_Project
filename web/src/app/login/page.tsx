@@ -84,7 +84,7 @@ function LoginForm() {
       setError("Неверный email или пароль");
       return;
     }
-    router.push(params.get("callbackUrl") || "/quotes");
+    router.push(params.get("callbackUrl") || "/calendar");
     router.refresh();
   }
 

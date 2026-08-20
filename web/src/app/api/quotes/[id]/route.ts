@@ -3,9 +3,31 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { parseEventDate } from "@/lib/dates";
 import { ensureDefaultZone, getAccessibleQuote } from "@/lib/quote-access";
-import { toPrismaDayMode } from "@/lib/quote-calc";
+import { blocksInActiveZones, toPrismaDayMode } from "@/lib/quote-calc";
+import {
+  changedQuoteMetaKeys,
+  summarizeQuotePatch,
+} from "@/lib/quote-history";
 import { requireManager, requireSession } from "@/lib/session";
 import { validateQuoteStock } from "@/lib/stock";
+import { syncQuoteAssignmentSlots } from "@/lib/quote-assignment-slots";
+import {
+  clearInvoiceDueNotifications,
+  notifyBrigadiersOfConfirmedMount,
+} from "@/lib/notifications";
+import { ensureQuoteSchemaColumns } from "@/lib/ensure-schema";
+
+let ensureOnce: Promise<void> | null = null;
+
+function ensureSchemaOnce() {
+  if (!ensureOnce) {
+    ensureOnce = ensureQuoteSchemaColumns().catch((e) => {
+      ensureOnce = null;
+      throw e;
+    });
+  }
+  return ensureOnce;
+}
 
 export async function GET(
   _req: NextRequest,
@@ -34,6 +56,7 @@ const zoneSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   sortOrder: z.number().int(),
+  active: z.boolean().optional(),
 });
 
 const blockSchema = z.object({
@@ -71,7 +94,7 @@ const patchSchema = z.object({
   cashlessPercent: z.number().min(0).max(99).optional(),
   durationDays: z.number().int().positive().optional(),
   notes: z.array(z.string()).optional(),
-  brief: z.string().optional(),
+  brief: z.string().max(8000).optional(),
   discountPercent: z.number().min(0).max(100).optional(),
   lifecycle: z
     .enum(["CALCULATED", "CONFIRMED", "CANCELLED", "COMPLETED"])
@@ -91,6 +114,7 @@ export async function PATCH(
 ) {
   try {
     const session = await requireManager();
+    await ensureSchemaOnce();
     const { id } = await params;
     const existing = await getAccessibleQuote(
       id,
@@ -102,7 +126,7 @@ export async function PATCH(
     }
 
     const body = patchSchema.parse(await req.json());
-    const { blocks, zones, forceStock, ...meta } = body;
+    const { blocks, zones, forceStock: _forceStock, ...meta } = body;
 
     if (meta.clientId) {
       const clientExists = await prisma.client.findUnique({
@@ -134,6 +158,26 @@ export async function PATCH(
       if (meta.place === undefined || meta.place.trim() === "") {
         meta.place = venueExists.name;
       }
+    } else if (meta.venueId === null) {
+      meta.place = "";
+    }
+
+    const nextDate = meta.date !== undefined ? meta.date : existing.date;
+    const nextDays =
+      meta.durationDays !== undefined ? meta.durationDays : existing.durationDays;
+    const nextLifecycle =
+      meta.lifecycle !== undefined ? meta.lifecycle : existing.lifecycle;
+    const nextVenueId =
+      meta.venueId !== undefined ? meta.venueId : existing.venueId;
+
+    if (
+      (nextLifecycle === "CONFIRMED" || nextLifecycle === "COMPLETED") &&
+      !nextVenueId
+    ) {
+      return NextResponse.json(
+        { error: "Выберите площадку из справочника" },
+        { status: 400 },
+      );
     }
 
     if (meta.ownerId) {
@@ -186,34 +230,45 @@ export async function PATCH(
       }
     }
 
-    const nextDate = meta.date !== undefined ? meta.date : existing.date;
-    const nextDays =
-      meta.durationDays !== undefined ? meta.durationDays : existing.durationDays;
-    const nextLifecycle =
-      meta.lifecycle !== undefined ? meta.lifecycle : existing.lifecycle;
     const eventDate = parseEventDate(nextDate);
+    const stockSchedule = {
+      date: nextDate,
+      eventDate,
+      durationDays: nextDays,
+      mountDate:
+        meta.mountDate !== undefined ? meta.mountDate : existing.mountDate,
+      mountDurationDays:
+        meta.mountDurationDays !== undefined
+          ? meta.mountDurationDays
+          : existing.mountDurationDays,
+      demountDate:
+        meta.demountDate !== undefined
+          ? meta.demountDate
+          : existing.demountDate,
+      demountDurationDays:
+        meta.demountDurationDays !== undefined
+          ? meta.demountDurationDays
+          : existing.demountDurationDays,
+    };
 
-    const blocksForCheck = blocks ?? existing.blocks;
+    const zoneList = zones ?? existing.zones;
+    const blocksForCheck = blocksInActiveZones(
+      zoneList,
+      (blocks ?? existing.blocks) as Array<{
+        type: string;
+        zoneId?: string | null;
+        catalogItemId?: string | null;
+        kitId?: string | null;
+        qty?: number | null;
+        name?: string | null;
+      }>,
+    );
+    let stockIssues: Awaited<ReturnType<typeof validateQuoteStock>> = [];
     if (
       (nextLifecycle === "CONFIRMED" || existing.lifecycle === "CONFIRMED") &&
-      nextLifecycle !== "CANCELLED" &&
-      !forceStock
+      nextLifecycle !== "CANCELLED"
     ) {
-      const issues = await validateQuoteStock(
-        id,
-        blocksForCheck,
-        eventDate,
-        nextDays,
-      );
-      if (issues.length > 0) {
-        return NextResponse.json(
-          {
-            error: "Недостаточно оборудования на складе",
-            stockIssues: issues,
-          },
-          { status: 409 },
-        );
-      }
+      stockIssues = await validateQuoteStock(id, blocksForCheck, stockSchedule);
     }
 
     await prisma.$transaction(async (tx) => {
@@ -244,10 +299,12 @@ export async function PATCH(
               quoteId: id,
               name: z.name,
               sortOrder: z.sortOrder,
+              active: z.active ?? true,
             },
             update: {
               name: z.name,
               sortOrder: z.sortOrder,
+              ...(z.active !== undefined ? { active: z.active } : {}),
             },
           });
         }
@@ -272,14 +329,80 @@ export async function PATCH(
           })),
         });
       }
+
+      const saved = await tx.quote.findUnique({
+        where: { id },
+        include: {
+          zones: { orderBy: { sortOrder: "asc" } },
+          blocks: { orderBy: { sortOrder: "asc" } },
+        },
+      });
+      if (saved) {
+        const audit = summarizeQuotePatch({
+          prevLifecycle: existing.lifecycle,
+          nextLifecycle,
+          changedMetaKeys: changedQuoteMetaKeys(
+            existing as unknown as Record<string, unknown>,
+            meta as unknown as Record<string, unknown>,
+          ),
+          zonesChanged: Boolean(zones),
+          zoneCount: zones ? zones.length : null,
+          blocksChanged: Boolean(blocks),
+          blockCount: blocks ? blocks.length : null,
+        });
+        await tx.quoteAuditEvent.create({
+          data: {
+            quoteId: id,
+            actorId: session.user.id,
+            action: audit.action,
+            summary: audit.summary,
+            diff: audit.diff,
+          },
+        });
+      }
+
+      if (meta.invoiceSent === false && meta.paid !== true) {
+        await tx.quoteAttachment.updateMany({
+          where: { quoteId: id },
+          data: { invoiceSent: false },
+        });
+      }
+
+      await syncQuoteAssignmentSlots(tx, id);
     });
+
+    if (meta.paid === true || meta.invoiceSent === true) {
+      await clearInvoiceDueNotifications(id);
+    }
+
+    if (
+      existing.lifecycle !== "CONFIRMED" &&
+      nextLifecycle === "CONFIRMED"
+    ) {
+      const q = await prisma.quote.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          eventName: true,
+          proposalNumber: true,
+          date: true,
+        },
+      });
+      if (q) {
+        await notifyBrigadiersOfConfirmedMount(q);
+      }
+    }
 
     const quote = await getAccessibleQuote(
       id,
       session.user.id,
       session.user.role,
     );
-    return NextResponse.json(quote);
+    return NextResponse.json({
+      ...quote,
+      stockIssues,
+      stockWarning: stockIssues.length > 0,
+    });
   } catch (e) {
     if (e instanceof Response) return e;
     if (e instanceof z.ZodError) {

@@ -7,19 +7,22 @@ import {
   useMemo,
   useRef,
   useState,
+  type MutableRefObject,
 } from "react";
 import { useRouter } from "next/navigation";
+import { type PickedCatalogItem } from "@/components/CatalogPicker";
+import { QuoteCatalogSidebar } from "@/components/QuoteCatalogSidebar";
 import {
-  CatalogPicker,
-  type PickedCatalogItem,
-} from "@/components/CatalogPicker";
-import { QuoteAssignments } from "@/components/QuoteAssignments";
+  isVacantStaff,
+  staffRoleLabel,
+} from "@/lib/staff-slots";
 import {
   StockHeaderCells,
   StockMarks,
   type StockInfo,
 } from "@/components/StockMarks";
 import { cn } from "@/lib/cn";
+import { appendOccupancyParams } from "@/lib/quote-schedule";
 import { reorderBlocksByDrop } from "@/lib/quote-block-groups";
 
 type SpecLine = {
@@ -36,6 +39,7 @@ type SpecLine = {
   extraId: string | null;
   hidden: boolean;
   isKitHeader?: boolean;
+  ownerLabel?: string;
 };
 
 type Override = {
@@ -55,16 +59,20 @@ type Extra = {
   qty?: number;
   comment?: string;
   catalogItemId?: string | null;
+  ownerLabel?: string;
 };
 
 type EditableExtra = Extra & { key: string };
 
 type StaffRow = {
   id: string;
-  userId: string;
+  userId: string | null;
   name: string;
   specialtyId: string;
   specialtyName: string;
+  kind?: "EVENT" | "MOUNT";
+  vacant?: boolean;
+  isFreelancer?: boolean;
 };
 
 type ReplaceTarget =
@@ -72,7 +80,6 @@ type ReplaceTarget =
   | { kind: "extra"; key: string };
 
 type PickerMode =
-  | { mode: "add" }
   | { mode: "replace"; target: ReplaceTarget }
   | { mode: "insert"; index: number };
 
@@ -154,18 +161,30 @@ function DragHandle({
 export function SpecEditor({
   quoteId,
   isManager = false,
+  returnZone = null,
+  embedded = false,
+  flushRef,
 }: {
   quoteId: string;
   isManager?: boolean;
+  returnZone?: string | null;
+  embedded?: boolean;
+  flushRef?: MutableRefObject<(() => Promise<boolean>) | null>;
 }) {
   const router = useRouter();
   const [meta, setMeta] = useState<{
     proposalNumber: string;
     eventName: string;
     date: string;
+    mountDate: string;
+    mountDurationDays: number;
+    demountDate: string;
+    demountDurationDays: number;
     place: string;
     client: string;
     durationDays: number;
+    hasSnapshot: boolean;
+    snapshotAt: string | null;
   } | null>(null);
   const [derived, setDerived] = useState<SpecLine[]>([]);
   const [extras, setExtras] = useState<EditableExtra[]>([]);
@@ -186,18 +205,48 @@ export function SpecEditor({
   const [dragKey, setDragKey] = useState<string | null>(null);
   const [dropKey, setDropKey] = useState<string | null>(null);
   const [gapIndex, setGapIndex] = useState<number | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importBusy, setImportBusy] = useState(false);
+  const [importPreview, setImportPreview] = useState<{
+    counts: {
+      added: number;
+      removed: number;
+      kept: number;
+      extras: number;
+    };
+    diff: {
+      added: Array<{ key: string; label: string; qty: number }>;
+      removed: Array<{ key: string; label: string; qty: number }>;
+      extras: Array<{ key: string; label: string }>;
+    };
+  } | null>(null);
   const dirtyRef = useRef(false);
   const lineOrderRef = useRef<string[]>([]);
   lineOrderRef.current = lineOrder;
+
+  useEffect(() => {
+    if (!picker) return;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById("quote-catalog-search")?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [picker]);
 
   const applyPayload = useCallback((data: Record<string, unknown>) => {
     setMeta({
       proposalNumber: String(data.proposalNumber ?? ""),
       eventName: String(data.eventName ?? ""),
       date: String(data.date ?? ""),
+      mountDate: String(data.mountDate ?? ""),
+      mountDurationDays: Number(data.mountDurationDays) || 1,
+      demountDate: String(data.demountDate ?? ""),
+      demountDurationDays: Number(data.demountDurationDays) || 1,
       place: String(data.place ?? ""),
       client: String(data.client ?? ""),
       durationDays: Number(data.durationDays) || 1,
+      hasSnapshot: Boolean(data.hasSnapshot),
+      snapshotAt:
+        typeof data.snapshotAt === "string" ? data.snapshotAt : null,
     });
     setCanEdit(Boolean(data.canEdit));
     const lines: SpecLine[] = ((data.lines as SpecLine[]) || []).map(
@@ -219,6 +268,10 @@ export function SpecEditor({
           qty: e.qty,
           comment: e.comment ?? "",
           catalogItemId: e.catalogItemId,
+          ownerLabel:
+            (lines.find((l) => l.extraId === e.id)?.ownerLabel as
+              | string
+              | undefined) || "—",
         }),
       ),
     );
@@ -238,7 +291,13 @@ export function SpecEditor({
         ? (data.lineOrder as string[])
         : lines.map((l) => l.key),
     );
-    setAssignments((data.assignments as StaffRow[]) || []);
+    setAssignments(
+      ((data.assignments as StaffRow[]) || []).slice().sort((a, b) => {
+        const av = Number(a.vacant ?? isVacantStaff(a));
+        const bv = Number(b.vacant ?? isVacantStaff(b));
+        return bv - av;
+      }),
+    );
     dirtyRef.current = false;
   }, []);
 
@@ -276,23 +335,13 @@ export function SpecEditor({
     void load();
   }, [load]);
 
-  const refreshStaff = useCallback(() => {
-    void fetch(`/api/quotes/${quoteId}/spec`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (!data) return;
-        setAssignments((data.assignments as StaffRow[]) || []);
-      })
-      .catch(() => {});
-  }, [quoteId]);
-
   const persist = useCallback(
     async (
       nextOverrides: Override[],
       nextExtras: EditableExtra[],
       nextOrder: string[],
-    ) => {
-      if (!canEdit || !dirtyRef.current) return;
+    ): Promise<boolean> => {
+      if (!canEdit || !dirtyRef.current) return true;
       setSaving(true);
       setError("");
       const res = await fetch(`/api/quotes/${quoteId}/spec`, {
@@ -316,14 +365,67 @@ export function SpecEditor({
       setSaving(false);
       if (!res.ok) {
         setError("Не удалось сохранить");
-        return;
+        return false;
       }
       const data = await res.json().catch(() => null);
       if (data) applyPayload(data);
       setSavedAt(new Date().toLocaleTimeString("ru-RU"));
+      return true;
     },
     [canEdit, quoteId, applyPayload],
   );
+
+  async function openImportPreview() {
+    if (!canEdit) return;
+    setImportBusy(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/quotes/${quoteId}/spec/import`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ apply: false }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(
+          typeof data.error === "string"
+            ? data.error
+            : "Не удалось сравнить со сметой",
+        );
+        return;
+      }
+      setImportPreview(data);
+      setImportOpen(true);
+    } finally {
+      setImportBusy(false);
+    }
+  }
+
+  async function applyImport() {
+    if (!canEdit) return;
+    setImportBusy(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/quotes/${quoteId}/spec/import`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ apply: true }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(
+          typeof data.error === "string" ? data.error : "Импорт не выполнен",
+        );
+        return;
+      }
+      setImportOpen(false);
+      setImportPreview(null);
+      await load({ silent: true });
+      setSavedAt(new Date().toLocaleTimeString("ru-RU"));
+    } finally {
+      setImportBusy(false);
+    }
+  }
 
   useEffect(() => {
     if (loading || !canEdit || !dirtyRef.current) return;
@@ -332,6 +434,14 @@ export function SpecEditor({
     }, 800);
     return () => clearTimeout(t);
   }, [overrides, extras, lineOrder, loading, canEdit, persist]);
+
+  useEffect(() => {
+    if (!flushRef) return;
+    flushRef.current = () => persist(overrides, extras, lineOrder);
+    return () => {
+      if (flushRef.current) flushRef.current = null;
+    };
+  }, [flushRef, persist, overrides, extras, lineOrder]);
 
   const allRows = useMemo(() => {
     const byKey = new Map<string, SpecLine>();
@@ -350,6 +460,7 @@ export function SpecEditor({
         catalogItemId: e.catalogItemId ?? null,
         extraId: e.id,
         hidden: false,
+        ownerLabel: e.ownerLabel,
       });
     }
     const ordered: SpecLine[] = [];
@@ -400,8 +511,7 @@ export function SpecEditor({
     const t = setTimeout(() => {
       const params = new URLSearchParams();
       params.set("ids", catalogIdsKey);
-      if (meta.date) params.set("eventDate", meta.date);
-      params.set("days", String(meta.durationDays || 1));
+      appendOccupancyParams(params, meta);
       params.set("excludeQuoteId", quoteId);
       void fetch(`/api/stock?${params}`)
         .then((r) => r.json())
@@ -683,6 +793,13 @@ export function SpecEditor({
       setGapIndex(null);
       return;
     }
+  }
+
+  function onPickFromSidebar(item: PickedCatalogItem, qty?: number) {
+    if (picker) {
+      onPickCatalog(item, qty);
+      return;
+    }
     addFromCatalog(item, qty);
   }
 
@@ -699,10 +816,14 @@ export function SpecEditor({
       const { exportSpecExcel, exportSpecPdf } = await import(
         "@/lib/export/spec"
       );
-      const staff = assignments.map((a) => ({
-        name: a.name,
-        specialtyName: a.specialtyName,
-      }));
+      const staff = assignments.map((a) => {
+        const vacant = a.vacant ?? isVacantStaff(a);
+        const role = staffRoleLabel(a);
+        return {
+          name: vacant ? `Нужно назначить — ${role}` : a.name,
+          specialtyName: vacant ? "" : a.kind === "MOUNT" ? "монтаж" : a.specialtyName,
+        };
+      });
       if (kind === "excel") await exportSpecExcel(meta, lines, staff);
       else await exportSpecPdf(meta, lines, staff);
     } finally {
@@ -712,16 +833,19 @@ export function SpecEditor({
 
   if (loading && !meta) {
     return (
-      <div className="mx-auto max-w-6xl px-4 py-6 md:px-6">
-        <header className="border-b border-[var(--line)] pb-4">
-          <p className="text-sm text-[var(--muted)]">
-            {isManager ? "← К смете" : "← К мероприятиям"}
-          </p>
-          <h1 className="font-display mt-1 text-3xl text-[var(--ink)]">
-            Спецификация на погрузку
-          </h1>
-          <p className="mt-2 text-sm text-[var(--muted)]">Загрузка…</p>
-        </header>
+      <div className={embedded ? "py-4 text-sm text-[var(--muted)]" : "mx-auto max-w-6xl px-4 py-6 md:px-6"}>
+        {!embedded && (
+          <header className="border-b border-[var(--line)] pb-4">
+            <p className="text-sm text-[var(--muted)]">
+              {isManager ? "← К смете" : "← К мероприятиям"}
+            </p>
+            <h1 className="font-display mt-1 text-3xl text-[var(--ink)]">
+              Спецификация на погрузку
+            </h1>
+            <p className="mt-2 text-sm text-[var(--muted)]">Загрузка…</p>
+          </header>
+        )}
+        {embedded ? "Загрузка спецификации…" : null}
       </div>
     );
   }
@@ -735,7 +859,13 @@ export function SpecEditor({
   }
 
   const hiddenCount = derived.filter((l) => l.hidden).length;
-  const tableColSpan = canEdit ? 7 : 3;
+  const tableColSpan = canEdit ? 8 : 4;
+  const catalogSelectionLabel =
+    picker?.mode === "replace"
+      ? "Выберите оборудование для замены"
+      : picker?.mode === "insert"
+        ? "Выберите оборудование для вставки"
+        : undefined;
 
   function renderGap(index: number) {
     if (!canEdit) return null;
@@ -774,25 +904,36 @@ export function SpecEditor({
   }
 
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-6 md:px-6">
-      <header className="flex flex-wrap items-end justify-between gap-4 border-b border-[var(--line)] pb-4">
+    <div className={embedded ? "flex flex-col gap-4" : "mx-auto flex max-w-[1680px] flex-col gap-6 px-4 py-6 md:px-6"}>
+      <header className={embedded ? "flex flex-wrap items-center justify-between gap-3" : "flex flex-wrap items-end justify-between gap-4 border-b border-[var(--line)] pb-4"}>
         <div>
-          <button
-            type="button"
-            onClick={() =>
-              router.push(isManager ? `/quotes/${quoteId}` : "/quotes")
-            }
-            className="text-sm text-[var(--muted)] hover:text-[var(--ink)]"
-          >
-            {isManager ? "← К смете" : "← К мероприятиям"}
-          </button>
-          <h1 className="font-display mt-1 text-3xl text-[var(--ink)]">
-            Спецификация на погрузку
-          </h1>
+          {!embedded && (
+            <button
+              type="button"
+              onClick={() => {
+                if (!isManager) {
+                  router.push("/quotes");
+                  return;
+                }
+                const q = returnZone
+                  ? `?zone=${encodeURIComponent(returnZone)}`
+                  : "";
+                router.push(`/quotes/${quoteId}${q}`);
+              }}
+              className="text-sm text-[var(--muted)] hover:text-[var(--ink)]"
+            >
+              {isManager ? "← К смете" : "← К мероприятиям"}
+            </button>
+          )}
+          {!embedded && (
+            <h1 className="font-display mt-1 text-3xl text-[var(--ink)]">
+              Спецификация на погрузку
+            </h1>
+          )}
           <p className="text-sm text-[var(--muted)]">
-            №{meta.proposalNumber} ·{" "}
-            {meta.eventName || meta.client || "Мероприятие"}
-            {meta.date ? ` · ${meta.date}` : ""}
+            {embedded
+              ? "Спецификация на погрузку"
+              : `№${meta.proposalNumber} · ${meta.eventName || meta.client || "Мероприятие"}${meta.date ? ` · ${meta.date}` : ""}`}
           </p>
           <p className="text-xs text-[var(--muted)]">
             {canEdit
@@ -802,10 +943,23 @@ export function SpecEditor({
                   ? `Сохранено в ${savedAt}`
                   : "Автосохранение правок"
               : "Только просмотр"}
+            {meta.hasSnapshot
+              ? " · снимок (смена статуса сметы не пересобирает)"
+              : " · следует за сметой, пока не сохраните правки или не импортируете"}
             {error ? ` · ${error}` : ""}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {canEdit && (
+            <button
+              type="button"
+              disabled={importBusy}
+              onClick={() => void openImportPreview()}
+              className="rounded-md border border-[var(--line)] px-4 py-2 text-sm disabled:opacity-40"
+            >
+              {importBusy ? "Сравнение…" : "Импорт из сметы"}
+            </button>
+          )}
           <button
             type="button"
             disabled={
@@ -838,6 +992,34 @@ export function SpecEditor({
         {canEdit ? " Правки поверх сметы сохраняются отдельно." : ""}
       </p>
 
+      <div
+        className={cn(
+          "min-w-0",
+          canEdit &&
+            "grid items-start gap-3 lg:grid-cols-[340px_minmax(0,1fr)] xl:grid-cols-[360px_minmax(0,1fr)]",
+        )}
+      >
+        {canEdit ? (
+          <QuoteCatalogSidebar
+            onPickItem={onPickFromSidebar}
+            eventDate={meta.date || undefined}
+            durationDays={meta.durationDays}
+            zoneName="спецификацию"
+            includeHidden
+            currentQtyByItem={neededByItem}
+            selectionLabel={catalogSelectionLabel}
+            onCancelSelection={
+              picker
+                ? () => {
+                    setPicker(null);
+                    setGapIndex(null);
+                  }
+                : undefined
+            }
+          />
+        ) : null}
+
+        <div className="min-w-0 space-y-4">
       {canEdit && (
         <div className="flex items-center gap-2">
           <button
@@ -877,6 +1059,7 @@ export function SpecEditor({
               <th className="px-3 py-2 text-left">Название</th>
               <th className="w-24 px-3 py-2">Кол-во</th>
               {canEdit && <StockHeaderCells />}
+              <th className="w-16 px-3 py-2 text-left">Чьё</th>
               <th className="min-w-[10rem] px-3 py-2 text-left">Комментарий</th>
               {canEdit && <th className="w-28 px-3 py-2" />}
             </tr>
@@ -1028,6 +1211,9 @@ export function SpecEditor({
                       ) : (
                         <StockMarks needed={needed} info={stock} />
                       ))}
+                    <td className="px-3 py-2 text-xs text-[var(--muted)]">
+                      {!isSection ? line.ownerLabel || "—" : ""}
+                    </td>
                     <td className="px-3 py-2">
                       {!isSection &&
                         (canEdit ? (
@@ -1116,15 +1302,43 @@ export function SpecEditor({
                 <tr className="border-t border-[var(--line)] bg-[var(--selected)]/50">
                   <td className="px-3 py-2 font-medium" colSpan={tableColSpan}>
                     Технический персонал
+                    {assignments.some((a) => a.vacant ?? isVacantStaff(a))
+                      ? " · есть незакрытые слоты"
+                      : ""}
                   </td>
                 </tr>
-                {assignments.map((a) => (
-                  <tr key={a.id} className="border-t border-[var(--line)]">
+                {assignments.map((a) => {
+                  const vacant = a.vacant ?? isVacantStaff(a);
+                  const role = staffRoleLabel(a);
+                  return (
+                  <tr
+                    key={a.id}
+                    className={
+                      vacant
+                        ? "border-t border-amber-500/30 bg-amber-500/10"
+                        : "border-t border-[var(--line)]"
+                    }
+                  >
                     <td className="px-3 py-2">
-                      <span>{a.name}</span>
-                      <span className="ml-2 text-[var(--muted)]">
-                        — {a.specialtyName}
-                      </span>
+                      {vacant ? (
+                        <span className="font-medium text-amber-800 dark:text-amber-200">
+                          Нужно назначить — {role}
+                        </span>
+                      ) : (
+                        <>
+                          <span>{a.name}</span>
+                          {a.kind !== "MOUNT" && (
+                            <span className="ml-2 text-[var(--muted)]">
+                              — {a.specialtyName}
+                            </span>
+                          )}
+                          {a.kind === "MOUNT" && (
+                            <span className="ml-2 text-[var(--muted)]">
+                              — монтаж
+                            </span>
+                          )}
+                        </>
+                      )}
                     </td>
                     <td className="px-3 py-2" />
                     {canEdit && (
@@ -1137,7 +1351,8 @@ export function SpecEditor({
                     <td className="px-3 py-2" />
                     {canEdit && <td />}
                   </tr>
-                ))}
+                  );
+                })}
               </>
             )}
 
@@ -1171,36 +1386,72 @@ export function SpecEditor({
           >
             + Позиция
           </button>
-          <button
-            type="button"
-            onClick={() => setPicker({ mode: "add" })}
-            className="rounded-md border border-[var(--line)] px-3 py-2 text-sm"
-          >
-            + Из каталога
-          </button>
         </div>
       )}
 
-      {canEdit && !isManager && (
-        <QuoteAssignments
-          quoteId={quoteId}
-          canEdit
-          compact
-          hidePay
-          onChanged={refreshStaff}
-        />
-      )}
+        </div>
+      </div>
 
-      <CatalogPicker
-        open={picker !== null}
-        onClose={() => {
-          setPicker(null);
-          setGapIndex(null);
-        }}
-        onPickItem={onPickCatalog}
-        eventDate={meta.date || undefined}
-        durationDays={meta.durationDays}
-      />
+      {importOpen && importPreview && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-[var(--line)] bg-[var(--panel)] p-4">
+            <h2 className="text-lg font-medium">Импорт из сметы</h2>
+            <p className="mt-1 text-sm text-[var(--muted)]">
+              Скрытые, переименованные и ручные строки сохранятся. Ушедшие из
+              сметы позиции снимутся, новые добавятся.
+            </p>
+            <ul className="mt-3 space-y-1 text-sm">
+              <li>Новые: {importPreview.counts.added}</li>
+              <li>Уйдут из спеки: {importPreview.counts.removed}</li>
+              <li>Останутся как есть: {importPreview.counts.kept}</li>
+              <li>Ручные строки: {importPreview.counts.extras}</li>
+            </ul>
+            {importPreview.diff.added.length > 0 && (
+              <div className="mt-3">
+                <p className="text-xs uppercase text-[var(--muted)]">Добавятся</p>
+                <ul className="mt-1 list-disc pl-5 text-sm">
+                  {importPreview.diff.added.slice(0, 12).map((r) => (
+                    <li key={r.key}>
+                      {r.label || "—"}
+                      {r.qty ? ` × ${r.qty}` : ""}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {importPreview.diff.removed.length > 0 && (
+              <div className="mt-3">
+                <p className="text-xs uppercase text-[var(--muted)]">Уйдут</p>
+                <ul className="mt-1 list-disc pl-5 text-sm">
+                  {importPreview.diff.removed.slice(0, 12).map((r) => (
+                    <li key={r.key}>{r.label || "—"}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-md border border-[var(--line)] px-3 py-2 text-sm"
+                onClick={() => {
+                  setImportOpen(false);
+                  setImportPreview(null);
+                }}
+              >
+                Отмена
+              </button>
+              <button
+                type="button"
+                disabled={importBusy}
+                className="rounded-md bg-[var(--accent)] px-3 py-2 text-sm text-white disabled:opacity-40"
+                onClick={() => void applyImport()}
+              >
+                {importBusy ? "Импорт…" : "Импортировать"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

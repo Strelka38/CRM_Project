@@ -41,6 +41,7 @@ export type EquipmentCardData = {
   comment?: string | null;
   equipmentCode?: number | null;
   photoUrl?: string | null;
+  showInCatalog?: boolean;
   category?: Category | null;
 };
 
@@ -62,6 +63,7 @@ type Props = {
   onAddUnit?: () => void | Promise<void>;
   onWriteOff?: (unitId: string) => void | Promise<void>;
   onSaveLabel?: (unitId: string, label: string) => void | Promise<void>;
+  onToggleShowInCatalog?: (value: boolean) => void | Promise<void>;
   origin?: string;
 };
 
@@ -98,6 +100,7 @@ export function EquipmentCard({
   onAddUnit,
   onWriteOff,
   onSaveLabel,
+  onToggleShowInCatalog,
   origin = "",
 }: Props) {
   const dims = [item.width, item.height, item.depth]
@@ -213,6 +216,36 @@ export function EquipmentCard({
             {item.comment}
           </p>
         ) : null}
+      </section>
+
+      <section className="space-y-2">
+        <h2 className="text-xs uppercase text-[var(--muted)]">Каталог сметы</h2>
+        {editable && onToggleShowInCatalog ? (
+          <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-[var(--line)] px-3 py-2.5">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={item.showInCatalog !== false}
+              disabled={busy}
+              onChange={(e) => void onToggleShowInCatalog(e.target.checked)}
+            />
+            <span>
+              <span className="block text-sm font-medium text-[var(--ink)]">
+                Отражать товар в каталоге
+              </span>
+              <span className="mt-0.5 block text-[11px] leading-snug text-[var(--muted)]">
+                Если выключить, менеджер не увидит позицию в каталоге сметы.
+                В комплекты и спецификации её по-прежнему можно добавлять.
+              </span>
+            </span>
+          </label>
+        ) : (
+          <p className="text-sm text-[var(--ink)]">
+            {item.showInCatalog !== false
+              ? "Показывается в каталоге сметы"
+              : "Скрыта из каталога сметы — только комплекты и спецификации"}
+          </p>
+        )}
       </section>
 
       <section className="space-y-3">

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { ensureQuoteSchemaColumns } from "@/lib/ensure-schema";
 import { canAccessQuote } from "@/lib/quote-access";
 import { requireManager, requireSession } from "@/lib/session";
 import {
@@ -16,8 +17,21 @@ const attachmentSelect = {
   mimeType: true,
   size: true,
   createdAt: true,
+  invoiceSent: true,
   uploader: { select: { id: true, name: true } },
 } as const;
+
+let ensureOnce: Promise<void> | null = null;
+
+function ensureSchemaOnce() {
+  if (!ensureOnce) {
+    ensureOnce = ensureQuoteSchemaColumns().catch((e) => {
+      ensureOnce = null;
+      throw e;
+    });
+  }
+  return ensureOnce;
+}
 
 export async function GET(
   _req: NextRequest,
@@ -25,6 +39,7 @@ export async function GET(
 ) {
   try {
     const session = await requireSession();
+    await ensureSchemaOnce();
     const { id } = await params;
     const ok = await canAccessQuote(id, session.user.id, session.user.role);
     if (!ok) {
@@ -49,6 +64,7 @@ export async function POST(
 ) {
   try {
     const session = await requireManager();
+    await ensureSchemaOnce();
     const { id } = await params;
     const ok = await canAccessQuote(id, session.user.id, session.user.role);
     if (!ok) {

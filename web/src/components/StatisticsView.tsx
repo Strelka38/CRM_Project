@@ -14,6 +14,11 @@ import {
 } from "@/components/StatisticsCharts";
 import { Card, EmptyState, PageHeader, StatusBadge } from "@/components/ui";
 import type { LifecycleStatus } from "@/components/ui";
+import {
+  DirectoryCardLink,
+  DirectoryCsvMenu,
+  downloadCsvRows,
+} from "@/components/DirectoryToolbar";
 
 type CompanyStat = {
   company: string;
@@ -127,6 +132,12 @@ export function StatisticsView() {
   const [data, setData] = useState<StatsData | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [selectedProjects, setSelectedProjects] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [selectedPayroll, setSelectedPayroll] = useState<Set<string>>(
+    () => new Set(),
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -144,12 +155,185 @@ export function StatisticsView() {
         return;
       }
       setData(await res.json());
+      setSelectedProjects(new Set());
+      setSelectedPayroll(new Set());
       setLoading(false);
     })();
     return () => {
       cancelled = true;
     };
   }, [period, userId, data?.hidePay]);
+
+  const projects = data?.profitability?.projects ?? [];
+  const allProjectsSelected =
+    projects.length > 0 && projects.every((p) => selectedProjects.has(p.id));
+  const payrollRows = data?.payroll.rows ?? [];
+  const payrollPeople = data?.payroll.byEmployee ?? [];
+  const payrollKeys = userId
+    ? payrollRows.map((r) => r.id)
+    : payrollPeople.map((e) => e.userId);
+  const allPayrollSelected =
+    payrollKeys.length > 0 && payrollKeys.every((id) => selectedPayroll.has(id));
+
+  function toggleProject(id: string) {
+    setSelectedProjects((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAllProjects() {
+    setSelectedProjects(
+      allProjectsSelected ? new Set() : new Set(projects.map((p) => p.id)),
+    );
+  }
+
+  function togglePayroll(id: string) {
+    setSelectedPayroll((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAllPayroll() {
+    setSelectedPayroll(allPayrollSelected ? new Set() : new Set(payrollKeys));
+  }
+
+  function exportCsv() {
+    if (!data) return;
+    const stamp = new Date().toISOString().slice(0, 10);
+    const projectList = selectedProjects.size
+      ? projects.filter((p) => selectedProjects.has(p.id))
+      : projects;
+    const rows: string[][] = [];
+    if (!data.hidePay) {
+      if (profitMode === "companies") {
+        rows.push([
+          "Раздел",
+          "ID",
+          "№",
+          "Проект",
+          "Дата",
+          "Клиент",
+          "ШМ прибыль",
+          "ШМ выручка",
+          "ДК прибыль",
+          "ДК выручка",
+          "NE прибыль",
+          "NE выручка",
+          "Итого нал.",
+        ]);
+        for (const p of projectList) {
+          const by = Object.fromEntries(
+            (p.byCompany ?? []).map((c) => [c.company, c]),
+          );
+          rows.push([
+            "Проекты",
+            p.id,
+            p.proposalNumber,
+            p.eventName,
+            p.date,
+            p.client,
+            String(by.SHOW_MASTER?.profit ?? 0),
+            String(by.SHOW_MASTER?.revenue ?? 0),
+            String(by.DIAKOM?.profit ?? 0),
+            String(by.DIAKOM?.revenue ?? 0),
+            String(by.NE_EVENT?.profit ?? 0),
+            String(by.NE_EVENT?.revenue ?? 0),
+            String(p.cashRevenue ?? 0),
+          ]);
+        }
+      } else {
+        rows.push([
+          "Раздел",
+          "ID",
+          "№",
+          "Проект",
+          "Дата",
+          "Клиент",
+          "Статус",
+          "Выручка",
+          "ЗП",
+          "Прибыль",
+          "Оплачено",
+        ]);
+        for (const p of projectList) {
+          rows.push([
+            "Проекты",
+            p.id,
+            p.proposalNumber,
+            p.eventName,
+            p.date,
+            p.client,
+            p.lifecycle,
+            String(p.revenue),
+            String(p.laborCost),
+            String(p.profit),
+            p.paid ? "1" : "0",
+          ]);
+        }
+      }
+    }
+    if (userId || data.hidePay) {
+      const list = selectedPayroll.size
+        ? payrollRows.filter((r) => selectedPayroll.has(r.id))
+        : payrollRows;
+      if (list.length > 0 || data.hidePay) {
+        rows.push([]);
+        rows.push([
+          "Раздел",
+          "ID",
+          "Сотрудник",
+          "Мероприятие",
+          "Дата",
+          "Должность",
+          "Статус",
+          "Сумма",
+        ]);
+        for (const r of list) {
+          rows.push([
+            "Начисления",
+            r.id,
+            r.user.name,
+            r.quote.eventName,
+            r.quote.date,
+            r.specialty.name,
+            r.quote.lifecycle,
+            String(r.pay ?? 0),
+          ]);
+        }
+      }
+    }
+    if (!userId) {
+      const list = selectedPayroll.size
+        ? payrollPeople.filter((e) => selectedPayroll.has(e.userId))
+        : payrollPeople;
+      rows.push([]);
+      rows.push([
+        "Раздел",
+        "ID",
+        "Сотрудник",
+        "Подтверждено",
+        "Ожидается",
+        "Итого",
+      ]);
+      for (const e of list) {
+        rows.push([
+          "ЗП по сотрудникам",
+          e.userId,
+          e.name,
+          String(e.confirmed),
+          String(e.pending),
+          String(e.confirmed + e.pending),
+        ]);
+      }
+    }
+    downloadCsvRows(`statistics-${stamp}.csv`, rows);
+  }
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6 md:px-6">
@@ -205,6 +389,7 @@ export function StatisticsView() {
                 </div>
               </div>
             )}
+            {data && <DirectoryCsvMenu onExport={exportCsv} />}
           </div>
         }
       />
@@ -281,21 +466,42 @@ export function StatisticsView() {
                       <table className="w-full text-left text-sm">
                         <thead className="bg-[var(--table-head)] text-[11px] uppercase tracking-wider text-[var(--muted)]">
                           <tr>
+                            <th className="w-10 px-3 py-2 text-left">
+                              <input
+                                type="checkbox"
+                                checked={allProjectsSelected}
+                                onChange={toggleAllProjects}
+                                aria-label="Выбрать все проекты"
+                              />
+                            </th>
                             <th className="px-4 py-3">Проект</th>
                             <th className="px-4 py-3">Дата</th>
                             <th className="px-4 py-3">Клиент</th>
                             <th className="px-4 py-3">Статус</th>
-                            <th className="px-4 py-3 text-right">Выручка</th>
-                            <th className="px-4 py-3 text-right">ЗП</th>
-                            <th className="px-4 py-3 text-right">Прибыль</th>
+                            <th className="px-4 py-3 text-left">Выручка</th>
+                            <th className="px-4 py-3 text-left">ЗП</th>
+                            <th className="px-4 py-3 text-left">Прибыль</th>
+                            <th className="w-12 px-3 py-2 text-left" />
                           </tr>
                         </thead>
                         <tbody>
                           {data.profitability.projects.map((p) => (
                             <tr
                               key={p.id}
-                              className="border-t border-[var(--line)] transition-colors hover:bg-subtle"
+                              className={`border-t border-[var(--line)] transition-colors hover:bg-subtle ${
+                                selectedProjects.has(p.id)
+                                  ? "bg-[var(--selected)]/40"
+                                  : ""
+                              }`}
                             >
+                              <td className="px-3 py-2 text-left">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedProjects.has(p.id)}
+                                  onChange={() => toggleProject(p.id)}
+                                  aria-label={`Выбрать №${p.proposalNumber}`}
+                                />
+                              </td>
                               <td className="px-4 py-3">
                                 <Link
                                   href={`/quotes/${p.id}`}
@@ -319,18 +525,21 @@ export function StatisticsView() {
                                   status={p.lifecycle as LifecycleStatus}
                                 />
                               </td>
-                              <td className="px-4 py-3 text-right tabular-nums">
+                              <td className="px-4 py-3 text-left tabular-nums">
                                 {formatMoney(p.revenue)}
                               </td>
-                              <td className="px-4 py-3 text-right tabular-nums">
+                              <td className="px-4 py-3 text-left tabular-nums">
                                 {formatMoney(p.laborCost)}
                               </td>
                               <td
-                                className={`px-4 py-3 text-right tabular-nums ${
+                                className={`px-4 py-3 text-left tabular-nums ${
                                   p.profit < 0 ? "text-[var(--danger)]" : ""
                                 }`}
                               >
                                 {formatMoney(p.profit)}
+                              </td>
+                              <td className="px-3 py-2 text-left">
+                                <DirectoryCardLink href={`/quotes/${p.id}`} />
                               </td>
                             </tr>
                           ))}
@@ -417,11 +626,20 @@ export function StatisticsView() {
                       <table className="w-full text-left text-sm">
                         <thead className="bg-[var(--table-head)] text-[11px] uppercase tracking-wider text-[var(--muted)]">
                           <tr>
+                            <th className="w-10 px-3 py-2 text-left">
+                              <input
+                                type="checkbox"
+                                checked={allProjectsSelected}
+                                onChange={toggleAllProjects}
+                                aria-label="Выбрать все проекты"
+                              />
+                            </th>
                             <th className="px-4 py-3">Проект</th>
-                            <th className="px-4 py-3 text-right">ШМ</th>
-                            <th className="px-4 py-3 text-right">ДК</th>
-                            <th className="px-4 py-3 text-right">NE</th>
-                            <th className="px-4 py-3 text-right">Итого нал.</th>
+                            <th className="px-4 py-3 text-left">ШМ</th>
+                            <th className="px-4 py-3 text-left">ДК</th>
+                            <th className="px-4 py-3 text-left">NE</th>
+                            <th className="px-4 py-3 text-left">Итого нал.</th>
+                            <th className="w-12 px-3 py-2 text-left" />
                           </tr>
                         </thead>
                         <tbody>
@@ -435,8 +653,20 @@ export function StatisticsView() {
                             return (
                               <tr
                                 key={p.id}
-                                className="border-t border-[var(--line)] transition-colors hover:bg-subtle"
+                                className={`border-t border-[var(--line)] transition-colors hover:bg-subtle ${
+                                  selectedProjects.has(p.id)
+                                    ? "bg-[var(--selected)]/40"
+                                    : ""
+                                }`}
                               >
+                                <td className="px-3 py-2 text-left">
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedProjects.has(p.id)}
+                                    onChange={() => toggleProject(p.id)}
+                                    aria-label={`Выбрать №${p.proposalNumber}`}
+                                  />
+                                </td>
                                 <td className="px-4 py-3">
                                   <Link
                                     href={`/calculations/${p.id}`}
@@ -449,26 +679,31 @@ export function StatisticsView() {
                                     {p.date || "—"} · {p.client || "—"}
                                   </div>
                                 </td>
-                                <td className="px-4 py-3 text-right tabular-nums">
+                                <td className="px-4 py-3 text-left tabular-nums">
                                   <div>{formatMoney(sm?.profit ?? 0)}</div>
                                   <div className="text-[11px] text-[var(--muted)]">
                                     {formatMoney(sm?.revenue ?? 0)}
                                   </div>
                                 </td>
-                                <td className="px-4 py-3 text-right tabular-nums">
+                                <td className="px-4 py-3 text-left tabular-nums">
                                   <div>{formatMoney(dk?.profit ?? 0)}</div>
                                   <div className="text-[11px] text-[var(--muted)]">
                                     {formatMoney(dk?.revenue ?? 0)}
                                   </div>
                                 </td>
-                                <td className="px-4 py-3 text-right tabular-nums">
+                                <td className="px-4 py-3 text-left tabular-nums">
                                   <div>{formatMoney(ni?.profit ?? 0)}</div>
                                   <div className="text-[11px] text-[var(--muted)]">
                                     {formatMoney(ni?.revenue ?? 0)}
                                   </div>
                                 </td>
-                                <td className="px-4 py-3 text-right tabular-nums font-medium">
+                                <td className="px-4 py-3 text-left tabular-nums font-medium">
                                   {formatMoney(p.cashRevenue ?? 0)}
+                                </td>
+                                <td className="px-3 py-2 text-left">
+                                  <DirectoryCardLink
+                                    href={`/calculations/${p.id}`}
+                                  />
                                 </td>
                               </tr>
                             );
@@ -546,20 +781,40 @@ export function StatisticsView() {
                       <table className="w-full text-left text-sm">
                         <thead className="bg-[var(--table-head)] text-[11px] uppercase tracking-wider text-[var(--muted)]">
                           <tr>
+                            <th className="w-10 px-3 py-2 text-left">
+                              <input
+                                type="checkbox"
+                                checked={allPayrollSelected}
+                                onChange={toggleAllPayroll}
+                                aria-label="Выбрать всех сотрудников"
+                              />
+                            </th>
                             <th className="px-4 py-3">Сотрудник</th>
-                            <th className="px-4 py-3 text-right">
+                            <th className="px-4 py-3 text-left">
                               Подтверждено
                             </th>
-                            <th className="px-4 py-3 text-right">Ожидается</th>
-                            <th className="px-4 py-3 text-right">Итого</th>
+                            <th className="px-4 py-3 text-left">Ожидается</th>
+                            <th className="px-4 py-3 text-left">Итого</th>
                           </tr>
                         </thead>
                         <tbody>
                           {data.payroll.byEmployee.map((e) => (
                             <tr
                               key={e.userId}
-                              className="border-t border-[var(--line)] transition-colors hover:bg-subtle"
+                              className={`border-t border-[var(--line)] transition-colors hover:bg-subtle ${
+                                selectedPayroll.has(e.userId)
+                                  ? "bg-[var(--selected)]/40"
+                                  : ""
+                              }`}
                             >
+                              <td className="px-3 py-2 text-left">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedPayroll.has(e.userId)}
+                                  onChange={() => togglePayroll(e.userId)}
+                                  aria-label={`Выбрать ${e.name}`}
+                                />
+                              </td>
                               <td className="px-4 py-3">
                                 <button
                                   type="button"
@@ -569,13 +824,13 @@ export function StatisticsView() {
                                   {e.name}
                                 </button>
                               </td>
-                              <td className="px-4 py-3 text-right tabular-nums">
+                              <td className="px-4 py-3 text-left tabular-nums">
                                 {formatMoney(e.confirmed)}
                               </td>
-                              <td className="px-4 py-3 text-right tabular-nums">
+                              <td className="px-4 py-3 text-left tabular-nums">
                                 {formatMoney(e.pending)}
                               </td>
-                              <td className="px-4 py-3 text-right tabular-nums font-medium">
+                              <td className="px-4 py-3 text-left tabular-nums font-medium">
                                 {formatMoney(e.confirmed + e.pending)}
                               </td>
                             </tr>
@@ -609,20 +864,41 @@ export function StatisticsView() {
                       <table className="w-full text-left text-sm">
                         <thead className="bg-[var(--table-head)] text-[11px] uppercase tracking-wider text-[var(--muted)]">
                           <tr>
+                            <th className="w-10 px-3 py-2 text-left">
+                              <input
+                                type="checkbox"
+                                checked={allPayrollSelected}
+                                onChange={toggleAllPayroll}
+                                aria-label="Выбрать все начисления"
+                              />
+                            </th>
                             <th className="px-4 py-3">Мероприятие</th>
                             <th className="px-4 py-3">Дата</th>
                             <th className="px-4 py-3">Должность</th>
                             <th className="px-4 py-3">Статус</th>
                             <th className="px-4 py-3">Расчёт</th>
-                            <th className="px-4 py-3 text-right">Сумма</th>
+                            <th className="px-4 py-3 text-left">Сумма</th>
+                            <th className="w-12 px-3 py-2 text-left" />
                           </tr>
                         </thead>
                         <tbody>
                           {data.payroll.rows.map((r) => (
                             <tr
                               key={r.id}
-                              className="border-t border-[var(--line)] transition-colors hover:bg-subtle"
+                              className={`border-t border-[var(--line)] transition-colors hover:bg-subtle ${
+                                selectedPayroll.has(r.id)
+                                  ? "bg-[var(--selected)]/40"
+                                  : ""
+                              }`}
                             >
+                              <td className="px-3 py-2 text-left">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedPayroll.has(r.id)}
+                                  onChange={() => togglePayroll(r.id)}
+                                  aria-label={`Выбрать ${r.quote.eventName}`}
+                                />
+                              </td>
                               <td className="px-4 py-3">
                                 <Link
                                   href={`/quotes/${r.quote.id}`}
@@ -649,8 +925,13 @@ export function StatisticsView() {
                                     ? `${r.hours ?? 0} ч × ${formatMoney(r.hourlyRate ?? 0)}`
                                     : `смена ${formatMoney(r.shiftRate ?? 0)}`}
                               </td>
-                              <td className="px-4 py-3 text-right tabular-nums font-medium">
+                              <td className="px-4 py-3 text-left tabular-nums font-medium">
                                 {formatMoney(r.pay ?? 0)}
+                              </td>
+                              <td className="px-3 py-2 text-left">
+                                <DirectoryCardLink
+                                  href={`/quotes/${r.quote.id}`}
+                                />
                               </td>
                             </tr>
                           ))}
@@ -796,10 +1077,10 @@ function WorkloadSection({ data }: { data: StatsData }) {
               <thead className="bg-[var(--table-head)] text-[11px] uppercase tracking-wider text-[var(--muted)]">
                 <tr>
                   <th className="px-4 py-3">Сотрудник</th>
-                  <th className="px-4 py-3 text-right">Смены</th>
-                  <th className="px-4 py-3 text-right">Заработано</th>
-                  <th className="px-4 py-3 text-right">Ожидается</th>
-                  <th className="px-4 py-3 text-right">Итого</th>
+                  <th className="px-4 py-3 text-left">Смены</th>
+                  <th className="px-4 py-3 text-left">Заработано</th>
+                  <th className="px-4 py-3 text-left">Ожидается</th>
+                  <th className="px-4 py-3 text-left">Итого</th>
                 </tr>
               </thead>
               <tbody>
@@ -817,16 +1098,16 @@ function WorkloadSection({ data }: { data: StatsData }) {
                           {conf} подтв. · {pend} ожид.
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-right tabular-nums">
+                      <td className="px-4 py-3 text-left tabular-nums">
                         {conf + pend}
                       </td>
-                      <td className="px-4 py-3 text-right tabular-nums">
+                      <td className="px-4 py-3 text-left tabular-nums">
                         {formatMoney(e.confirmed)}
                       </td>
-                      <td className="px-4 py-3 text-right tabular-nums">
+                      <td className="px-4 py-3 text-left tabular-nums">
                         {formatMoney(e.pending)}
                       </td>
-                      <td className="px-4 py-3 text-right tabular-nums font-medium">
+                      <td className="px-4 py-3 text-left tabular-nums font-medium">
                         {formatMoney(e.confirmed + e.pending)}
                       </td>
                     </tr>
@@ -992,7 +1273,8 @@ function WorkloadRowsTable({
             <th className="px-4 py-3">Должность</th>
             <th className="px-4 py-3">Статус</th>
             <th className="px-4 py-3">Режим</th>
-            <th className="px-4 py-3 text-right">Сумма</th>
+            <th className="px-4 py-3 text-left">Сумма</th>
+            <th className="w-12 px-3 py-2 text-left" />
           </tr>
         </thead>
         <tbody>
@@ -1028,8 +1310,11 @@ function WorkloadRowsTable({
                   ? `${r.hours ?? 0} ч`
                   : "Смена"}
               </td>
-              <td className="px-4 py-3 text-right tabular-nums font-medium">
+              <td className="px-4 py-3 text-left tabular-nums font-medium">
                 {formatMoney(r.pay ?? 0)}
+              </td>
+              <td className="px-3 py-2 text-left">
+                <DirectoryCardLink href={`/quotes/${r.quote.id}`} />
               </td>
             </tr>
           ))}

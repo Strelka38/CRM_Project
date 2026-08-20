@@ -13,6 +13,7 @@ export {
 } from "./PaymentFlags";
 export { Card } from "./Card";
 export { Modal } from "./Modal";
+export { SideDrawer } from "./SideDrawer";
 export { PageHeader } from "./PageHeader";
 export { Skeleton, TableSkeleton } from "./Skeleton";
 export { EmptyState } from "./EmptyState";

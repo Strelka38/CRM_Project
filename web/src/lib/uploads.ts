@@ -120,6 +120,22 @@ export async function saveEquipmentRepairPhoto(
   return { storagePath, absPath };
 }
 
+export async function saveLegalEntityImage(
+  entityId: string,
+  kind: "seal" | "signature",
+  mimeType: string,
+  data: Buffer,
+): Promise<{ storagePath: string; absPath: string }> {
+  const ext = EXT_BY_MIME[mimeType] || ".png";
+  const dir = path.join(UPLOAD_ROOT, "legal", entityId);
+  await mkdir(dir, { recursive: true });
+  const filename = `${kind}-${Date.now()}-${randomBytes(4).toString("hex")}${ext}`;
+  const absPath = path.join(dir, filename);
+  await writeFile(absPath, data);
+  const storagePath = path.join("legal", entityId, filename);
+  return { storagePath, absPath };
+}
+
 export function newQrToken() {
   return randomBytes(12).toString("base64url");
 }

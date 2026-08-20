@@ -3,32 +3,21 @@ import { prisma } from "@/lib/db";
 import { parseEventDate } from "@/lib/dates";
 import { nextProposalNumber } from "@/lib/proposal-number";
 import { toPrismaDayMode } from "@/lib/quote-calc";
+import { defaultQuoteZones } from "@/lib/quote-defaults";
+import {
+  defaultDemountDate,
+  defaultMountDate,
+} from "@/lib/quote-schedule";
+import { syncQuoteAssignmentSlots } from "@/lib/quote-assignment-slots";
+import { ensureQuoteSchemaColumns } from "@/lib/ensure-schema";
+import type { CloneBlock, QuoteStructurePayload } from "@/lib/quote-structure";
 
-export type CloneZone = {
-  name: string;
-  sortOrder: number;
-};
-
-export type CloneBlock = {
-  type: BlockType | "SECTION" | "ITEM" | "NOTE" | "KIT_HEADER";
-  sortOrder: number;
-  title?: string | null;
-  name?: string | null;
-  qty?: number | null;
-  unitPrice?: number | null;
-  cashlessOverride?: number | null;
-  dayMode?: string | null;
-  dayCoefOverride?: number | null;
-  catalogItemId?: string | null;
-  kitId?: string | null;
-  /** Index into zones array (or zone sortOrder match) */
-  zoneIndex: number;
-};
-
-export type QuoteStructurePayload = {
-  zones: CloneZone[];
-  blocks: CloneBlock[];
-};
+export type {
+  CloneBlock,
+  CloneZone,
+  QuoteStructurePayload,
+} from "@/lib/quote-structure";
+export { parseTemplatePayload } from "@/lib/quote-structure";
 
 export type CreateQuoteFromStructureInput = {
   ownerId: string;
@@ -101,45 +90,24 @@ export function extractStructure(quote: {
   return { zones, blocks };
 }
 
-export function parseTemplatePayload(raw: unknown): QuoteStructurePayload {
-  const data = raw as Partial<QuoteStructurePayload>;
-  const zones = Array.isArray(data.zones)
-    ? data.zones.map((z, i) => ({
-        name: String(z?.name || "Зона").trim() || "Зона",
-        sortOrder: Number.isFinite(z?.sortOrder) ? Number(z.sortOrder) : i,
-      }))
-    : [{ name: "Основное", sortOrder: 0 }];
-  const blocks: CloneBlock[] = Array.isArray(data.blocks)
-    ? data.blocks.map((b, i) => ({
-        type: (b?.type || "ITEM") as CloneBlock["type"],
-        sortOrder: Number.isFinite(b?.sortOrder) ? Number(b.sortOrder) : i,
-        title: b?.title ?? null,
-        name: b?.name ?? null,
-        qty: b?.qty ?? 0,
-        unitPrice: b?.unitPrice ?? 0,
-        cashlessOverride: b?.cashlessOverride ?? null,
-        dayMode: b?.dayMode ?? "HALF_EXTRA",
-        dayCoefOverride: b?.dayCoefOverride ?? null,
-        catalogItemId: b?.catalogItemId ?? null,
-        kitId: b?.kitId ?? null,
-        zoneIndex: Math.max(0, Number(b?.zoneIndex) || 0),
-      }))
-    : [];
-  return { zones, blocks };
-}
-
 export async function createQuoteFromStructure(
   input: CreateQuoteFromStructureInput,
 ) {
+  await ensureQuoteSchemaColumns();
   const proposalNumber = await nextProposalNumber();
   const date = input.date || "";
   const durationDays = Math.max(1, input.durationDays || 1);
   const zones =
     input.structure.zones.length > 0
       ? input.structure.zones
-      : [{ name: "Основное", sortOrder: 0 }];
+      : defaultQuoteZones();
 
   const zoneIds = zones.map(() => newCuidLike());
+  const mountDate =
+    input.mountDate || (date ? defaultMountDate(date) : "");
+  const demountDate =
+    input.demountDate ||
+    (date ? defaultDemountDate(date, durationDays) : "");
 
   const quote = await prisma.quote.create({
     data: {
@@ -149,9 +117,9 @@ export async function createQuoteFromStructure(
       managerName: input.managerName || "",
       date,
       eventDate: parseEventDate(date),
-      mountDate: input.mountDate || "",
+      mountDate,
       mountDurationDays: Math.max(1, input.mountDurationDays || 1),
-      demountDate: input.demountDate || "",
+      demountDate,
       demountDurationDays: Math.max(1, input.demountDurationDays || 1),
       time: input.time || "",
       place: input.place || "",
@@ -204,6 +172,8 @@ export async function createQuoteFromStructure(
       owner: { select: { id: true, name: true, email: true } },
     },
   });
+
+  await syncQuoteAssignmentSlots(prisma, quote.id);
 
   return quote;
 }

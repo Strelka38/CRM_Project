@@ -196,12 +196,30 @@ export type ZoneInput = {
   id: string;
   name: string;
   sortOrder: number;
+  /** false = выключена: не в сумме и не в резерве */
+  active?: boolean;
 };
+
+export function isZoneActive(zone: { active?: boolean | null }): boolean {
+  return zone.active !== false;
+}
+
+export function blocksInActiveZones<T>(
+  zones: Array<{ id: string; active?: boolean | null }>,
+  blocks: T[],
+): T[] {
+  const ids = new Set(zones.filter(isZoneActive).map((z) => z.id));
+  return blocks.filter((b) => {
+    const zoneId = (b as { zoneId?: string | null }).zoneId;
+    return !zoneId || ids.has(zoneId);
+  });
+}
 
 export type ZoneTotals = {
   zoneId: string;
   name: string;
   sortOrder: number;
+  active: boolean;
   equipmentTotal: number;
   servicesTotal: number;
   consumablesTotal: number;
@@ -234,6 +252,7 @@ export function calcByZones(
   const sortedZones = [...zones].sort((a, b) => a.sortOrder - b.sortOrder);
 
   const zoneRows: ZoneTotals[] = sortedZones.map((z) => {
+    const active = isZoneActive(z);
     const zoneBlocks = blocks
       .filter((b) => b.zoneId === z.id)
       .sort((a, b) => a.sortOrder - b.sortOrder);
@@ -242,12 +261,14 @@ export function calcByZones(
     let equipmentTotal = 0;
     let servicesTotal = 0;
     let consumablesTotal = 0;
-    for (const item of doc.blocks) {
-      if (item.type !== "ITEM" || (item.qty ?? 0) <= 0) continue;
-      const kind = costKindOf(item);
-      if (kind === "service") servicesTotal += item.lineTotal;
-      else if (kind === "consumable") consumablesTotal += item.lineTotal;
-      else equipmentTotal += item.lineTotal;
+    if (active) {
+      for (const item of doc.blocks) {
+        if (item.type !== "ITEM" || (item.qty ?? 0) <= 0) continue;
+        const kind = costKindOf(item);
+        if (kind === "service") servicesTotal += item.lineTotal;
+        else if (kind === "consumable") consumablesTotal += item.lineTotal;
+        else equipmentTotal += item.lineTotal;
+      }
     }
 
     const subtotal = equipmentTotal + servicesTotal + consumablesTotal;
@@ -256,20 +277,22 @@ export function calcByZones(
       zoneId: z.id,
       name: z.name,
       sortOrder: z.sortOrder,
+      active,
       equipmentTotal,
       servicesTotal,
       consumablesTotal,
       subtotal,
       discount,
       payable: Math.max(0, subtotal - discount),
-      itemCount: doc.itemCount,
+      itemCount: active ? doc.itemCount : 0,
       doc,
     };
   });
 
-  const equipmentTotal = zoneRows.reduce((s, z) => s + z.equipmentTotal, 0);
-  const servicesTotal = zoneRows.reduce((s, z) => s + z.servicesTotal, 0);
-  const consumablesTotal = zoneRows.reduce((s, z) => s + z.consumablesTotal, 0);
+  const live = zoneRows.filter((z) => z.active);
+  const equipmentTotal = live.reduce((s, z) => s + z.equipmentTotal, 0);
+  const servicesTotal = live.reduce((s, z) => s + z.servicesTotal, 0);
+  const consumablesTotal = live.reduce((s, z) => s + z.consumablesTotal, 0);
   const subtotal = equipmentTotal + servicesTotal + consumablesTotal;
   const discount = subtotal * discountRate;
 
@@ -281,6 +304,6 @@ export function calcByZones(
     subtotal,
     discount,
     payable: Math.max(0, subtotal - discount),
-    itemCount: zoneRows.reduce((s, z) => s + z.itemCount, 0),
+    itemCount: live.reduce((s, z) => s + z.itemCount, 0),
   };
 }

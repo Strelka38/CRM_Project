@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
+import { ensureQuoteSchemaColumns } from "@/lib/ensure-schema";
 import { requireDatabaseAccess } from "@/lib/session";
 
 const patchSchema = z.object({
@@ -8,8 +9,21 @@ const patchSchema = z.object({
   sortOrder: z.number().int().optional(),
   hourlyRate: z.number().nonnegative().optional(),
   shiftRate: z.number().nonnegative().optional(),
+  description: z.string().optional(),
   active: z.boolean().optional(),
 });
+
+let ensureOnce: Promise<void> | null = null;
+
+function ensureSchemaOnce() {
+  if (!ensureOnce) {
+    ensureOnce = ensureQuoteSchemaColumns().catch((e) => {
+      ensureOnce = null;
+      throw e;
+    });
+  }
+  return ensureOnce;
+}
 
 export async function PATCH(
   req: NextRequest,
@@ -17,6 +31,7 @@ export async function PATCH(
 ) {
   try {
     await requireDatabaseAccess();
+    await ensureSchemaOnce();
     const { id } = await params;
     const body = patchSchema.parse(await req.json());
 
@@ -30,12 +45,14 @@ export async function PATCH(
       sortOrder?: number;
       hourlyRate?: number;
       shiftRate?: number;
+      description?: string;
       active?: boolean;
     } = {};
     if (body.name !== undefined) data.name = body.name.trim();
     if (body.sortOrder !== undefined) data.sortOrder = body.sortOrder;
     if (body.hourlyRate !== undefined) data.hourlyRate = body.hourlyRate;
     if (body.shiftRate !== undefined) data.shiftRate = body.shiftRate;
+    if (body.description !== undefined) data.description = body.description.trim();
     if (body.active !== undefined) data.active = body.active;
 
     const specialty = await prisma.specialty.update({

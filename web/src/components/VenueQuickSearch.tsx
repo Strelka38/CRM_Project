@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import {
   useEffect,
   useMemo,
@@ -7,6 +8,7 @@ import {
   useState,
   type KeyboardEvent,
 } from "react";
+import { cn } from "@/lib/cn";
 
 export type PickedVenue = {
   id: string;
@@ -17,9 +19,12 @@ export type PickedVenue = {
 
 type Props = {
   value: string;
+  selectedId: string | null;
   onChange: (text: string) => void;
   onPick: (venue: PickedVenue) => void;
+  onClear?: () => void;
   disabled?: boolean;
+  compact?: boolean;
 };
 
 function rankScore(name: string, q: string): number {
@@ -34,9 +39,12 @@ function rankScore(name: string, q: string): number {
 
 export function VenueQuickSearch({
   value,
+  selectedId,
   onChange,
   onPick,
+  onClear,
   disabled,
+  compact,
 }: Props) {
   const [items, setItems] = useState<PickedVenue[]>([]);
   const [loading, setLoading] = useState(false);
@@ -121,15 +129,15 @@ export function VenueQuickSearch({
     }
   }
 
-  const showDropdown = open && value.trim().length > 0;
+  const showDropdown = open && value.trim().length > 0 && !selectedId;
 
   return (
-    <div ref={rootRef} className="relative mt-1">
+    <div ref={rootRef} className={cn("relative", compact ? "mt-0.5" : "mt-1")}>
       <input
         className="field w-full"
         value={value}
         disabled={disabled}
-        placeholder="Начните вводить название или адрес…"
+        placeholder="Поиск площадки в справочнике…"
         onChange={(e) => {
           onChange(e.target.value);
           setOpen(true);
@@ -138,6 +146,39 @@ export function VenueQuickSearch({
         onKeyDown={onKeyDown}
         autoComplete="off"
       />
+      {compact ? (
+        !selectedId && value.trim() ? (
+          <p className="mt-0.5 text-[10px] leading-tight text-[var(--danger)]">
+            Выберите площадку из списка
+          </p>
+        ) : null
+      ) : (
+        <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[10px] leading-tight">
+          {selectedId ? (
+            <>
+              <span className="text-[var(--muted)]">Из справочника</span>
+              {onClear && !disabled ? (
+                <button
+                  type="button"
+                  className="text-[var(--accent)] hover:underline"
+                  onClick={onClear}
+                >
+                  Сменить
+                </button>
+              ) : null}
+            </>
+          ) : (
+            <span className="text-[var(--danger)]">Только из справочника</span>
+          )}
+          <Link
+            href="/venues"
+            target="_blank"
+            className="text-[var(--accent)] hover:underline"
+          >
+            Добавить
+          </Link>
+        </p>
+      )}
       {showDropdown && (
         <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-64 overflow-y-auto rounded-lg border border-[var(--line)] bg-[var(--panel)] shadow-lg">
           {loading && ranked.length === 0 && (
@@ -145,7 +186,7 @@ export function VenueQuickSearch({
           )}
           {!loading && ranked.length === 0 && (
             <p className="px-3 py-2 text-xs text-[var(--muted)]">
-              Площадка не найдена — можно оставить текстом
+              Площадка не найдена. Добавьте её в справочник.
             </p>
           )}
           {ranked.map((item, i) => (

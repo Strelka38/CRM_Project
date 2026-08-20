@@ -4,8 +4,10 @@ import { prisma } from "@/lib/db";
 import { formatDateKey, parseEventDate } from "@/lib/dates";
 import {
   CALENDAR_ENTRY_INCLUDE,
+  canCompleteTask,
   canMutateEntry,
 } from "@/lib/calendar-entries";
+import { clearOpenTaskNotifications } from "@/lib/notifications";
 import { requireSession } from "@/lib/session";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -22,8 +24,10 @@ const patchSchema = z.object({
   startTime: z.string().nullable().optional(),
   endTime: z.string().nullable().optional(),
   responsibleUserId: z.string().nullable().optional(),
+  clientId: z.string().nullable().optional(),
   assigneeIds: z.array(z.string().min(1)).optional(),
   lines: z.array(lineSchema).optional(),
+  completed: z.boolean().optional(),
 });
 
 function dateOnly(d: Date): Date {
@@ -76,11 +80,50 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
     const { id } = await ctx.params;
     const existing = await prisma.calendarEntry.findUnique({
       where: { id },
-      select: { id: true, kind: true, createdById: true },
+      select: {
+        id: true,
+        kind: true,
+        createdById: true,
+        assignees: { select: { userId: true } },
+      },
     });
     if (!existing) {
       return NextResponse.json({ error: "Не найдено" }, { status: 404 });
     }
+
+    const body = patchSchema.parse(await req.json());
+    const keys = Object.keys(body);
+    const onlyComplete = keys.length === 1 && body.completed !== undefined;
+
+    if (onlyComplete) {
+      if (existing.kind !== "TASK") {
+        return NextResponse.json({ error: "Это не задача" }, { status: 400 });
+      }
+      if (
+        !canCompleteTask({
+          role: session.user.role,
+          userId: session.user.id,
+          createdById: existing.createdById,
+          assigneeIds: existing.assignees.map((a) => a.userId),
+        })
+      ) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+      const completed = body.completed === true;
+      await prisma.calendarEntry.update({
+        where: { id },
+        data: completed
+          ? { completedAt: new Date(), completedById: session.user.id }
+          : { completedAt: null, completedById: null },
+      });
+      if (completed) await clearOpenTaskNotifications(id);
+      const entry = await prisma.calendarEntry.findUnique({
+        where: { id },
+        include: CALENDAR_ENTRY_INCLUDE,
+      });
+      return NextResponse.json(serialize(entry!));
+    }
+
     if (
       !canMutateEntry(
         session.user.role,
@@ -91,8 +134,6 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
     ) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
-
-    const body = patchSchema.parse(await req.json());
     let nextDate: Date | undefined;
     if (body.date !== undefined) {
       const parsed = parseEventDate(body.date);
@@ -117,6 +158,18 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
           { error: "Добавьте позиции оборудования" },
           { status: 400 },
         );
+      }
+      if (body.clientId) {
+        const client = await prisma.client.findUnique({
+          where: { id: body.clientId },
+          select: { id: true },
+        });
+        if (!client) {
+          return NextResponse.json(
+            { error: "Клиент не найден" },
+            { status: 400 },
+          );
+        }
       }
     }
 
@@ -188,6 +241,9 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
             : {}),
           ...(existing.kind === "RENTAL" && body.responsibleUserId !== undefined
             ? { responsibleUserId: body.responsibleUserId }
+            : {}),
+          ...(existing.kind === "RENTAL" && body.clientId !== undefined
+            ? { clientId: body.clientId }
             : {}),
         },
       });

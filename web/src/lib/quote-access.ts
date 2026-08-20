@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { isManager } from "@/lib/roles";
+import { canSeeAllEvents } from "@/lib/roles";
 
 export async function getAccessibleQuote(
   id: string,
@@ -25,12 +25,14 @@ export async function getAccessibleQuote(
           phone: true,
           email: true,
           inn: true,
+          legalAddress: true,
+          legalDetails: true,
         },
       },
     },
   });
   if (!quote) return null;
-  if (isManager(role)) return quote;
+  if (canSeeAllEvents(role)) return quote;
   // Полные данные сметы — только если сотрудник назначен на мероприятие
   const assigned = await prisma.quoteAssignment.findFirst({
     where: { quoteId: id, userId },

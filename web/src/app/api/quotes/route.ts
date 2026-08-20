@@ -2,11 +2,20 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { parseEventDate } from "@/lib/dates";
+import { defaultQuoteZones } from "@/lib/quote-defaults";
+import {
+  defaultDemountDate,
+  defaultMountDate,
+} from "@/lib/quote-schedule";
 import {
   notifyManagersOfNewEvent,
   syncInvoiceNotifications,
 } from "@/lib/notifications";
 import { nextProposalNumber } from "@/lib/proposal-number";
+import {
+  formatVacantRoles,
+  vacantStaffLabels,
+} from "@/lib/staff-slots";
 import {
   canSeeAllEvents,
   requireManager,
@@ -61,8 +70,39 @@ export async function GET(req: NextRequest) {
       include: {
         owner: { select: { id: true, name: true, email: true } },
         _count: { select: { blocks: true } },
+        ...(calendar
+          ? {
+              assignments: {
+                select: {
+                  userId: true,
+                  isFreelancer: true,
+                  kind: true,
+                  specialty: { select: { name: true } },
+                },
+              },
+            }
+          : {}),
       },
     });
+    if (calendar) {
+      return NextResponse.json(
+        quotes.map((q) => {
+          const assignments =
+            "assignments" in q && Array.isArray(q.assignments)
+              ? q.assignments
+              : [];
+          const vacant = vacantStaffLabels(assignments);
+          const { assignments: _drop, ...rest } = q as typeof q & {
+            assignments?: unknown;
+          };
+          return {
+            ...rest,
+            staffVacantCount: vacant.length,
+            staffVacant: formatVacantRoles(vacant),
+          };
+        }),
+      );
+    }
     return NextResponse.json(quotes);
   } catch (e) {
     if (e instanceof Response) return e;
@@ -94,6 +134,8 @@ export async function POST(req: NextRequest) {
         managerName: body.managerName || session.user.name || "",
         date,
         eventDate: parseEventDate(date),
+        mountDate: date ? defaultMountDate(date) : "",
+        demountDate: date ? defaultDemountDate(date, 1) : "",
         lifecycle: "CALCULATED",
         discountPercent: 0,
         cashlessPercent: 10,
@@ -102,7 +144,10 @@ export async function POST(req: NextRequest) {
           "* Первый день - 100% стоимости оборудования, 2-й и последующий, а также отдельный день для репетиций тарифицируются по 50% от стоимости оборудования",
         ],
         zones: {
-          create: { name: "Основное", sortOrder: 0 },
+          create: defaultQuoteZones().map((z) => ({
+            name: z.name,
+            sortOrder: z.sortOrder,
+          })),
         },
       },
       include: { zones: true },

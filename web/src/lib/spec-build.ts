@@ -16,6 +16,8 @@ export type SpecLine = {
   hidden: boolean;
   /** true for auto-inserted kit group headers */
   isKitHeader?: boolean;
+  /** ШМ / ДК / NE — заполняется при сериализации */
+  ownerLabel?: string;
 };
 
 type KitWithComponents = {
@@ -396,4 +398,96 @@ export function sanitizeSpecLineOrder(
     if (!kept.includes(l.key)) kept.push(l.key);
   }
   return kept;
+}
+
+type OverrideLike = {
+  deriveKey: string;
+  action: string;
+  qty?: number | null;
+  name?: string | null;
+  catalogItemId?: string | null;
+};
+
+/** Apply override list onto already-built spec lines (snapshot edits). */
+export function applySpecOverrides(
+  lines: SpecLine[],
+  overrides: OverrideLike[],
+): SpecLine[] {
+  const hideKeys = new Set(
+    overrides.filter((o) => o.action === "HIDE").map((o) => o.deriveKey),
+  );
+  const qtyByKey = new Map(
+    overrides
+      .filter((o) => o.action === "SET_QTY" && o.qty != null)
+      .map((o) => [o.deriveKey, o.qty as number]),
+  );
+  const nameByKey = new Map(
+    overrides
+      .filter((o) => o.action === "RENAME" && o.name != null)
+      .map((o) => [o.deriveKey, o.name as string]),
+  );
+  const commentByKey = new Map(
+    overrides
+      .filter((o) => o.action === "SET_COMMENT" && o.name != null)
+      .map((o) => [o.deriveKey, o.name as string]),
+  );
+  const replaceByKey = new Map(
+    overrides
+      .filter((o) => o.action === "REPLACE")
+      .map((o) => [
+        o.deriveKey,
+        {
+          catalogItemId: o.catalogItemId ?? null,
+          name: o.name ?? null,
+        },
+      ]),
+  );
+
+  return lines.map((line) => {
+    const key = line.deriveKey;
+    if (!key) return line;
+    const replaced = replaceByKey.get(key);
+    const next: SpecLine = {
+      ...line,
+      hidden: hideKeys.has(key),
+      qty: qtyByKey.has(key) ? qtyByKey.get(key)! : line.qty,
+      comment: commentByKey.has(key)
+        ? commentByKey.get(key)!
+        : line.comment,
+    };
+    if (line.type === "SECTION") {
+      next.title = nameByKey.get(key) ?? line.title;
+    } else {
+      next.name = nameByKey.get(key) ?? replaced?.name ?? line.name;
+      if (replaced?.catalogItemId) next.catalogItemId = replaced.catalogItemId;
+    }
+    return next;
+  });
+}
+
+export function extrasToSpecLines(
+  extras: Array<{
+    id: string;
+    type: string;
+    title?: string | null;
+    name?: string | null;
+    qty?: number | null;
+    comment?: string | null;
+    catalogItemId?: string | null;
+  }>,
+): SpecLine[] {
+  return extras.map((e) => ({
+    key: `extra:${e.id}`,
+    deriveKey: null,
+    source: "extra" as const,
+    type: e.type === "SECTION" ? "SECTION" : "ITEM",
+    title: e.title ?? null,
+    name: e.name ?? null,
+    qty: Number(e.qty) || 0,
+    comment: e.comment ?? "",
+    kitName: null,
+    catalogItemId: e.catalogItemId ?? null,
+    extraId: e.id,
+    hidden: false,
+  }));
 }

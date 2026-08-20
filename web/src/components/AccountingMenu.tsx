@@ -6,86 +6,90 @@ import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 
 const ITEMS = [
+  { href: "/quotes", label: "Сметы" },
   { href: "/payroll", label: "Моя ЗП" },
   { href: "/unpaid", label: "Неоплаченные" },
   { href: "/statistics", label: "Статистика" },
   { href: "/calculations", label: "Калькуляции" },
 ] as const;
 
-export function AccountingMenu() {
+function isItemActive(pathname: string, href: string) {
+  // Редактор сметы открывается из календаря — подсвечиваем «Сметы» только на списке.
+  if (href === "/quotes") return pathname === "/quotes";
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+export function AccountingMenu({
+  variant = "sidebar",
+}: {
+  variant?: "sidebar" | "top";
+}) {
   const pathname = usePathname();
-  const [open, setOpen] = useState(false);
+  const active = ITEMS.some((item) => isItemActive(pathname, item.href));
+  const [open, setOpen] = useState(variant === "sidebar" ? active : false);
   const rootRef = useRef<HTMLDivElement>(null);
 
-  const active = ITEMS.some(
-    (item) => pathname === item.href || pathname.startsWith(`${item.href}/`),
-  );
+  useEffect(() => {
+    if (variant === "sidebar" && active) setOpen(true);
+    if (variant === "top") setOpen(false);
+  }, [active, pathname, variant]);
 
   useEffect(() => {
-    if (!open) return;
-    function onPointerDown(e: MouseEvent) {
+    if (variant !== "top" || !open) return;
+    function onDoc(e: MouseEvent) {
       if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
     }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
-    }
-    document.addEventListener("mousedown", onPointerDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onPointerDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open, variant]);
 
-  useEffect(() => {
-    setOpen(false);
-  }, [pathname]);
-
-  return (
-    <div ref={rootRef} className="relative">
-      <button
-        type="button"
-        aria-expanded={open}
-        aria-haspopup="menu"
-        onClick={() => setOpen((v) => !v)}
+  const links = ITEMS.map((item) => {
+    const isActive = isItemActive(pathname, item.href);
+    return (
+      <Link
+        key={item.href}
+        href={item.href}
         className={cn(
-          "rounded-full px-3.5 py-1.5 text-sm transition-all duration-200",
-          active || open
-            ? "bg-[var(--header-active-bg)] text-[var(--accent)] ring-1 ring-[var(--accent-glow)]/40"
+          "rounded-md px-2 py-1.5 text-sm transition-colors",
+          isActive
+            ? "text-[var(--accent)]"
             : "text-[var(--header-muted)] hover:bg-[var(--header-hover)] hover:text-[var(--header-ink)]",
         )}
       >
-        Бухгалтерия
-        <span className="ml-1 inline-block text-[10px] opacity-70" aria-hidden>
+        {item.label}
+      </Link>
+    );
+  });
+
+  return (
+    <div ref={rootRef} className={variant === "top" ? "relative" : undefined}>
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        className={cn(
+          "flex items-center justify-between rounded-md px-2.5 py-1.5 text-left text-sm transition-colors",
+          variant === "sidebar" ? "w-full" : "gap-1.5 whitespace-nowrap",
+          active || open
+            ? "bg-[var(--header-active-bg)] text-[var(--accent)]"
+            : "text-[var(--header-muted)] hover:bg-[var(--header-hover)] hover:text-[var(--header-ink)]",
+        )}
+      >
+        Учёт
+        <span className="text-[10px] opacity-70" aria-hidden>
           {open ? "▴" : "▾"}
         </span>
       </button>
-      {open && (
-        <div
-          role="menu"
-          className="absolute left-0 top-full z-40 mt-2 min-w-[12rem] overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--panel)] py-1 shadow-xl"
-        >
-          {ITEMS.map((item) => {
-            const isActive =
-              pathname === item.href || pathname.startsWith(`${item.href}/`);
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                role="menuitem"
-                className={cn(
-                  "block px-3 py-2 text-sm transition-colors",
-                  isActive
-                    ? "bg-[var(--selected)] text-[var(--accent-deep)]"
-                    : "text-[var(--muted)] hover:bg-subtle hover:text-[var(--ink)]",
-                )}
-              >
-                {item.label}
-              </Link>
-            );
-          })}
+      {open && variant === "sidebar" ? (
+        <div className="ml-2 mt-0.5 flex flex-col border-l border-[var(--header-line)] pl-2">
+          {links}
         </div>
-      )}
+      ) : null}
+      {open && variant === "top" ? (
+        <div className="absolute left-0 top-full z-50 mt-1 min-w-[11rem] rounded-lg border border-[var(--header-line)] bg-[var(--bg-elevated)] p-1 shadow-lg">
+          <div className="flex flex-col">{links}</div>
+        </div>
+      ) : null}
     </div>
   );
 }

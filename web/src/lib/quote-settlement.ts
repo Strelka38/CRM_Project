@@ -1,7 +1,11 @@
 import { applyManagerAgency, type ManagerAgencySummary } from "@/lib/calc-agency";
-import { buildLaborAndMontageBreakdown } from "@/lib/calc-labor";
+import {
+  buildFreelancerExpenseInputs,
+  buildLaborAndMontageBreakdown,
+} from "@/lib/calc-labor";
 import { buildCalcLines } from "@/lib/calc-lines";
 import type { CatalogOwnerValue } from "@/lib/catalog-owner";
+import { blocksInActiveZones } from "@/lib/quote-calc";
 import {
   amountsFromOverride,
   computeQuoteCalculation,
@@ -31,11 +35,14 @@ type SettlementQuote = {
   }>;
   calcShares: Array<{ company: CatalogOwnerValue | string; percent: number }>;
   assignments: Parameters<typeof buildLaborAndMontageBreakdown>[0]["assignments"];
+  zones?: Array<{ id: string; active?: boolean | null }>;
 };
 
 /** Полный расчёт калькуляции + агентские менеджера проекта. */
 export function computeQuoteSettlement(quote: SettlementQuote): {
   payable: number;
+  cogsTotal: number;
+  marginTotal: number;
   expensesTotal: number;
   laborTotal: number;
   montageTotal: number;
@@ -43,21 +50,28 @@ export function computeQuoteSettlement(quote: SettlementQuote): {
   agencyDeductedTotal: number;
   netTotal: number;
 } {
-  const lines = buildCalcLines(quote.blocks, quote.calcLineOverrides);
+  const blocks = quote.zones
+    ? blocksInActiveZones(quote.zones, quote.blocks)
+    : quote.blocks;
+  const lines = buildCalcLines(blocks, quote.calcLineOverrides);
+  const freelancerExpenses = buildFreelancerExpenseInputs(quote.assignments);
   const baseCalc = computeQuoteCalculation({
     cashless: quote.cashless,
     durationDays: quote.durationDays,
     discountPercent: quote.discountPercent,
     lines,
-    expenses: quote.extraExpenses.map((e) => ({
-      name: e.name,
-      amount: e.amount,
-      mode: e.mode,
-      owners: e.owners as CatalogOwnerValue[],
-      company: (e.company as CatalogOwnerValue | null | undefined) ?? null,
-      amounts: amountsFromOverride(e),
-      sortOrder: e.sortOrder,
-    })),
+    expenses: [
+      ...quote.extraExpenses.map((e) => ({
+        name: e.name,
+        amount: e.amount,
+        mode: e.mode,
+        owners: e.owners as CatalogOwnerValue[],
+        company: (e.company as CatalogOwnerValue | null | undefined) ?? null,
+        amounts: amountsFromOverride(e),
+        sortOrder: e.sortOrder,
+      })),
+      ...freelancerExpenses,
+    ],
     sharesCustom: quote.sharesCustom,
     customShares: quote.calcShares.map((s) => ({
       company: s.company as CatalogOwnerValue,
@@ -95,6 +109,8 @@ export function computeQuoteSettlement(quote: SettlementQuote): {
 
   return {
     payable: baseCalc.payable,
+    cogsTotal: baseCalc.cogsTotal,
+    marginTotal: baseCalc.marginTotal,
     expensesTotal: baseCalc.expensesTotal,
     laborTotal: laborMontage.laborTotal,
     montageTotal: laborMontage.montageTotal,
@@ -102,6 +118,7 @@ export function computeQuoteSettlement(quote: SettlementQuote): {
     agencyDeductedTotal,
     netTotal: Math.round(
       baseCalc.payable -
+        baseCalc.cogsTotal -
         baseCalc.expensesTotal -
         laborMontage.laborTotal -
         laborMontage.montageTotal -

@@ -1,14 +1,27 @@
 "use client";
 
-import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatMoney } from "@/lib/format";
 import {
   CATALOG_OWNERS,
   normalizeOwners,
   type CatalogOwnerValue,
 } from "@/lib/catalog-owner";
+import { exportCalculationExcel, ownerShorts } from "@/lib/export/calc-excel";
 import { OwnerTagsPicker } from "@/components/OwnerTagsPicker";
+import { CalcEstimateTable } from "@/components/CalcEstimateTable";
+import { CalcTabs, type CalcTabId } from "@/components/CalcTabs";
+import {
+  DirectoryAddButton,
+  DirectoryCsvMenu,
+  DirectoryIconButton,
+  IconEdit,
+  IconPlusDoc,
+  IconSave,
+  IconTrash,
+  downloadCsvExport,
+  uploadCsvImport,
+} from "@/components/DirectoryToolbar";
 import { Button, Card, PageHeader, StatusBadge } from "@/components/ui";
 import type { LifecycleStatus } from "@/components/ui";
 import type { LineAmountSplit } from "@/lib/quote-calculation";
@@ -30,7 +43,13 @@ type LineRow = {
   id: string;
   name: string;
   type: string;
+  itemKind?: string | null;
   lineTotal: number;
+  clientTotal?: number;
+  costTotal: number;
+  margin: number;
+  costSource?: string;
+  costOverride: number | null;
   catalogOwners: CatalogOwnerValue[];
   owners: CatalogOwnerValue[];
   ownersCustom: boolean;
@@ -39,15 +58,33 @@ type LineRow = {
   hasOverride: boolean;
 };
 
+type EstimateBlock = {
+  id: string;
+  type: string;
+  zoneId: string | null;
+  zoneName: string;
+  zoneActive: boolean;
+  name: string;
+  title: string | null;
+  qty: number | null;
+  unitPrice: number | null;
+  dayMode: string | null;
+  dayCoef: number;
+  lineTotal: number;
+  isKit: boolean;
+};
+
 type AssignmentRow = {
   id: string;
   userId: string;
   userName: string;
   specialtyId: string;
   specialtyName: string;
+  kind?: "EVENT" | "MOUNT";
   payMode: "SHIFT" | "HOURLY";
   hours: number | null;
   owners: CatalogOwnerValue[];
+  isFreelancer?: boolean;
   basePay: number;
   bonus: number;
   montageAmount: number;
@@ -90,15 +127,26 @@ type CalculationPayload = {
     }
   >;
   companies: typeof CATALOG_OWNERS;
+  estimateBlocks?: EstimateBlock[];
   lineDetails: LineRow[];
+  autoExpenses?: Array<{
+    name: string;
+    amount: number;
+    owners: CatalogOwnerValue[];
+  }>;
   assignments?: AssignmentRow[];
   calculation: {
     subtotal: number;
     discount: number;
     payable: number;
     expensesTotal: number;
+    cogsTotal?: number;
+    marginTotal?: number;
     laborTotal?: number;
     montageTotal?: number;
+    montageBudget?: number;
+    montageActual?: number;
+    montageOverage?: number;
     agencyTotal?: number;
     agencyDeductedTotal?: number;
     netTotal: number;
@@ -113,6 +161,7 @@ type CalculationPayload = {
       autoPercent: number;
       percent: number;
       revenue: number;
+      cogs?: number;
       expenses: number;
       laborCost?: number;
       montageCost?: number;
@@ -152,6 +201,7 @@ function applyPayload(
   setExpenses: (v: ExpenseRow[]) => void,
   setLines: (v: LineRow[]) => void,
   setAssignments: (v: AssignmentRow[]) => void,
+  setEstimateBlocks: (v: EstimateBlock[]) => void,
 ) {
   setSharesCustom(json.sharesCustom);
   setShares(
@@ -178,6 +228,9 @@ function applyPayload(
   setLines(
     (json.lineDetails ?? []).map((l) => ({
       ...l,
+      costTotal: Number(l.costTotal) || 0,
+      margin: Number(l.margin) || 0,
+      costOverride: l.costOverride == null ? null : Number(l.costOverride),
       owners: normalizeOwners(l.owners),
       catalogOwners: normalizeOwners(l.catalogOwners),
       amounts: {
@@ -191,12 +244,14 @@ function applyPayload(
     (json.assignments ?? []).map((a) => ({
       ...a,
       owners: normalizeOwners(a.owners),
+      isFreelancer: Boolean(a.isFreelancer),
       bonus: Math.max(0, Number(a.bonus) || 0),
       montageAmount: Math.max(0, Number(a.montageAmount) || 0),
       basePay: Math.max(0, Number(a.basePay) || 0),
       pay: Math.max(0, Number(a.pay) || 0),
     })),
   );
+  setEstimateBlocks(json.estimateBlocks ?? []);
 }
 
 export function CalculationEditor({ quoteId }: { quoteId: string }) {
@@ -205,10 +260,17 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
   const [sharesCustom, setSharesCustom] = useState(false);
   const [expenses, setExpenses] = useState<ExpenseRow[]>([]);
   const [lines, setLines] = useState<LineRow[]>([]);
+  const [estimateBlocks, setEstimateBlocks] = useState<EstimateBlock[]>([]);
   const [assignments, setAssignments] = useState<AssignmentRow[]>([]);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
-  const [savedAt, setSavedAt] = useState("");
+  const [exporting, setExporting] = useState(false);
+  const [savedAt, setSavedAt] = useState<string | null>(null);
+  const [tab, setTab] = useState<CalcTabId>("estimate");
+  const [csvBusy, setCsvBusy] = useState(false);
+  const [csvMessage, setCsvMessage] = useState("");
+  const csvFileRef = useRef<HTMLInputElement>(null);
+  const csvKindRef = useRef<"lines" | "staff">("lines");
 
   const load = useCallback(async () => {
     setError("");
@@ -226,6 +288,7 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
       setExpenses,
       setLines,
       setAssignments,
+      setEstimateBlocks,
     );
   }, [quoteId]);
 
@@ -240,20 +303,50 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
 
   const localLaborTotal = useMemo(
     () =>
-      assignments.reduce(
-        (s, a) => s + a.basePay + Math.max(0, Number(a.bonus) || 0),
-        0,
-      ),
+      assignments
+        .filter((a) => !a.isFreelancer && a.kind !== "MOUNT")
+        .reduce(
+          (s, a) => s + a.basePay + Math.max(0, Number(a.bonus) || 0),
+          0,
+        ),
     [assignments],
   );
 
   const localMontageTotal = useMemo(
     () =>
-      assignments.reduce(
-        (s, a) => s + Math.max(0, Number(a.montageAmount) || 0),
+      assignments.reduce((s, a) => {
+        if (a.kind === "MOUNT") {
+          return s + a.pay + Math.max(0, Number(a.montageAmount) || 0);
+        }
+        if (a.isFreelancer) return s;
+        return s + Math.max(0, Number(a.montageAmount) || 0);
+      }, 0),
+    [assignments],
+  );
+
+  const localFreelanceTotal = useMemo(
+    () =>
+      assignments
+        .filter((a) => a.isFreelancer)
+        .reduce(
+          (s, a) =>
+            s +
+            a.basePay +
+            Math.max(0, Number(a.bonus) || 0) +
+            Math.max(0, Number(a.montageAmount) || 0),
+          0,
+        ),
+    [assignments],
+  );
+
+  const localCogsTotal = useMemo(
+    () =>
+      lines.reduce(
+        (s, l) =>
+          s + Math.max(0, l.costOverride != null ? l.costOverride : l.costTotal),
         0,
       ),
-    [assignments],
+    [lines],
   );
 
   async function save(next?: {
@@ -290,6 +383,7 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
         ownersCustom: l.ownersCustom,
         owners: l.owners,
         amounts: l.amounts,
+        costOverride: l.costOverride,
       }));
     }
     if (next?.assignments !== undefined) {
@@ -325,6 +419,7 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
         ownersCustom: l.ownersCustom,
         owners: l.owners,
         amounts: l.amounts,
+        costOverride: l.costOverride,
       }));
       body.assignmentPay = assignments.map((a) => ({
         id: a.id,
@@ -355,6 +450,7 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
       setExpenses,
       setLines,
       setAssignments,
+      setEstimateBlocks,
     );
     setSavedAt(new Date().toLocaleTimeString("ru-RU"));
   }
@@ -471,6 +567,23 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
     );
   }
 
+  function setLineCost(id: string, value: number | null) {
+    setLines((prev) =>
+      prev.map((l) =>
+        l.id === id
+          ? {
+              ...l,
+              costOverride: value == null ? null : Math.max(0, value),
+              margin: Math.max(
+                0,
+                l.lineTotal - (value == null ? l.costTotal : Math.max(0, value)),
+              ),
+            }
+          : l,
+      ),
+    );
+  }
+
   function resetLineToCatalog(id: string) {
     setLines((prev) =>
       prev.map((l) =>
@@ -481,10 +594,49 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
               ownersCustom: false,
               owners: l.catalogOwners,
               amounts: seedAmounts(l.catalogOwners, l.lineTotal),
+              costOverride: null,
             }
           : l,
       ),
     );
+  }
+
+  async function exportCsv(kind: "lines" | "staff" | "stats") {
+    setCsvBusy(true);
+    setCsvMessage("");
+    try {
+      const msg = await downloadCsvExport(
+        `/api/calculations/${quoteId}/csv?kind=${kind}`,
+      );
+      setCsvMessage(msg);
+    } catch (e) {
+      setCsvMessage(e instanceof Error ? e.message : "Ошибка CSV");
+    } finally {
+      setCsvBusy(false);
+    }
+  }
+
+  function pickCsv(kind: "lines" | "staff") {
+    csvKindRef.current = kind;
+    csvFileRef.current?.click();
+  }
+
+  async function onCsvFile(file: File) {
+    setCsvBusy(true);
+    setCsvMessage("");
+    try {
+      const kind = csvKindRef.current;
+      const msg = await uploadCsvImport(
+        `/api/calculations/${quoteId}/csv?kind=${kind}`,
+        file,
+      );
+      setCsvMessage(msg);
+      await load();
+    } catch (e) {
+      setCsvMessage(e instanceof Error ? e.message : "Ошибка импорта");
+    } finally {
+      setCsvBusy(false);
+    }
   }
 
   if (!data && !error) {
@@ -502,40 +654,115 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
   }
 
   const calc = data.calculation;
+  const extraOnly = expenses.reduce(
+    (s, e) => s + Math.max(0, Number(e.amount) || 0),
+    0,
+  );
   const displayLaborTotal =
     assignments.length > 0 ? localLaborTotal : (calc.laborTotal ?? 0);
   const displayMontageTotal =
     assignments.length > 0 ? localMontageTotal : (calc.montageTotal ?? 0);
+  const displayCogs = lines.length > 0 ? localCogsTotal : (calc.cogsTotal ?? 0);
+  const displayFreelance =
+    assignments.length > 0
+      ? localFreelanceTotal
+      : (data.autoExpenses ?? []).reduce((s, e) => s + e.amount, 0);
   const agencyInfo = data.agency ?? calc.agency;
   const displayAgencyDeducted = agencyInfo?.deductedTotal ?? 0;
   const displayAgencyTotal = agencyInfo?.total ?? 0;
+  const displayMargin = Math.round(calc.payable - displayCogs);
   const displayNetTotal = Math.round(
     calc.payable -
-      calc.expensesTotal -
+      displayCogs -
+      extraOnly -
+      displayFreelance -
       displayLaborTotal -
       displayMontageTotal -
       displayAgencyDeducted,
   );
 
+  async function downloadExcel() {
+    if (!data) return;
+    setExporting(true);
+    try {
+      await exportCalculationExcel({
+        proposalNumber: data.proposalNumber,
+        eventName: data.eventName,
+        date: data.date,
+        client: data.client,
+        ownerName: data.owner.name,
+        payable: calc.payable,
+        cogsTotal: displayCogs,
+        marginTotal: displayMargin,
+        extraTotal: extraOnly,
+        freelanceTotal: displayFreelance,
+        laborTotal: displayLaborTotal,
+        montageTotal: displayMontageTotal,
+        agencyTotal: displayAgencyTotal,
+        netTotal: displayNetTotal,
+        lines: lines.map((l) => ({
+          name: l.name,
+          client: l.lineTotal,
+          cost: l.costOverride != null ? l.costOverride : l.costTotal,
+          margin: Math.max(
+            0,
+            l.lineTotal -
+              (l.costOverride != null ? l.costOverride : l.costTotal),
+          ),
+          owners: ownerShorts(l.owners.length ? l.owners : l.catalogOwners),
+        })),
+        autoExpenses: data.autoExpenses ?? [],
+        extras: expenses.map((e) => ({
+          name: e.name || "Расход",
+          amount: e.amount,
+        })),
+        specialists: assignments.map((a) => ({
+          name: a.userName,
+          specialty: a.specialtyName,
+          freelancer: Boolean(a.isFreelancer),
+          pay: a.pay,
+          montage: a.montageAmount,
+        })),
+        breakdown: (calc.breakdown ?? []).map((b) => ({
+          short: b.short,
+          label: b.label,
+          revenue: b.revenue,
+          cogs: b.cogs ?? 0,
+          expenses: b.expenses,
+          labor: b.laborCost ?? 0,
+          montage: b.montageCost ?? 0,
+          agency: b.agency ?? 0,
+          net: b.net,
+        })),
+      });
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
-    <div className="mx-auto max-w-5xl px-4 py-6 md:px-6">
+    <div className="w-full px-4 py-6 md:px-6">
       <PageHeader
         title={`Калькуляция №${data.proposalNumber}`}
         subtitle={`${data.eventName || "Без названия"} · ${data.client || "—"} · ${data.date || "без даты"}`}
         actions={
-          <div className="flex flex-wrap items-center gap-2">
-            <Link
+          <div className="flex items-center gap-0.5">
+            <DirectoryIconButton
+              title={exporting ? "Excel…" : "Excel"}
+              disabled={exporting}
+              onClick={() => void downloadExcel()}
+            >
+              <IconExcel />
+            </DirectoryIconButton>
+            <DirectoryIconButton
+              title="Открыть смету"
               href={`/quotes/${data.id}`}
-              className="text-sm text-[var(--accent-deep)] hover:underline"
             >
-              Открыть смету
-            </Link>
-            <Link
-              href="/calculations"
-              className="text-sm text-[var(--muted)] hover:underline"
-            >
-              ← К списку
-            </Link>
+              <IconPlusDoc />
+            </DirectoryIconButton>
+            <DirectoryIconButton title="К списку" href="/calculations">
+              <IconBack />
+            </DirectoryIconButton>
           </div>
         }
       />
@@ -558,10 +785,27 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
 
       {error && <p className="mb-4 text-sm text-[var(--danger)]">{error}</p>}
 
-      <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
-        <Stat label="Выручка" value={formatMoney(calc.payable)} />
-        <Stat label="Доп. расходы" value={formatMoney(calc.expensesTotal)} />
-        <Stat label="ЗП" value={formatMoney(displayLaborTotal)} />
+      <input
+        ref={csvFileRef}
+        type="file"
+        accept=".csv,text/csv"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = "";
+          if (file) void onCsvFile(file);
+        }}
+      />
+
+      <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
+        <Stat label="Сумма КП" value={formatMoney(calc.payable)} />
+        <Stat label="Выручка (маржа)" value={formatMoney(displayMargin)} />
+        <Stat label="Закуп" value={formatMoney(displayCogs)} />
+        <Stat
+          label="Доп. расходы"
+          value={formatMoney(extraOnly + displayFreelance)}
+        />
+        <Stat label="ЗП штат" value={formatMoney(displayLaborTotal)} />
         <Stat label="Монтажные" value={formatMoney(displayMontageTotal)} />
         <Stat
           label="Агентские"
@@ -573,85 +817,100 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
           accent={displayNetTotal >= 0}
           danger={displayNetTotal < 0}
         />
-        <Stat
-          label="Без владельца"
-          value={formatMoney(calc.unassignedRevenue)}
-        />
       </div>
 
-      {agencyInfo && (
-        <Card className="mb-6 p-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h2 className="text-lg font-medium">
-                Агентские менеджера · {data.owner.name}
-              </h2>
-              <p className="mt-1 text-sm text-[var(--muted)]">
-                {(agencyInfo.percent ?? agencyInfo.rate * 100).toLocaleString(
-                  "ru-RU",
-                )}
-                % от (выручка − расходы − ЗП − монтажные) по каждой фирме. С
-                фирм менеджера (
-                {agencyInfo.managerOwners.length
-                  ? agencyInfo.managerOwners
-                      .map(
-                        (o) =>
-                          CATALOG_OWNERS.find((c) => c.value === o)?.short ?? o,
-                      )
-                      .join(", ")
-                  : "не указаны"}
-                ) списываются в калькуляции; с остальных — только в ЗП
-                менеджера.
-              </p>
-            </div>
-            <p className="text-2xl font-light tabular-nums text-[var(--accent-deep)]">
-              {formatMoney(agencyInfo.total)}
-            </p>
-          </div>
-          <div className="mt-4 grid gap-3 sm:grid-cols-3">
-            {agencyInfo.byCompany.map((a) => (
-              <div
-                key={a.company}
-                className="rounded-lg border border-[var(--line)] bg-[var(--panel-muted)] p-3"
-              >
-                <p className="text-xs uppercase tracking-[0.15em] text-[var(--muted)]">
-                  Аг. {a.short} · {a.label}
-                </p>
-                <p className="mt-1 text-xl font-light tabular-nums">
-                  {formatMoney(a.agency)}
-                </p>
-                <p className="mt-1 text-[11px] text-[var(--muted)]">
-                  {a.agency <= 0
-                    ? "нет базы"
-                    : a.deductedFromFirm
-                      ? "списано с фирмы в калькуляции"
-                      : "в ЗП менеджера, без расхода фирмы"}
-                </p>
-              </div>
-            ))}
-          </div>
-        </Card>
-      )}
+      <CalcTabs active={tab} onSelect={setTab} />
 
-      <section className="mb-6 space-y-3">
+      {tab === "estimate" ? (
+        <div className="pt-4">
+          <CalcEstimateTable
+            blocks={estimateBlocks}
+            lines={lines}
+            saving={saving}
+            csvBusy={csvBusy}
+            csvMessage={tab === "estimate" ? csvMessage : ""}
+            onSave={() => void save({ lines })}
+            onExportCsv={() => void exportCsv("lines")}
+            onImportCsv={() => pickCsv("lines")}
+            onSetLineMode={setLineMode}
+            onSetLineOwners={setLineOwnersFixed}
+            onSetLineAmount={setLineAmount}
+            onSetLineCost={setLineCost}
+            onResetLine={resetLineToCatalog}
+          />
+        </div>
+      ) : null}
+
+      {tab === "staff" ? (
+        <div className="space-y-3 pt-4">
+      <section className="space-y-3">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h2 className="text-lg font-medium">Сотрудники на мероприятии</h2>
             <p className="mt-1 text-sm text-[var(--muted)]">
-              База из ставок назначения; премии и монтажные — по факту
-              калькуляции, учитываются в ЗП / монтажных по фирмам сотрудника.
+              Участники шоу — в ЗП. Монтажники — в факт пусконаладки. Перерасход
+              режет маржу конторы, выручку не раздувает.
             </p>
           </div>
-          <Button
-            type="button"
-            size="sm"
-            disabled={saving || assignments.length === 0}
-            onClick={() => void save({ assignments })}
-          >
-            Сохранить премии и монтажные
-          </Button>
+          <div className="flex items-center gap-1">
+            <DirectoryCsvMenu
+              busy={csvBusy}
+              onExport={() => void exportCsv("staff")}
+              onImport={() => pickCsv("staff")}
+            />
+            <Button
+              type="button"
+              size="sm"
+              disabled={saving || assignments.length === 0}
+              onClick={() => void save({ assignments })}
+            >
+              <IconSave />
+              Сохранить премии и монтажные
+            </Button>
+          </div>
         </div>
+        {csvMessage && tab === "staff" ? (
+          <p className="text-xs text-[var(--muted)]">{csvMessage}</p>
+        ) : null}
         <Card>
+          {(data?.calculation.montageBudget ||
+            data?.calculation.montageActual ||
+            data?.calculation.montageOverage) ? (
+            <div className="grid gap-2 border-b border-[var(--line)] px-4 py-3 sm:grid-cols-3">
+              <div>
+                <p className="text-[11px] uppercase tracking-wider text-[var(--muted)]">
+                  Бюджет монтажа (смета)
+                </p>
+                <p className="font-medium tabular-nums">
+                  {formatMoney(data.calculation.montageBudget ?? 0)}
+                </p>
+              </div>
+              <div>
+                <p className="text-[11px] uppercase tracking-wider text-[var(--muted)]">
+                  Факт (монтажники)
+                </p>
+                <p className="font-medium tabular-nums">
+                  {formatMoney(
+                    data.calculation.montageActual ?? localMontageTotal,
+                  )}
+                </p>
+              </div>
+              <div>
+                <p className="text-[11px] uppercase tracking-wider text-[var(--muted)]">
+                  Перерасход
+                </p>
+                <p
+                  className={`font-medium tabular-nums ${
+                    (data.calculation.montageOverage ?? 0) > 0
+                      ? "text-[var(--danger)]"
+                      : ""
+                  }`}
+                >
+                  {formatMoney(data.calculation.montageOverage ?? 0)}
+                </p>
+              </div>
+            </div>
+          ) : null}
           {assignments.length === 0 ? (
             <p className="px-4 py-6 text-center text-sm text-[var(--muted)]">
               На смете никто не назначен — добавьте сотрудников в редакторе КП
@@ -662,6 +921,7 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
                 <thead className="bg-[var(--table-head)] text-[11px] uppercase tracking-wider text-[var(--muted)]">
                   <tr>
                     <th className="px-4 py-3">Сотрудник</th>
+                    <th className="px-4 py-3">Тип</th>
                     <th className="px-4 py-3">Фирма</th>
                     <th className="px-4 py-3">Должность</th>
                     <th className="px-4 py-3">Режим</th>
@@ -677,7 +937,17 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
                       key={a.id}
                       className="border-t border-[var(--line)]"
                     >
-                      <td className="px-4 py-3 font-medium">{a.userName}</td>
+                      <td className="px-4 py-3 font-medium">
+                        {a.userName}
+                        {a.isFreelancer ? (
+                          <span className="ml-2 text-[11px] text-[var(--muted)]">
+                            фриланс
+                          </span>
+                        ) : null}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-[var(--muted)]">
+                        {a.kind === "MOUNT" ? "монтаж" : "шоу"}
+                      </td>
                       <td className="px-4 py-3">
                         <span className="inline-flex flex-wrap gap-0.5">
                           {normalizeOwners(a.owners).length === 0 ? (
@@ -743,7 +1013,7 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
                     </tr>
                   ))}
                   <tr className="border-t-2 border-[var(--ink)]/20 bg-[var(--selected)]/30">
-                    <td className="px-4 py-3 font-medium" colSpan={5}>
+                    <td className="px-4 py-3 font-medium" colSpan={6}>
                       Итого
                     </td>
                     <td className="px-4 py-3 text-right tabular-nums text-[var(--muted)]">
@@ -762,177 +1032,191 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
           )}
         </Card>
       </section>
-
-      <section className="mb-6 space-y-3">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-medium">Позиции и владельцы</h2>
-            <p className="mt-1 text-sm text-[var(--muted)]">
-              Суммы всегда в наличных: безнальная смета пересчитывается в кэш.
-              Укажите, чья позиция (ШМ/ДК/NE), или включите натуральное
-              распределение — например, доставка 8000: 6000 в ДК и 2000 в NE.
-            </p>
-          </div>
-          <Button
-            type="button"
-            size="sm"
-            disabled={saving || lines.length === 0}
-            onClick={() => void save({ lines })}
-          >
-            Сохранить строки
-          </Button>
         </div>
+      ) : null}
 
-        <Card>
-          {lines.length === 0 ? (
-            <p className="px-4 py-8 text-center text-sm text-[var(--muted)]">
-              Нет позиций с суммой
-            </p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-[var(--table-head)] text-[11px] uppercase tracking-wider text-[var(--muted)]">
-                  <tr>
-                    <th className="px-4 py-3">Позиция</th>
-                    <th className="px-4 py-3">Владельцы / суммы</th>
-                    <th className="px-4 py-3 text-right">Сумма</th>
-                    <th className="px-4 py-3 w-24" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {lines.map((line) => {
-                    const amountSum =
-                      line.amounts.SHOW_MASTER +
-                      line.amounts.DIAKOM +
-                      line.amounts.NE_EVENT;
-                    const amountDiff = Math.round(line.lineTotal - amountSum);
-                    return (
-                      <tr
-                        key={line.id}
-                        className="border-t border-[var(--line)] align-top"
-                      >
-                        <td className="px-4 py-3">
-                          <div className="font-medium">{line.name}</div>
-                          {line.ownersCustom || line.mode === "AMOUNT" ? (
-                            <div className="mt-0.5 text-[11px] text-[var(--muted)]">
-                              {line.mode === "AMOUNT"
-                                ? "натуральные суммы"
-                                : "владельцы вручную"}
-                            </div>
-                          ) : (
-                            <div className="mt-0.5 text-[11px] text-[var(--muted)]">
-                              из каталога
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="mb-2 flex flex-wrap items-center gap-2">
-                            <div className="inline-flex rounded-md border border-[var(--line)] p-0.5 text-[11px]">
-                              <button
-                                type="button"
-                                className={`rounded px-2 py-0.5 ${
-                                  line.mode === "SHARE"
-                                    ? "bg-[var(--solid)] text-[var(--on-solid)]"
-                                    : "text-[var(--muted)] hover:text-[var(--ink)]"
-                                }`}
-                                onClick={() => setLineMode(line.id, "SHARE")}
-                              >
-                                Доли
-                              </button>
-                              <button
-                                type="button"
-                                className={`rounded px-2 py-0.5 ${
-                                  line.mode === "AMOUNT"
-                                    ? "bg-[var(--solid)] text-[var(--on-solid)]"
-                                    : "text-[var(--muted)] hover:text-[var(--ink)]"
-                                }`}
-                                onClick={() => setLineMode(line.id, "AMOUNT")}
-                              >
-                                Суммы
-                              </button>
-                            </div>
-                          </div>
-
-                          {line.mode === "SHARE" ? (
-                            <OwnerTagsPicker
-                              label=""
-                              compact
-                              value={line.owners}
-                              onChange={(owners) =>
-                                setLineOwnersFixed(line.id, owners)
-                              }
-                            />
-                          ) : (
-                            <div className="grid gap-2 sm:grid-cols-3">
-                              {CATALOG_OWNERS.map((c) => (
-                                <label key={c.value} className="block text-xs">
-                                  <span className="text-[var(--muted)]">
-                                    {c.short}
-                                  </span>
-                                  <input
-                                    type="number"
-                                    min={0}
-                                    className="field mt-0.5"
-                                    value={line.amounts[c.value]}
-                                    onChange={(e) =>
-                                      setLineAmount(
-                                        line.id,
-                                        c.value,
-                                        Number(e.target.value) || 0,
-                                      )
-                                    }
-                                  />
-                                </label>
-                              ))}
-                              <p
-                                className={`sm:col-span-3 text-[11px] ${
-                                  amountDiff === 0
-                                    ? "text-[var(--muted)]"
-                                    : "text-amber-700"
-                                }`}
-                              >
-                                Распределено {formatMoney(amountSum)} из{" "}
-                                {formatMoney(line.lineTotal)}
-                                {amountDiff !== 0
-                                  ? ` · остаток ${formatMoney(amountDiff)} без владельца`
-                                  : ""}
-                              </p>
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-right tabular-nums whitespace-nowrap">
-                          {formatMoney(line.lineTotal)}
-                        </td>
-                        <td className="px-4 py-3">
-                          {(line.ownersCustom || line.mode === "AMOUNT") && (
-                            <button
-                              type="button"
-                              className="text-xs text-[var(--muted)] hover:underline"
-                              onClick={() => resetLineToCatalog(line.id)}
-                            >
-                              Сброс
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-          <div className="flex justify-end border-t border-[var(--line)] px-4 py-3">
-            <Button
-              type="button"
-              size="sm"
-              disabled={saving || lines.length === 0}
-              onClick={() => void save({ lines })}
-            >
-              Сохранить строки
-            </Button>
+      {tab === "stats" ? (
+        <div className="space-y-6 pt-4">
+          <div className="flex items-center justify-end">
+            <DirectoryCsvMenu
+              busy={csvBusy}
+              onExport={() => void exportCsv("stats")}
+            />
           </div>
-        </Card>
-      </section>
+          {csvMessage && tab === "stats" ? (
+            <p className="-mt-4 text-xs text-[var(--muted)]">{csvMessage}</p>
+          ) : null}
+
+          {agencyInfo ? (
+            <Card className="p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-medium">
+                    Агентские менеджера · {data.owner.name}
+                  </h2>
+                  <p className="mt-1 text-sm text-[var(--muted)]">
+                    {(agencyInfo.percent ?? agencyInfo.rate * 100).toLocaleString(
+                      "ru-RU",
+                    )}
+                    % от (выручка − расходы − ЗП − монтажные) по каждой фирме. С
+                    фирм менеджера (
+                    {agencyInfo.managerOwners.length
+                      ? agencyInfo.managerOwners
+                          .map(
+                            (o) =>
+                              CATALOG_OWNERS.find((c) => c.value === o)?.short ??
+                              o,
+                          )
+                          .join(", ")
+                      : "не указаны"}
+                    ) списываются в калькуляции; с остальных — только в ЗП
+                    менеджера.
+                  </p>
+                </div>
+                <p className="text-2xl font-light tabular-nums text-[var(--accent-deep)]">
+                  {formatMoney(agencyInfo.total)}
+                </p>
+              </div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                {agencyInfo.byCompany.map((a) => (
+                  <div
+                    key={a.company}
+                    className="rounded-lg border border-[var(--line)] bg-[var(--panel-muted)] p-3"
+                  >
+                    <p className="text-xs uppercase tracking-[0.15em] text-[var(--muted)]">
+                      Аг. {a.short} · {a.label}
+                    </p>
+                    <p className="mt-1 text-xl font-light tabular-nums">
+                      {formatMoney(a.agency)}
+                    </p>
+                    <p className="mt-1 text-[11px] text-[var(--muted)]">
+                      {a.agency <= 0
+                        ? "нет базы"
+                        : a.deductedFromFirm
+                          ? "списано с фирмы в калькуляции"
+                          : "в ЗП менеджера, без расхода фирмы"}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          ) : null}
+
+          <section className="space-y-3">
+            <div>
+              <h2 className="text-lg font-medium">Расходы по сотрудникам</h2>
+              <p className="mt-1 text-sm text-[var(--muted)]">
+                Подробная разбивка базы, премий и монтажных. Выгрузка — иконка
+                CSV сверху.
+              </p>
+            </div>
+            <Card>
+              {assignments.length === 0 ? (
+                <p className="px-4 py-6 text-center text-sm text-[var(--muted)]">
+                  Нет назначений
+                </p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-[var(--table-head)] text-[11px] uppercase tracking-wider text-[var(--muted)]">
+                      <tr>
+                        <th className="px-4 py-3">Сотрудник</th>
+                        <th className="px-4 py-3">Тип</th>
+                        <th className="px-4 py-3">Должность</th>
+                        <th className="px-4 py-3">Фирма</th>
+                        <th className="px-4 py-3 text-right">База</th>
+                        <th className="px-4 py-3 text-right">Премия</th>
+                        <th className="px-4 py-3 text-right">Монтажные</th>
+                        <th className="px-4 py-3 text-right">Итого</th>
+                        <th className="px-4 py-3 text-right">% ЗП</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {assignments.map((a) => {
+                        const totalPay = a.basePay + (Number(a.bonus) || 0);
+                        const pct =
+                          localLaborTotal > 0
+                            ? Math.round((totalPay / localLaborTotal) * 1000) / 10
+                            : 0;
+                        return (
+                          <tr
+                            key={`stat-${a.id}`}
+                            className="border-t border-[var(--line)]"
+                          >
+                            <td className="px-4 py-3 font-medium">
+                              {a.userName}
+                              {a.isFreelancer ? (
+                                <span className="ml-2 text-[11px] text-[var(--muted)]">
+                                  фриланс
+                                </span>
+                              ) : null}
+                            </td>
+                            <td className="px-4 py-3 text-xs text-[var(--muted)]">
+                              {a.kind === "MOUNT" ? "монтаж" : "шоу"}
+                            </td>
+                            <td className="px-4 py-3">{a.specialtyName}</td>
+                            <td className="px-4 py-3">
+                              {normalizeOwners(a.owners).length === 0 ? (
+                                <span className="text-[var(--muted)]">—</span>
+                              ) : (
+                                CATALOG_OWNERS.filter((o) =>
+                                  a.owners.includes(o.value),
+                                )
+                                  .map((o) => o.short)
+                                  .join(" · ")
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-right tabular-nums">
+                              {formatMoney(a.basePay)}
+                            </td>
+                            <td className="px-4 py-3 text-right tabular-nums">
+                              {formatMoney(a.bonus)}
+                            </td>
+                            <td className="px-4 py-3 text-right tabular-nums">
+                              {formatMoney(a.montageAmount)}
+                            </td>
+                            <td className="px-4 py-3 text-right font-medium tabular-nums">
+                              {formatMoney(totalPay)}
+                            </td>
+                            <td className="px-4 py-3 text-right tabular-nums text-[var(--muted)]">
+                              {a.kind === "MOUNT" || a.isFreelancer
+                                ? "—"
+                                : `${pct} %`}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      <tr className="border-t-2 border-[var(--ink)]/20 bg-[var(--selected)]/30">
+                        <td className="px-4 py-3 font-medium" colSpan={4}>
+                          Итого
+                        </td>
+                        <td className="px-4 py-3 text-right tabular-nums">
+                          {formatMoney(
+                            assignments.reduce((s, a) => s + a.basePay, 0),
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-right tabular-nums">
+                          {formatMoney(
+                            assignments.reduce(
+                              (s, a) => s + (Number(a.bonus) || 0),
+                              0,
+                            ),
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-right tabular-nums">
+                          {formatMoney(localMontageTotal)}
+                        </td>
+                        <td className="px-4 py-3 text-right font-medium tabular-nums">
+                          {formatMoney(localLaborTotal)}
+                        </td>
+                        <td />
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Card>
+          </section>
 
       <section className="mb-6 space-y-3">
         <div className="flex flex-wrap items-end justify-between gap-3">
@@ -944,29 +1228,31 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
               трогаются.
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex items-center gap-1">
             {!sharesCustom ? (
-              <Button type="button" size="sm" onClick={enableCustomShares}>
-                Редактировать доли
-              </Button>
+              <DirectoryIconButton
+                title="Редактировать доли"
+                onClick={enableCustomShares}
+                className="text-[var(--ink)]"
+              >
+                <IconEdit />
+              </DirectoryIconButton>
             ) : (
               <>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
+                <DirectoryIconButton
+                  title="Сбросить на авто"
                   onClick={resetAutoShares}
                 >
-                  Сбросить на авто
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
+                  <IconReset />
+                </DirectoryIconButton>
+                <DirectoryIconButton
+                  title="Сохранить доли"
                   disabled={saving || shareSum <= 0}
                   onClick={() => void save()}
+                  className="text-[var(--ink)]"
                 >
-                  Сохранить доли
-                </Button>
+                  <IconSave />
+                </DirectoryIconButton>
               </>
             )}
           </div>
@@ -1019,9 +1305,15 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
                   )}
                   <div className="mt-3 space-y-1 text-sm">
                     <p>
-                      Выручка:{" "}
+                      Выручка (маржа):{" "}
                       <span className="tabular-nums">
                         {formatMoney(breakdown?.revenue ?? 0)}
+                      </span>
+                    </p>
+                    <p>
+                      Закуп:{" "}
+                      <span className="tabular-nums">
+                        {formatMoney(breakdown?.cogs ?? 0)}
                       </span>
                     </p>
                     <p>
@@ -1086,6 +1378,35 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
       </section>
 
       <section className="mb-6 space-y-3">
+        <div>
+          <h2 className="text-lg font-medium">Фрилансеры (авто из назначений)</h2>
+          <p className="mt-1 text-sm text-[var(--muted)]">
+            Не правятся здесь: ставка и монтаж задаются в назначениях на смете.
+            Если человек и работал, и монтировал — две строки в расходе.
+          </p>
+        </div>
+        <Card>
+          {(data.autoExpenses ?? []).length === 0 ? (
+            <p className="px-4 py-6 text-center text-sm text-[var(--muted)]">
+              Фрилансеров на смете нет
+            </p>
+          ) : (
+            <ul className="divide-y divide-[var(--line)] text-sm">
+              {(data.autoExpenses ?? []).map((e, i) => (
+                <li
+                  key={`${e.name}-${i}`}
+                  className="flex items-center justify-between px-4 py-3"
+                >
+                  <span>{e.name}</span>
+                  <span className="tabular-nums">{formatMoney(e.amount)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      </section>
+
+      <section className="mb-6 space-y-3">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h2 className="text-lg font-medium">Дополнительные расходы</h2>
@@ -1095,9 +1416,9 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
               компании.
             </p>
           </div>
-          <Button
-            type="button"
-            size="sm"
+          <DirectoryAddButton
+            title="Добавить расход"
+            icon={<IconPlusDoc />}
             onClick={() =>
               setExpenses((prev) => [
                 ...prev,
@@ -1116,9 +1437,7 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
                 },
               ])
             }
-          >
-            + Расход
-          </Button>
+          />
         </div>
 
         <Card>
@@ -1308,17 +1627,17 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
                           )}
                         </td>
                         <td className="px-4 py-2">
-                          <button
-                            type="button"
-                            className="text-xs text-[var(--danger)] hover:underline"
+                          <DirectoryIconButton
+                            title="Удалить"
+                            danger
                             onClick={() =>
                               setExpenses((prev) =>
                                 prev.filter((_, i) => i !== idx),
                               )
                             }
                           >
-                            Удалить
-                          </button>
+                            <IconTrash />
+                          </DirectoryIconButton>
                         </td>
                       </tr>
                     );
@@ -1334,12 +1653,42 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
               disabled={saving}
               onClick={() => void save()}
             >
+              <IconSave />
               Сохранить расходы
             </Button>
           </div>
         </Card>
       </section>
+        </div>
+      ) : null}
     </div>
+  );
+}
+
+function IconExcel() {
+  return (
+    <svg viewBox="0 0 24 24" className="size-6" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
+      <path d="M8 3.5h7.5L19.5 8v11.5A1.5 1.5 0 0 1 18 21H8A1.5 1.5 0 0 1 6.5 19.5v-15A1.5 1.5 0 0 1 8 3.5Z" />
+      <path d="M15.5 3.5V8H19.5" />
+      <path d="m9 12 2.2 3.5L9 19M14.5 12 12.3 15.5 14.5 19" />
+    </svg>
+  );
+}
+
+function IconBack() {
+  return (
+    <svg viewBox="0 0 24 24" className="size-6" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
+      <path d="M15 5 8 12l7 7" />
+    </svg>
+  );
+}
+
+function IconReset() {
+  return (
+    <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+      <path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3" />
+      <path d="M4.5 5.5v5h5" />
+    </svg>
   );
 }
 
@@ -1361,8 +1710,8 @@ function Stat({
       </p>
       <p
         className={`mt-1 text-xl font-light tracking-tight ${
-          danger
-            ? "text-red-700"
+            danger
+            ? "text-[var(--danger)]"
             : accent
               ? "text-[var(--accent-deep)]"
               : ""

@@ -6,7 +6,20 @@ import {
   equipmentItemInclude,
   syncEquipmentUnits,
 } from "@/lib/equipment";
+import { ensureQuoteSchemaColumns } from "@/lib/ensure-schema";
 import { requireDatabaseAccess } from "@/lib/session";
+
+let ensureOnce: Promise<void> | null = null;
+
+function ensureSchemaOnce() {
+  if (!ensureOnce) {
+    ensureOnce = ensureQuoteSchemaColumns().catch((e) => {
+      ensureOnce = null;
+      throw e;
+    });
+  }
+  return ensureOnce;
+}
 
 export async function GET(
   _req: NextRequest,
@@ -14,6 +27,7 @@ export async function GET(
 ) {
   try {
     await requireDatabaseAccess();
+    await ensureSchemaOnce();
     const { itemId } = await params;
 
     const exists = await prisma.catalogItem.findUnique({

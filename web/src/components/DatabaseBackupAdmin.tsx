@@ -22,9 +22,14 @@ const LABELS: Array<{ key: keyof DatabaseBackupCounts; label: string }> = [
   { key: "venues", label: "Площадки" },
   { key: "venuePhotos", label: "Фото площадок" },
   { key: "vehicles", label: "Транспорт" },
+  { key: "legalEntities", label: "Юрлица" },
+  { key: "legalEntityBankAccounts", label: "Счета юрлиц" },
   { key: "equipmentUnits", label: "Единицы оборудования" },
   { key: "equipmentDocuments", label: "Документы оборудования" },
   { key: "quoteTemplates", label: "Шаблоны смет" },
+  { key: "quoteSnapshots", label: "Снимки смет" },
+  { key: "quoteAuditEvents", label: "Журнал смет" },
+  { key: "specRevisions", label: "Снимки спецификаций" },
 ];
 
 export function DatabaseBackupAdmin() {

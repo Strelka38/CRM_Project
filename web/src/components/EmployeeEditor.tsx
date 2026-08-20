@@ -19,6 +19,7 @@ import {
   roleLabelRuTitle,
   type AppRole,
 } from "@/lib/roles";
+import { TIMEZONES } from "@/lib/timezone";
 
 type Specialty = {
   id: string;
@@ -48,6 +49,8 @@ type UserDetail = {
   monthlySalary: number;
   agencyPercent: number;
   owners: CatalogOwnerValue[];
+  timezone: string;
+  weatherPlace: "IRKUTSK" | "IRKUTSK_OBLAST";
   specialties: UserSpecialtyRow[];
   estimatedSalary?: number;
   payrollRows?: Array<{
@@ -83,6 +86,7 @@ export function EmployeeEditor({
   const [addSpecialtyId, setAddSpecialtyId] = useState("");
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
+  const [masterTimezone, setMasterTimezone] = useState("Asia/Irkutsk");
   const canAdmin = isManager;
   const canChangeAgency = canEditAgency ?? isManager;
   const canChangeRole = canEditUserRole(
@@ -107,6 +111,8 @@ export function EmployeeEditor({
         monthlySalary: u.monthlySalary ?? 0,
         agencyPercent: u.agencyPercent ?? 5,
         owners: normalizeOwners(u.owners),
+        timezone: u.timezone || "Asia/Irkutsk",
+        weatherPlace: u.weatherPlace || "IRKUTSK",
       });
       setRows(
         u.specialties.map((s) => ({
@@ -117,8 +123,15 @@ export function EmployeeEditor({
         })),
       );
       if (sRes.ok) setAllSpecialties(await sRes.json());
+      if (isAdmin) {
+        const st = await fetch("/api/settings");
+        if (st.ok) {
+          const data = (await st.json()) as { masterTimezone?: string };
+          if (data.masterTimezone) setMasterTimezone(data.masterTimezone);
+        }
+      }
     })();
-  }, [userId]);
+  }, [userId, isAdmin]);
 
   async function saveProfile() {
     if (!user) return;
@@ -130,6 +143,8 @@ export function EmployeeEditor({
       patronymic: user.patronymic,
       phone: user.phone,
       comment: user.comment,
+      timezone: user.timezone,
+      weatherPlace: user.weatherPlace,
     };
     if (canAdmin) {
       if (canChangeRole) payload.role = user.role;
@@ -155,6 +170,13 @@ export function EmployeeEditor({
     }
     const updated = await res.json();
     setUser((prev) => (prev ? { ...prev, ...updated } : prev));
+    if (isAdmin && selfView) {
+      await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ masterTimezone }),
+      });
+    }
   }
 
   async function saveSpecialties() {
@@ -220,7 +242,7 @@ export function EmployeeEditor({
         <button
           type="button"
           onClick={() =>
-            router.push(selfView ? "/quotes" : "/users")
+            router.push(selfView ? "/calendar" : "/users")
           }
           className="rounded-md border border-[var(--line)] px-3 py-1.5 text-sm hover:bg-white/10"
         >
@@ -401,6 +423,67 @@ export function EmployeeEditor({
                 onChange={(e) => setUser({ ...user, phone: e.target.value })}
                 placeholder="+7…"
               />
+            </div>
+          </div>
+          <div className="rounded-xl border border-[var(--line)] bg-[var(--panel)]">
+            <h2 className="border-b border-[var(--line)] bg-[var(--table-head)] px-4 py-2 text-sm font-medium">
+              Локация и время
+            </h2>
+            <div className="space-y-3 p-4">
+              <label className="block text-sm">
+                <span className="text-[var(--muted)]">Погода</span>
+                <select
+                  className="field mt-1"
+                  value={user.weatherPlace}
+                  onChange={(e) =>
+                    setUser({
+                      ...user,
+                      weatherPlace: e.target.value as UserDetail["weatherPlace"],
+                    })
+                  }
+                >
+                  <option value="IRKUTSK">Иркутск</option>
+                  <option value="IRKUTSK_OBLAST">Иркутская область</option>
+                </select>
+              </label>
+              <label className="block text-sm">
+                <span className="text-[var(--muted)]">Часовой пояс</span>
+                <select
+                  className="field mt-1"
+                  value={user.timezone}
+                  onChange={(e) =>
+                    setUser({ ...user, timezone: e.target.value })
+                  }
+                >
+                  {TIMEZONES.map((z) => (
+                    <option key={z.id} value={z.id}>
+                      {z.label} ({z.offset})
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {isAdmin && selfView ? (
+                <label className="block text-sm">
+                  <span className="text-[var(--muted)]">
+                    Мастер-часовой пояс компании
+                  </span>
+                  <select
+                    className="field mt-1"
+                    value={masterTimezone}
+                    onChange={(e) => setMasterTimezone(e.target.value)}
+                  >
+                    {TIMEZONES.map((z) => (
+                      <option key={z.id} value={z.id}>
+                        {z.label} ({z.offset})
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-[11px] text-[var(--muted)]">
+                    Для новых сотрудников и если в профиле не выбран свой пояс.
+                    По умолчанию Иркутск, UTC+8.
+                  </p>
+                </label>
+              ) : null}
             </div>
           </div>
           <div className="rounded-xl border border-[var(--line)] bg-[var(--panel)]">

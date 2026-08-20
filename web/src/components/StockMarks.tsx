@@ -75,15 +75,25 @@ export function StockMarks({
   }
 
   const tight = needed > info.available;
+  const shortfall = tight ? needed - info.available : 0;
   const hasReservations = info.reservations.length > 0;
 
   return (
     <>
       <td
         className={`stock-cell tabular-nums ${tight ? "text-[var(--danger)] font-medium" : ""}`}
-        title="R — нужно в этом КП на дату"
+        title={
+          tight
+            ? `R — нужно ${needed}, не хватает ${shortfall}`
+            : "R — нужно в этом КП на дату"
+        }
       >
         {needed}
+        {tight ? (
+          <span className="mt-0.5 block text-[10px] font-normal leading-none">
+            не хватает {shortfall}
+          </span>
+        ) : null}
       </td>
       <td className="stock-cell relative p-0" ref={rootRef}>
         <button

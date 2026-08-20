@@ -4,7 +4,21 @@ import { requireSession } from "@/lib/session";
 import {
   getAvailability,
   getReservationDetails,
+  type StockSchedule,
 } from "@/lib/stock";
+
+function scheduleFromSearch(sp: URLSearchParams): StockSchedule {
+  const eventDateRaw = sp.get("eventDate") || "";
+  return {
+    date: eventDateRaw,
+    eventDate: parseEventDate(eventDateRaw || undefined),
+    durationDays: Math.max(1, Number(sp.get("days") || 1) || 1),
+    mountDate: sp.get("mountDate") || "",
+    mountDurationDays: Math.max(1, Number(sp.get("mountDays") || 1) || 1),
+    demountDate: sp.get("demountDate") || "",
+    demountDurationDays: Math.max(1, Number(sp.get("demountDays") || 1) || 1),
+  };
+}
 
 export async function GET(req: NextRequest) {
   try {
@@ -19,13 +33,7 @@ export async function GET(req: NextRequest) {
       ),
     ].slice(0, 80);
 
-    const eventDate = parseEventDate(
-      req.nextUrl.searchParams.get("eventDate") || undefined,
-    );
-    const durationDays = Math.max(
-      1,
-      Number(req.nextUrl.searchParams.get("days") || 1) || 1,
-    );
+    const schedule = scheduleFromSearch(req.nextUrl.searchParams);
     const excludeQuoteId =
       req.nextUrl.searchParams.get("excludeQuoteId") || undefined;
 
@@ -35,21 +43,11 @@ export async function GET(req: NextRequest) {
 
     const entries = await Promise.all(
       ids.map(async (id) => {
-        const av = await getAvailability(
-          id,
-          eventDate,
-          durationDays,
-          excludeQuoteId,
-        );
+        const av = await getAvailability(id, schedule, excludeQuoteId);
         if (!av) return [id, null] as const;
         const reservations = av.unlimited
           ? []
-          : await getReservationDetails(
-              id,
-              eventDate,
-              durationDays,
-              excludeQuoteId,
-            );
+          : await getReservationDetails(id, schedule, excludeQuoteId);
         return [
           id,
           {

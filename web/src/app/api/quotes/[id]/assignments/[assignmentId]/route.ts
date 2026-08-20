@@ -16,6 +16,9 @@ const patchSchema = z.object({
   specialtyId: z.string().min(1).optional(),
   freelancerName: z.string().optional(),
   owners: z.array(companyEnum).optional(),
+  kind: z.enum(["EVENT", "MOUNT"]).optional(),
+  userId: z.string().min(1).nullable().optional(),
+  isFreelancer: z.boolean().optional(),
 });
 
 const userSelect = {
@@ -55,45 +58,60 @@ export async function PATCH(
     }
 
     const specialtyId = body.specialtyId ?? existing.specialtyId;
-    const isFreelancer = existing.isFreelancer || !existing.userId;
+    const kind = body.kind ?? existing.kind;
+    let nextUserId =
+      body.userId !== undefined ? body.userId : existing.userId;
+    let nextIsFreelancer =
+      body.isFreelancer !== undefined
+        ? body.isFreelancer
+        : existing.isFreelancer;
 
-    let hourlyRate = 0;
-    let shiftRate = 0;
+    if (body.userId === null) {
+      nextUserId = null;
+      if (body.isFreelancer === undefined) nextIsFreelancer = false;
+    }
+    if (nextIsFreelancer) nextUserId = null;
 
-    if (!isFreelancer) {
-      if (!existing.userId) {
-        return NextResponse.json({ error: "Not found" }, { status: 404 });
-      }
+    const specialty = await prisma.specialty.findUnique({
+      where: { id: specialtyId },
+      select: { id: true, active: true, hourlyRate: true, shiftRate: true },
+    });
+    if (!specialty) {
+      return NextResponse.json(
+        { error: "Должность не найдена" },
+        { status: 400 },
+      );
+    }
+    if (
+      body.specialtyId &&
+      body.specialtyId !== existing.specialtyId &&
+      !specialty.active
+    ) {
+      return NextResponse.json(
+        { error: "Должность не найдена" },
+        { status: 400 },
+      );
+    }
+
+    let hourlyRate = specialty.hourlyRate;
+    let shiftRate = specialty.shiftRate;
+
+    if (nextUserId && !nextIsFreelancer) {
       const userSpec = await prisma.userSpecialty.findUnique({
         where: {
           userId_specialtyId: {
-            userId: existing.userId,
+            userId: nextUserId,
             specialtyId,
           },
         },
       });
-      if (!userSpec) {
-        return NextResponse.json(
-          { error: "У сотрудника нет этой специальности" },
-          { status: 400 },
-        );
-      }
-      hourlyRate = userSpec.hourlyRate;
-      shiftRate = userSpec.shiftRate;
-    } else if (body.specialtyId && body.specialtyId !== existing.specialtyId) {
-      const specialty = await prisma.specialty.findFirst({
-        where: { id: specialtyId, active: true },
-        select: { id: true },
-      });
-      if (!specialty) {
-        return NextResponse.json(
-          { error: "Должность не найдена" },
-          { status: 400 },
-        );
+      if (userSpec) {
+        hourlyRate = userSpec.hourlyRate;
+        shiftRate = userSpec.shiftRate;
       }
     }
 
-    const payMode = isFreelancer
+    const payMode = nextIsFreelancer || !nextUserId
       ? "SHIFT"
       : (body.payMode ?? existing.payMode);
 
@@ -101,14 +119,18 @@ export async function PATCH(
       where: { id: assignmentId },
       data: {
         specialtyId,
+        kind,
+        userId: nextUserId,
+        isFreelancer: nextIsFreelancer,
         payMode,
-        hours: isFreelancer
-          ? null
-          : body.hours !== undefined
-            ? body.hours
-            : payMode === "HOURLY"
-              ? existing.hours
-              : null,
+        hours:
+          nextIsFreelancer || !nextUserId
+            ? null
+            : body.hours !== undefined
+              ? body.hours
+              : payMode === "HOURLY"
+                ? existing.hours
+                : null,
         rateOverride:
           body.rateOverride !== undefined
             ? body.rateOverride
@@ -116,7 +138,9 @@ export async function PATCH(
         freelancerName:
           body.freelancerName !== undefined
             ? body.freelancerName.trim()
-            : undefined,
+            : nextIsFreelancer
+              ? existing.freelancerName
+              : "",
         owners: body.owners !== undefined ? body.owners : undefined,
       },
       include: {
@@ -157,6 +181,17 @@ export async function PATCH(
     if (e instanceof Response) return e;
     if (e instanceof z.ZodError) {
       return NextResponse.json({ error: e.flatten() }, { status: 400 });
+    }
+    if (
+      e &&
+      typeof e === "object" &&
+      "code" in e &&
+      (e as { code: string }).code === "P2002"
+    ) {
+      return NextResponse.json(
+        { error: "У этого сотрудника уже есть такая должность на мероприятии" },
+        { status: 409 },
+      );
     }
     throw e;
   }

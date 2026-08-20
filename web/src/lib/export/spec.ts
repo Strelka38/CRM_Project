@@ -20,6 +20,7 @@ export type SpecExportLine = {
   kitName: string | null;
   isKitHeader?: boolean;
   hidden?: boolean;
+  ownerLabel?: string | null;
 };
 
 export type SpecExportStaff = {
@@ -78,13 +79,14 @@ export async function exportSpecExcel(
 
   ws.columns = [
     { key: "num", width: 6 },
-    { key: "name", width: 56 },
+    { key: "name", width: 48 },
     { key: "qty", width: 12 },
-    { key: "comment", width: 36 },
-    { key: "note", width: 28 },
+    { key: "owner", width: 12 },
+    { key: "comment", width: 32 },
+    { key: "note", width: 24 },
   ];
 
-  ws.mergeCells("A1:E1");
+  ws.mergeCells("A1:F1");
   ws.getCell("A1").value = `Спецификация на погрузку №${meta.proposalNumber}`;
   ws.getCell("A1").font = { bold: true, size: 14 };
 
@@ -102,7 +104,7 @@ export async function exportSpecExcel(
   });
 
   const headerRow = ws.getRow(8);
-  headerRow.values = ["№", "Наименование", "Кол-во", "Комментарий", "Примечание"];
+  headerRow.values = ["№", "Наименование", "Кол-во", "Чьё", "Комментарий", "Примечание"];
   headerRow.font = { bold: true };
   headerRow.fill = {
     type: "pattern",
@@ -114,7 +116,7 @@ export async function exportSpecExcel(
   let itemNum = 0;
 
   const pushSection = (title: string, isKitHeader = false) => {
-    ws.mergeCells(`A${rowIdx}:E${rowIdx}`);
+    ws.mergeCells(`A${rowIdx}:F${rowIdx}`);
     const cell = ws.getCell(`A${rowIdx}`);
     cell.value = title;
     cell.font = { bold: true };
@@ -131,10 +133,11 @@ export async function exportSpecExcel(
     qty: string | number,
     note: string,
     comment = "",
+    owner = "",
   ) => {
     itemNum += 1;
     const row = ws.getRow(rowIdx);
-    row.values = [itemNum, name, qty, comment, note];
+    row.values = [itemNum, name, qty, owner, comment, note];
     row.getCell(3).alignment = { horizontal: "center" };
     rowIdx += 1;
   };
@@ -149,6 +152,7 @@ export async function exportSpecExcel(
       line.qty,
       line.kitName ? `из комплекта: ${line.kitName}` : "",
       (line.comment || "").trim(),
+      (line.ownerLabel || "").trim() === "—" ? "" : (line.ownerLabel || "").trim(),
     );
   }
 
@@ -217,7 +221,7 @@ export async function exportSpecPdf(
     tableBody.push([
       {
         content: title,
-        colSpan: 5,
+        colSpan: 6,
         styles: {
           fontStyle: "bold",
           fillColor: isKitHeader ? [214, 228, 247] : [240, 244, 248],
@@ -225,9 +229,9 @@ export async function exportSpecPdf(
       },
     ]);
   };
-  const pushItem = (name: string, qty: string, note: string, comment = "") => {
+  const pushItem = (name: string, qty: string, note: string, comment = "", owner = "") => {
     itemNum += 1;
-    tableBody.push([String(itemNum), name, qty, comment, note]);
+    tableBody.push([String(itemNum), name, qty, owner, comment, note]);
   };
 
   for (const line of visibleLines(lines)) {
@@ -240,6 +244,7 @@ export async function exportSpecPdf(
       String(line.qty),
       line.kitName ? `из комплекта: ${line.kitName}` : "",
       (line.comment || "").trim(),
+      (line.ownerLabel || "").trim() === "—" ? "" : (line.ownerLabel || "").trim(),
     );
   }
 
@@ -252,7 +257,7 @@ export async function exportSpecPdf(
 
   autoTable(doc, {
     startY: y,
-    head: [["№", "Наименование", "Кол-во", "Комментарий", "Примечание"]],
+    head: [["№", "Наименование", "Кол-во", "Чьё", "Комментарий", "Примечание"]],
     body: tableBody,
     styles: {
       font: "NotoSans",
@@ -268,10 +273,11 @@ export async function exportSpecPdf(
     },
     columnStyles: {
       0: { cellWidth: 10 },
-      1: { cellWidth: 70 },
-      2: { cellWidth: 16, halign: "center" },
-      3: { cellWidth: 42 },
-      4: { cellWidth: 42 },
+      1: { cellWidth: 52 },
+      2: { cellWidth: 14, halign: "center" },
+      3: { cellWidth: 16 },
+      4: { cellWidth: 36 },
+      5: { cellWidth: 36 },
     },
     margin: { left: margin, right: margin },
   });

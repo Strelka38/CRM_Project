@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { ensureQuoteSchemaColumns } from "@/lib/ensure-schema";
 import { canAccessQuote } from "@/lib/quote-access";
+import { recommendedMountQty } from "@/lib/quote-assignment-slots";
 import {
   canEditBrief,
   canManageAssignments,
@@ -52,6 +53,7 @@ type ProjectPayload = {
     userId?: string | null;
     isFreelancer?: boolean;
     freelancerName?: string;
+    kind?: string;
     user: {
       id: string;
       name: string;
@@ -60,6 +62,7 @@ type ProjectPayload = {
     } | null;
     specialty: { id: string; name: string };
   }>;
+  recommendedMountSlots?: number;
   _count: { comments: number; attachments: number };
 };
 
@@ -178,6 +181,7 @@ async function loadProjectQuote(id: string): Promise<ProjectPayload | null> {
         userId: string | null;
         isFreelancer: boolean;
         freelancerName: string;
+        kind: string;
         userName: string | null;
         userFirst: string | null;
         userLast: string | null;
@@ -190,6 +194,7 @@ async function loadProjectQuote(id: string): Promise<ProjectPayload | null> {
         a."userId",
         COALESCE(a."isFreelancer", false) AS "isFreelancer",
         COALESCE(a."freelancerName", '') AS "freelancerName",
+        COALESCE(a.kind::text, 'EVENT') AS kind,
         u.name AS "userName",
         u."firstName" AS "userFirst",
         u."lastName" AS "userLast",
@@ -208,6 +213,7 @@ async function loadProjectQuote(id: string): Promise<ProjectPayload | null> {
           userId: string | null;
           isFreelancer: boolean;
           freelancerName: string;
+          kind: string;
           userName: string | null;
           userFirst: string | null;
           userLast: string | null;
@@ -220,6 +226,7 @@ async function loadProjectQuote(id: string): Promise<ProjectPayload | null> {
           a."userId",
           false AS "isFreelancer",
           '' AS "freelancerName",
+          'EVENT' AS kind,
           u.name AS "userName",
           u."firstName" AS "userFirst",
           u."lastName" AS "userLast",
@@ -237,6 +244,7 @@ async function loadProjectQuote(id: string): Promise<ProjectPayload | null> {
       userId: a.userId,
       isFreelancer: a.isFreelancer,
       freelancerName: a.freelancerName,
+      kind: a.kind || "EVENT",
       user: a.userId
         ? {
             id: a.userId,
@@ -268,6 +276,47 @@ async function loadProjectQuote(id: string): Promise<ProjectPayload | null> {
     // ignore
   }
 
+  let recommendedMountSlots = assignments.filter(
+    (a) => (a.kind || "EVENT") === "MOUNT",
+  ).length;
+  try {
+    const quote = await prisma.quote.findUnique({
+      where: { id },
+      select: {
+        zones: { select: { id: true, active: true } },
+        blocks: {
+          select: {
+            type: true,
+            name: true,
+            title: true,
+            qty: true,
+            zoneId: true,
+            catalogItem: { select: { name: true, itemKind: true } },
+          },
+        },
+      },
+    });
+    if (quote) {
+      const activeIds = new Set(
+        quote.zones.filter((z) => z.active !== false).map((z) => z.id),
+      );
+      recommendedMountSlots = recommendedMountQty(
+        quote.blocks
+          .filter((b) => !b.zoneId || activeIds.has(b.zoneId))
+          .map((b) => ({
+            type: b.type,
+            name: b.name,
+            title: b.title,
+            qty: b.qty,
+            itemKind: b.catalogItem?.itemKind ?? null,
+            catalogName: b.catalogItem?.name ?? null,
+          })),
+      );
+    }
+  } catch {
+    // kind/catalog columns may be missing on old DBs
+  }
+
   return {
     id: row.id,
     proposalNumber: row.proposalNumber,
@@ -287,6 +336,7 @@ async function loadProjectQuote(id: string): Promise<ProjectPayload | null> {
     durationDays: row.durationDays,
     owner,
     assignments,
+    recommendedMountSlots,
     _count: { comments, attachments },
   };
 }

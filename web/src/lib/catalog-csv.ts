@@ -26,6 +26,7 @@ export const CATALOG_CSV_HEADERS = [
   "Владельцы",
   "Код оборудования",
   "Активна",
+  "В каталоге",
   "Порядок",
 ] as const;
 
@@ -50,6 +51,7 @@ export type CatalogCsvRow = {
   owners: CatalogOwnerValue[];
   equipmentCode: number | null;
   active: boolean;
+  showInCatalog: boolean;
   sortOrder: number;
 };
 
@@ -239,6 +241,7 @@ export function catalogItemToCsvCells(item: {
   owners: CatalogOwner[];
   equipmentCode: number | null;
   active: boolean;
+  showInCatalog?: boolean;
   sortOrder: number;
   category: { path: string };
 }): string[] {
@@ -263,6 +266,7 @@ export function catalogItemToCsvCells(item: {
     formatOwners(item.owners),
     item.equipmentCode == null ? "" : String(item.equipmentCode),
     item.active ? "1" : "0",
+    item.showInCatalog !== false ? "1" : "0",
     String(item.sortOrder ?? 0),
   ];
 }
@@ -352,6 +356,10 @@ export function parseCatalogCsv(text: string): {
       owners,
       equipmentCode: codeRaw != null ? Math.floor(codeRaw) : null,
       active: bool(cell(map, line, "Активна", "active"), true),
+      showInCatalog: bool(
+        cell(map, line, "В каталоге", "showInCatalog", "В каталог"),
+        true,
+      ),
       sortOrder: Math.max(
         0,
         Math.floor(num(cell(map, line, "Порядок", "sortOrder")) ?? 0),

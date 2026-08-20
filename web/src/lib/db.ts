@@ -6,7 +6,7 @@ const globalForPrisma = globalThis as unknown as {
 };
 
 /** Bump when schema models change so hot-reload doesn't keep a stale client. */
-const SCHEMA_VERSION = "equipment-writeoff-v1";
+const SCHEMA_VERSION = "calendar-entry-client-v1";
 
 function getClient() {
   if (

@@ -121,9 +121,9 @@ export function ClientQuickSearch({
   const showDropdown = open && value.trim().length > 0;
 
   return (
-    <div ref={rootRef} className="relative mt-1">
+    <div ref={rootRef} className="relative">
       <input
-        className="field w-full"
+                    className="field mt-0.5 w-full"
         value={value}
         disabled={disabled}
         placeholder="Начните вводить название…"

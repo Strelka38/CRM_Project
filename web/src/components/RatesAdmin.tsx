@@ -1,7 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { formatMoney } from "@/lib/format";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
+import {
+  DirectoryAddButton,
+  DirectoryCsvMenu,
+  DirectoryIconButton,
+  DirectorySelectionActions,
+  IconPlusFolder,
+  IconSave,
+  downloadCsvExport,
+  postBulkAction,
+  uploadCsvImport,
+} from "@/components/DirectoryToolbar";
 
 type SpecialtyRow = {
   id: string;
@@ -9,6 +20,7 @@ type SpecialtyRow = {
   sortOrder: number;
   hourlyRate: number;
   shiftRate: number;
+  description: string;
   active: boolean;
 };
 
@@ -17,6 +29,7 @@ type Draft = {
   sortOrder: string;
   hourlyRate: string;
   shiftRate: string;
+  description: string;
 };
 
 function toDraft(s: SpecialtyRow): Draft {
@@ -25,8 +38,17 @@ function toDraft(s: SpecialtyRow): Draft {
     sortOrder: String(s.sortOrder),
     hourlyRate: String(s.hourlyRate),
     shiftRate: String(s.shiftRate),
+    description: s.description ?? "",
   };
 }
+
+const compactNumClass =
+  "field !w-[4.5rem] py-1 px-1.5 text-left tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none";
+const compactShiftClass =
+  "field !w-[4.25rem] py-1 px-1.5 text-left tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none";
+const compactSortClass =
+  "field !w-11 py-1 px-1.5 text-left tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none";
+const compactNameClass = "field !w-[12rem] py-1 px-2 text-left";
 
 function parseNonNeg(value: string): number | null {
   const n = Number(value);
@@ -41,10 +63,18 @@ export function RatesAdmin() {
   const [error, setError] = useState("");
   const [ok, setOk] = useState("");
   const [q, setQ] = useState("");
+  const [showCreate, setShowCreate] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState(false);
+  const [csvBusy, setCsvBusy] = useState(false);
+  const [csvMessage, setCsvMessage] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const csvImportRef = useRef<HTMLInputElement>(null);
 
   const [newName, setNewName] = useState("");
   const [newHourly, setNewHourly] = useState("");
   const [newShift, setNewShift] = useState("");
+  const [newDescription, setNewDescription] = useState("");
   const [creating, setCreating] = useState(false);
 
   async function load() {
@@ -57,6 +87,10 @@ export function RatesAdmin() {
     const rows: SpecialtyRow[] = await res.json();
     setSpecialties(rows);
     setDrafts(Object.fromEntries(rows.map((s) => [s.id, toDraft(s)])));
+    setSelected((prev) => {
+      const ids = new Set(rows.map((r) => r.id));
+      return new Set([...prev].filter((id) => ids.has(id)));
+    });
   }
 
   useEffect(() => {
@@ -66,7 +100,11 @@ export function RatesAdmin() {
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     if (!needle) return specialties;
-    return specialties.filter((s) => s.name.toLowerCase().includes(needle));
+    return specialties.filter(
+      (s) =>
+        s.name.toLowerCase().includes(needle) ||
+        (s.description ?? "").toLowerCase().includes(needle),
+    );
   }, [specialties, q]);
 
   function isDirty(s: SpecialtyRow): boolean {
@@ -76,7 +114,8 @@ export function RatesAdmin() {
       d.name.trim() !== s.name ||
       Number(d.sortOrder) !== s.sortOrder ||
       Number(d.hourlyRate) !== s.hourlyRate ||
-      Number(d.shiftRate) !== s.shiftRate
+      Number(d.shiftRate) !== s.shiftRate ||
+      d.description.trim() !== (s.description ?? "")
     );
   }
 
@@ -114,7 +153,13 @@ export function RatesAdmin() {
     const res = await fetch(`/api/specialties/${s.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, sortOrder, hourlyRate, shiftRate }),
+      body: JSON.stringify({
+        name,
+        sortOrder,
+        hourlyRate,
+        shiftRate,
+        description: d.description.trim(),
+      }),
     });
     setSavingId(null);
     if (!res.ok) {
@@ -166,10 +211,7 @@ export function RatesAdmin() {
       return;
     }
 
-    const maxSort = specialties.reduce(
-      (m, s) => Math.max(m, s.sortOrder),
-      -1,
-    );
+    const maxSort = specialties.reduce((m, s) => Math.max(m, s.sortOrder), -1);
 
     setCreating(true);
     const res = await fetch("/api/specialties", {
@@ -180,6 +222,7 @@ export function RatesAdmin() {
         sortOrder: maxSort + 1,
         hourlyRate,
         shiftRate,
+        description: newDescription.trim(),
       }),
     });
     setCreating(false);
@@ -190,15 +233,76 @@ export function RatesAdmin() {
     setNewName("");
     setNewHourly("");
     setNewShift("");
+    setNewDescription("");
+    setShowCreate(false);
     setOk("Специальность создана");
     void load();
   }
 
+  function toggleAll() {
+    const ids = filtered.map((s) => s.id);
+    const all = ids.length > 0 && ids.every((id) => selected.has(id));
+    setSelected(all ? new Set() : new Set(ids));
+  }
+
+  function toggleOne(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function bulk(action: "delete" | "copy") {
+    if (selected.size === 0) return;
+    setBusy(true);
+    setError("");
+    try {
+      await postBulkAction("/api/specialties/bulk", action, [...selected]);
+      setSelected(new Set());
+      setConfirmDelete(false);
+      void load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не удалось выполнить");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function exportCsv() {
+    setCsvBusy(true);
+    setCsvMessage("");
+    try {
+      setCsvMessage(await downloadCsvExport("/api/specialties/csv"));
+    } catch (e) {
+      setCsvMessage(e instanceof Error ? e.message : "Не удалось экспортировать");
+    } finally {
+      setCsvBusy(false);
+    }
+  }
+
+  async function importCsv(file: File) {
+    setCsvBusy(true);
+    setCsvMessage("");
+    try {
+      setCsvMessage(await uploadCsvImport("/api/specialties/csv", file));
+      void load();
+    } catch (e) {
+      setCsvMessage(e instanceof Error ? e.message : "Не удалось импортировать");
+    } finally {
+      setCsvBusy(false);
+    }
+  }
+
+  const allSelected =
+    filtered.length > 0 && filtered.every((s) => selected.has(s.id));
+
   return (
-    <div className="mx-auto max-w-5xl px-4 py-6 md:px-6">
+    <div className="w-full px-4 py-6 md:px-6">
       <header className="mb-8 animate-fade-up">
         <p className="text-xs uppercase tracking-[0.15em] text-[var(--muted)]">
-          CRM
+          База данных
         </p>
         <h1 className="mt-1 text-3xl font-light tracking-tight">Ставки</h1>
         <p className="mt-1 text-sm text-[var(--muted)]">
@@ -208,176 +312,273 @@ export function RatesAdmin() {
         </p>
       </header>
 
-      <section className="mb-6 grid gap-3 rounded-xl border border-[var(--line)] bg-[var(--panel)] p-4 md:grid-cols-4">
-        <label className="text-sm md:col-span-2">
-          <span className="text-[var(--muted)]">Специальность</span>
+      <section className="rounded-xl border border-[var(--line)] bg-[var(--panel)]">
+        <div className="flex w-full items-center gap-2 border-b border-[var(--line)] px-4 py-3">
+          <DirectoryAddButton
+            title="+ Специальность"
+            icon={<IconPlusFolder />}
+            onClick={() => setShowCreate((v) => !v)}
+          />
           <input
-            className="field mt-1"
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            placeholder="Звукооператор…"
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void createSpecialty();
+            type="search"
+            className="field max-w-md py-1.5 text-sm"
+            placeholder="Поиск по названию…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+          <div className="ml-auto flex items-center gap-1">
+            <DirectorySelectionActions
+              count={selected.size}
+              disabled={busy}
+              onDelete={() => setConfirmDelete(true)}
+              onCopy={() => void bulk("copy")}
+            />
+            <DirectoryCsvMenu
+              busy={csvBusy}
+              onExport={() => void exportCsv()}
+              onImport={() => csvImportRef.current?.click()}
+            />
+          </div>
+          <input
+            ref={csvImportRef}
+            type="file"
+            accept=".csv,text/csv"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (file) void importCsv(file);
             }}
           />
-        </label>
-        <label className="text-sm">
-          <span className="text-[var(--muted)]">Ставка час</span>
-          <input
-            type="number"
-            min={0}
-            step={100}
-            className="field mt-1"
-            value={newHourly}
-            onChange={(e) => setNewHourly(e.target.value)}
-            placeholder="0"
-          />
-        </label>
-        <label className="text-sm">
-          <span className="text-[var(--muted)]">Ставка смена</span>
-          <input
-            type="number"
-            min={0}
-            step={500}
-            className="field mt-1"
-            value={newShift}
-            onChange={(e) => setNewShift(e.target.value)}
-            placeholder="0"
-          />
-        </label>
-        <button
-          type="button"
-          onClick={() => void createSpecialty()}
-          disabled={creating}
-          className="rounded-md bg-[var(--accent)] px-4 py-2 text-sm text-white md:col-span-4 md:w-fit disabled:opacity-60"
-        >
-          {creating ? "Создание…" : "Создать специальность"}
-        </button>
-      </section>
+        </div>
+        {csvMessage ? (
+          <p className="border-b border-[var(--line)] px-4 py-2 text-xs text-[var(--muted)]">
+            {csvMessage}
+          </p>
+        ) : null}
+        {error ? (
+          <p className="border-b border-[var(--line)] px-4 py-2 text-sm text-[var(--danger)]">
+            {error}
+          </p>
+        ) : null}
+        {ok && !error ? (
+          <p className="border-b border-[var(--line)] px-4 py-2 text-sm text-[var(--accent)]">
+            {ok}
+          </p>
+        ) : null}
 
-      <div className="mb-3 flex flex-wrap items-center gap-3">
-        <input
-          type="search"
-          className="field max-w-md"
-          placeholder="Поиск по названию…"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-        />
-        {error && <p className="text-sm text-[var(--danger)]">{error}</p>}
-        {ok && !error && (
-          <p className="text-sm text-[var(--accent)]">{ok}</p>
-        )}
-      </div>
+        {showCreate ? (
+          <div className="grid gap-3 border-b border-[var(--line)] p-4 md:grid-cols-6">
+            <label className="text-sm md:col-span-2">
+              <span className="text-[var(--muted)]">Специальность</span>
+              <input
+                className="field mt-1"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                placeholder="Звукооператор…"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void createSpecialty();
+                }}
+              />
+            </label>
+            <label className="text-sm">
+              <span className="text-[var(--muted)]">Ставка час</span>
+              <input
+                type="number"
+                min={0}
+                step={100}
+                className="field mt-1"
+                value={newHourly}
+                onChange={(e) => setNewHourly(e.target.value)}
+                placeholder="0"
+              />
+            </label>
+            <label className="text-sm">
+              <span className="text-[var(--muted)]">Ставка смена</span>
+              <input
+                type="number"
+                min={0}
+                step={500}
+                className="field mt-1"
+                value={newShift}
+                onChange={(e) => setNewShift(e.target.value)}
+                placeholder="0"
+              />
+            </label>
+            <label className="text-sm md:col-span-2">
+              <span className="text-[var(--muted)]">Описание</span>
+              <input
+                className="field mt-1"
+                value={newDescription}
+                onChange={(e) => setNewDescription(e.target.value)}
+                placeholder="Комментарий к ставке…"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() => void createSpecialty()}
+              disabled={creating}
+              className="rounded-md bg-[var(--accent)] px-4 py-2 text-sm text-white md:col-span-6 md:w-fit disabled:opacity-60"
+            >
+              {creating ? "Создание…" : "Создать специальность"}
+            </button>
+          </div>
+        ) : null}
 
-      <div className="overflow-x-auto rounded-xl border border-[var(--line)] bg-[var(--panel)]">
-        <table className="w-full min-w-[40rem] text-left text-sm">
-          <thead className="bg-[var(--table-head)] text-xs uppercase text-[var(--muted)]">
-            <tr>
-              <th className="px-3 py-3">№</th>
-              <th className="px-3 py-3">Специальность</th>
-              <th className="px-3 py-3">Час</th>
-              <th className="px-3 py-3">Смена</th>
-              <th className="px-3 py-3">Статус</th>
-              <th className="px-3 py-3" />
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((s) => {
-              const d = drafts[s.id] ?? toDraft(s);
-              const dirty = isDirty(s);
-              return (
-                <tr
-                  key={s.id}
-                  className={`border-t border-[var(--line)] ${
-                    s.active ? "" : "opacity-60"
-                  }`}
-                >
-                  <td className="px-3 py-2 align-middle">
-                    <input
-                      type="number"
-                      className="field w-16 py-1.5 text-center tabular-nums"
-                      value={d.sortOrder}
-                      onChange={(e) =>
-                        updateDraft(s.id, { sortOrder: e.target.value })
-                      }
-                    />
-                  </td>
-                  <td className="px-3 py-2 align-middle">
-                    <input
-                      className="field py-1.5"
-                      value={d.name}
-                      onChange={(e) =>
-                        updateDraft(s.id, { name: e.target.value })
-                      }
-                    />
-                  </td>
-                  <td className="px-3 py-2 align-middle">
-                    <input
-                      type="number"
-                      min={0}
-                      step={100}
-                      className="field w-28 py-1.5 tabular-nums"
-                      value={d.hourlyRate}
-                      onChange={(e) =>
-                        updateDraft(s.id, { hourlyRate: e.target.value })
-                      }
-                    />
-                    <div className="mt-0.5 text-[11px] text-[var(--muted)]">
-                      {formatMoney(Number(d.hourlyRate) || 0)}
-                    </div>
-                  </td>
-                  <td className="px-3 py-2 align-middle">
-                    <input
-                      type="number"
-                      min={0}
-                      step={500}
-                      className="field w-28 py-1.5 tabular-nums"
-                      value={d.shiftRate}
-                      onChange={(e) =>
-                        updateDraft(s.id, { shiftRate: e.target.value })
-                      }
-                    />
-                    <div className="mt-0.5 text-[11px] text-[var(--muted)]">
-                      {formatMoney(Number(d.shiftRate) || 0)}
-                    </div>
-                  </td>
-                  <td className="px-3 py-2 align-middle">
-                    <button
-                      type="button"
-                      onClick={() => void toggleActive(s)}
-                      className={
-                        s.active ? "text-[var(--accent)]" : "text-[var(--danger)]"
-                      }
-                    >
-                      {s.active ? "Активна" : "Отключена"}
-                    </button>
-                  </td>
-                  <td className="px-3 py-2 align-middle">
-                    <button
-                      type="button"
-                      disabled={!dirty || savingId === s.id}
-                      onClick={() => void saveRow(s)}
-                      className="rounded-md border border-[var(--line)] px-3 py-1.5 text-sm transition-colors enabled:hover:bg-subtle disabled:opacity-40"
-                    >
-                      {savingId === s.id ? "…" : "Сохранить"}
-                    </button>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-[var(--table-head)] text-xs uppercase text-[var(--muted)]">
+              <tr>
+                <th className="w-8 px-2 py-2 text-left">
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    onChange={toggleAll}
+                    aria-label="Выбрать все"
+                  />
+                </th>
+                <th className="w-px whitespace-nowrap px-2 py-2 text-left">
+                  №
+                </th>
+                <th className="w-px whitespace-nowrap px-2 py-2 text-left">
+                  Специальность
+                </th>
+                <th className="w-px whitespace-nowrap px-2 py-2 text-left">
+                  Час
+                </th>
+                <th className="w-px whitespace-nowrap px-2 py-2 text-left">
+                  Смена
+                </th>
+                <th className="w-full min-w-[12rem] px-2 py-2 text-left">
+                  Описание
+                </th>
+                <th className="w-px whitespace-nowrap px-2 py-2 text-left">
+                  Статус
+                </th>
+                <th className="w-10 px-2 py-2 text-left" />
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((s) => {
+                const d = drafts[s.id] ?? toDraft(s);
+                const dirty = isDirty(s);
+                return (
+                  <tr
+                    key={s.id}
+                    className={`border-t border-[var(--line)] ${
+                      s.active ? "" : "opacity-60"
+                    } ${selected.has(s.id) ? "bg-[var(--selected)]/40" : ""}`}
+                  >
+                    <td className="w-8 px-2 py-2 text-left align-middle">
+                      <input
+                        type="checkbox"
+                        checked={selected.has(s.id)}
+                        onChange={() => toggleOne(s.id)}
+                        aria-label={`Выбрать ${s.name}`}
+                      />
+                    </td>
+                    <td className="w-px whitespace-nowrap px-2 py-2 text-left align-middle">
+                      <input
+                        type="number"
+                        className={compactSortClass}
+                        value={d.sortOrder}
+                        onChange={(e) =>
+                          updateDraft(s.id, { sortOrder: e.target.value })
+                        }
+                      />
+                    </td>
+                    <td className="w-px whitespace-nowrap px-2 py-2 text-left align-middle">
+                      <input
+                        className={compactNameClass}
+                        value={d.name}
+                        onChange={(e) =>
+                          updateDraft(s.id, { name: e.target.value })
+                        }
+                      />
+                    </td>
+                    <td className="w-px whitespace-nowrap px-2 py-2 text-left align-middle">
+                      <input
+                        type="number"
+                        min={0}
+                        step={100}
+                        className={compactNumClass}
+                        value={d.hourlyRate}
+                        onChange={(e) =>
+                          updateDraft(s.id, { hourlyRate: e.target.value })
+                        }
+                      />
+                    </td>
+                    <td className="w-px whitespace-nowrap px-2 py-2 text-left align-middle">
+                      <input
+                        type="number"
+                        min={0}
+                        step={500}
+                        className={compactShiftClass}
+                        value={d.shiftRate}
+                        onChange={(e) =>
+                          updateDraft(s.id, { shiftRate: e.target.value })
+                        }
+                      />
+                    </td>
+                    <td className="w-full min-w-[12rem] px-2 py-2 text-left align-middle">
+                      <input
+                        className="field w-full py-1 px-2 text-left"
+                        value={d.description}
+                        onChange={(e) =>
+                          updateDraft(s.id, { description: e.target.value })
+                        }
+                        placeholder="Описание…"
+                      />
+                    </td>
+                    <td className="w-px whitespace-nowrap px-2 py-2 text-left align-middle">
+                      <button
+                        type="button"
+                        onClick={() => void toggleActive(s)}
+                        className={
+                          s.active
+                            ? "text-[var(--accent)]"
+                            : "text-[var(--danger)]"
+                        }
+                      >
+                        {s.active ? "Активна" : "Отключена"}
+                      </button>
+                    </td>
+                    <td className="w-10 px-2 py-2 text-left align-middle">
+                      <DirectoryIconButton
+                        title="Сохранить"
+                        disabled={!dirty || savingId === s.id}
+                        onClick={() => void saveRow(s)}
+                      >
+                        <IconSave />
+                      </DirectoryIconButton>
+                    </td>
+                  </tr>
+                );
+              })}
+              {filtered.length === 0 && (
+                <tr>
+                  <td
+                    colSpan={8}
+                    className="px-3 py-8 text-left text-[var(--muted)]"
+                  >
+                    Специальностей пока нет
                   </td>
                 </tr>
-              );
-            })}
-            {filtered.length === 0 && (
-              <tr>
-                <td
-                  colSpan={6}
-                  className="px-4 py-8 text-center text-[var(--muted)]"
-                >
-                  Специальностей пока нет
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <ConfirmDialog
+        open={confirmDelete}
+        title="Отключить специальности"
+        message={`Отключить выбранные специальности (${selected.size})? Назначения в сметах сохранятся.`}
+        confirmLabel="Отключить"
+        busy={busy}
+        onConfirm={() => void bulk("delete")}
+        onCancel={() => setConfirmDelete(false)}
+      />
     </div>
   );
 }

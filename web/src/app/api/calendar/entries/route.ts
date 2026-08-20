@@ -21,6 +21,7 @@ const createSchema = z.object({
   startTime: z.string().nullable().optional(),
   endTime: z.string().nullable().optional(),
   responsibleUserId: z.string().nullable().optional(),
+  clientId: z.string().nullable().optional(),
   assigneeIds: z.array(z.string().min(1)).optional(),
   lines: z.array(lineSchema).optional(),
 });
@@ -91,6 +92,18 @@ export async function POST(req: NextRequest) {
     const note = (body.note || "").trim();
     const assigneeIds = [...new Set(body.assigneeIds || [])];
     const lines = body.lines || [];
+    let clientId: string | null = null;
+
+    if (body.kind === "RENTAL" && body.clientId) {
+      const client = await prisma.client.findUnique({
+        where: { id: body.clientId },
+        select: { id: true },
+      });
+      if (!client) {
+        return NextResponse.json({ error: "Клиент не найден" }, { status: 400 });
+      }
+      clientId = client.id;
+    }
 
     if (body.kind === "RENTAL") {
       if (!body.responsibleUserId) {
@@ -152,6 +165,7 @@ export async function POST(req: NextRequest) {
         endTime: body.kind === "DAY_OFF" ? body.endTime!.trim() : null,
         responsibleUserId:
           body.kind === "RENTAL" ? body.responsibleUserId : null,
+        clientId: body.kind === "RENTAL" ? clientId : null,
         createdById: session.user.id,
         assignees:
           body.kind === "TASK" || body.kind === "DAY_OFF"

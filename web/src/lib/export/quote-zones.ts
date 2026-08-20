@@ -91,6 +91,10 @@ function hasDiscount(meta: ExportMeta) {
   return Math.max(0, Number(meta.discountPercent) || 0) > 0;
 }
 
+function priceColumnTitle(meta: ExportMeta) {
+  return meta.cashless ? "Цена (безнал)" : "Цена";
+}
+
 export function buildExportPreviewHtml(
   meta: ExportMeta,
   zones: ZoneInput[],
@@ -134,7 +138,7 @@ export function buildExportPreviewHtml(
   for (const z of summary.zones) {
     html += `<h2>${z.name}</h2>`;
     html += `<table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;width:100%">`;
-    html += `<tr><th>№</th><th>Наименование</th><th>Кол-во</th><th>Цена</th><th>Сумма</th></tr>`;
+    html += `<tr><th>№</th><th>Наименование</th><th>Кол-во</th><th>${priceColumnTitle(meta)}</th><th>Сумма</th></tr>`;
     let n = 0;
     for (const section of z.doc.sections) {
       html += `<tr><td colspan="5"><b>${section.title}</b></td></tr>`;
@@ -162,6 +166,7 @@ export async function exportQuoteZonesExcel(
   zones: ZoneInput[],
   blocks: QuoteBlockInput[],
   filters: ExportFilters,
+  opts?: { download?: boolean },
 ) {
   const filtered = filterBlocks(blocks, filters);
   const selectedZones = zones
@@ -264,7 +269,13 @@ export async function exportQuoteZonesExcel(
     ws.getCell(`A${r}`).value = zoneName;
     ws.getCell(`A${r}`).font = { bold: true, size: 14 };
     r += 2;
-    ws.getRow(r).values = ["№", "Оборудование / Услуги", "Кол-во", "Цена", "Сумма"];
+    ws.getRow(r).values = [
+      "№",
+      "Оборудование / Услуги",
+      "Кол-во",
+      priceColumnTitle(meta),
+      "Сумма",
+    ];
     ws.getRow(r).font = { bold: true };
     r += 1;
     let n = 0;
@@ -340,7 +351,7 @@ export async function exportQuoteZonesExcel(
         "№",
         "Оборудование / Услуги",
         "Кол-во",
-        "Цена",
+        priceColumnTitle(meta),
         "Сумма",
       ];
       ws.getRow(r).font = { bold: true };
@@ -377,12 +388,12 @@ export async function exportQuoteZonesExcel(
   }
 
   const buffer = await wb.xlsx.writeBuffer();
-  downloadBlob(
-    new Blob([buffer], {
-      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    }),
-    `${filenameBase(meta)}.xlsx`,
-  );
+  const filename = `${filenameBase(meta)}.xlsx`;
+  const blob = new Blob([buffer], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
+  if (opts?.download !== false) downloadBlob(blob, filename);
+  return { blob, filename };
 }
 
 export async function exportQuoteZonesPdf(
@@ -390,6 +401,7 @@ export async function exportQuoteZonesPdf(
   zones: ZoneInput[],
   blocks: QuoteBlockInput[],
   filters: ExportFilters,
+  opts?: { download?: boolean },
 ) {
   const filtered = filterBlocks(blocks, filters);
   const selectedZones = zones
@@ -536,7 +548,15 @@ export async function exportQuoteZonesPdf(
 
     autoTable(doc, {
       startY: y,
-      head: [["№", "Оборудование / Услуги", "Кол-во", "Цена", "Сумма"]],
+      head: [
+        [
+          "№",
+          "Оборудование / Услуги",
+          "Кол-во",
+          priceColumnTitle(meta),
+          "Сумма",
+        ],
+      ],
       body,
       styles: { font: "NotoSans", fontSize: 8, cellPadding: 1.5 },
       headStyles: {
@@ -581,5 +601,8 @@ export async function exportQuoteZonesPdf(
     doc.text(`К ОПЛАТЕ: ${moneyPlain(z.payable)}`, margin, ty);
   }
 
-  doc.save(`${filenameBase(meta)}.pdf`);
+  const filename = `${filenameBase(meta)}.pdf`;
+  const blob = doc.output("blob");
+  if (opts?.download !== false) downloadBlob(blob, filename);
+  return { blob, filename };
 }

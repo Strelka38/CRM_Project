@@ -15,11 +15,14 @@ export type AssignmentUserLike = {
   }>;
 } | null;
 
+export type AssignmentKindValue = "EVENT" | "MOUNT";
+
 export type AssignmentLike = {
   id: string;
   quoteId?: string;
   userId?: string | null;
   specialtyId: string;
+  kind?: AssignmentKindValue | string | null;
   payMode: "SHIFT" | "HOURLY";
   hours: number | null;
   rateOverride: number | null;
@@ -32,15 +35,30 @@ export type AssignmentLike = {
   user?: AssignmentUserLike;
 };
 
+export function assignmentKind(
+  a: { kind?: AssignmentKindValue | string | null },
+): AssignmentKindValue {
+  return String(a.kind || "").toUpperCase() === "MOUNT" ? "MOUNT" : "EVENT";
+}
+
 export function isFreelancerAssignment(a: {
   isFreelancer?: boolean | null;
   userId?: string | null;
 }): boolean {
-  return Boolean(a.isFreelancer) || !a.userId;
+  return Boolean(a.isFreelancer);
+}
+
+/** Слот из сметы без ФИО (не фрилансер). */
+export function isVacantAssignment(a: {
+  isFreelancer?: boolean | null;
+  userId?: string | null;
+}): boolean {
+  return !a.userId && !a.isFreelancer;
 }
 
 export function assignmentDisplayName(a: AssignmentLike): string {
-  if (isFreelancerAssignment(a)) {
+  if (isVacantAssignment(a)) return "";
+  if (isFreelancerAssignment(a) || !a.userId) {
     const name = (a.freelancerName || "").trim();
     return name || "Фрилансер";
   }
@@ -91,21 +109,22 @@ export function serializeAssignmentPay(a: AssignmentLike) {
     quoteId: a.quoteId,
     userId: a.userId ?? null,
     specialtyId: a.specialtyId,
+    kind: assignmentKind(a),
     payMode: a.payMode,
     hours: a.hours,
     rateOverride: a.rateOverride,
     bonus,
     montageAmount: Math.max(0, Number(a.montageAmount) || 0),
-    isFreelancer: isFreelancerAssignment(a),
+    isFreelancer: Boolean(a.isFreelancer),
     freelancerName: a.freelancerName || "",
     owners,
     hourlyRate: rates.hourlyRate,
     shiftRate: rates.shiftRate,
     pay,
-    user: isFreelancerAssignment(a)
+    user: isFreelancerAssignment(a) || isVacantAssignment(a)
       ? {
           id: "",
-          name,
+          name: name || (isVacantAssignment(a) ? "" : "Фрилансер"),
           email: "",
           firstName: "",
           lastName: "",

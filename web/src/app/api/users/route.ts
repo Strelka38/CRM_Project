@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
+import { getMasterTimezone } from "@/lib/app-settings";
 import {
   canAccessDatabase,
   canAssignRole,
@@ -85,6 +86,7 @@ export async function POST(req: NextRequest) {
         phone: body.phone || "",
         passwordHash: await bcrypt.hash(body.password, 10),
         role: body.role,
+        timezone: await getMasterTimezone(),
       },
       select: {
         id: true,

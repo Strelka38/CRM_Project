@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "QuoteSnapshot" ADD COLUMN IF NOT EXISTS "title" TEXT NOT NULL DEFAULT '';
