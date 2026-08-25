@@ -296,14 +296,14 @@ export function VenueEditor({ venueId }: { venueId: string }) {
                   alt={photo.filename}
                   className="aspect-[4/3] w-full object-cover"
                 />
-                <figcaption className="truncate px-2 py-1 text-[10px] text-[var(--muted)]">
+                <figcaption className="truncate px-2 py-1 text-caption text-[var(--muted)]">
                   {photo.filename}
                 </figcaption>
                 <button
                   type="button"
                   disabled={uploading}
                   onClick={() => void removePhoto(photo.id)}
-                  className="absolute right-1 top-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white opacity-0 transition-opacity group-hover:opacity-100 disabled:opacity-50"
+                  className="absolute right-1 top-1 rounded bg-black/60 px-1.5 py-0.5 text-caption text-white opacity-0 transition-opacity group-hover:opacity-100 disabled:opacity-50"
                 >
                   Удалить
                 </button>
@@ -320,8 +320,8 @@ export function VenueEditor({ venueId }: { venueId: string }) {
             К этой площадке ещё не привязаны сметы.
           </p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+          <div className="data-table-shell overflow-x-auto">
+            <table className="data-table w-full min-w-[600px] text-sm">
               <thead className="bg-[var(--table-head)] text-xs uppercase text-[var(--muted)]">
                 <tr>
                   <th className="px-2 py-2 text-left">КП</th>

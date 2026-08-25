@@ -75,6 +75,16 @@ const users = parseUserCsv(userCsv);
 assert.equal(users.rows[0].role, "BRIGADIER");
 assert.deepEqual(users.rows[0].owners, ["SHOW_MASTER", "DIAKOM"]);
 assert.deepEqual(users.rows[0].specialties, ["Звук", "Свет"]);
+assert.equal(users.rows[0].password, null);
+
+const exportLike = parseUserCsv(toCsv([
+  ["ID", "Email", "ФИО", "Фамилия", "Имя", "Отчество", "Телефон", "Роль", "Оклад", "Агентство %", "Фирмы", "Комментарий", "Активен", "Специальности", "Пароль"],
+  ["", "new@local.test", "Иванов Иван", "Иванов", "Иван", "", "", "EMPLOYEE", "0", "5", "ШМ", "", "0", "Звукооператор", ""],
+]));
+assert.equal(exportLike.errors.length, 0);
+assert.equal(exportLike.rows[0].email, "new@local.test");
+assert.equal(exportLike.rows[0].password, null);
+assert.deepEqual(exportLike.rows[0].specialties, ["Звукооператор"]);
 
 const rateCsv = toCsv([
   ["Название", "Порядок", "Час", "Смена", "Описание", "Активен"],

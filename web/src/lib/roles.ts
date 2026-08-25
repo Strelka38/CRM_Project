@@ -35,9 +35,55 @@ export function canManageAssignments(role: string | null | undefined): boolean {
   return isManager(role) || role === "BRIGADIER";
 }
 
+/** Календарь сроста / распределение сотрудников. */
+export function canAccessRoster(role: string | null | undefined): boolean {
+  return canManageAssignments(role);
+}
+
 /** Full quote/estimate editor and financial admin (manager + admin). */
 export function canManageQuotes(role: string | null | undefined): boolean {
   return isManager(role);
+}
+
+/** Open the estimate tab (read-only for brigadier). */
+export function canViewQuote(role: string | null | undefined): boolean {
+  return isManager(role) || role === "BRIGADIER";
+}
+
+/** Event dates, time, mount/demount on «Основное» (manager + brigadier). */
+export function canEditQuoteSchedule(role: string | null | undefined): boolean {
+  return isManager(role) || role === "BRIGADIER";
+}
+
+/** Meta keys a brigadier may PATCH on a quote. Blocks/zones are never allowed. */
+export const BRIGADIER_QUOTE_PATCH_KEYS = [
+  "brief",
+  "date",
+  "durationDays",
+  "time",
+  "mountDate",
+  "mountDurationDays",
+  "demountDate",
+  "demountDurationDays",
+] as const;
+
+export type BrigadierQuotePatchKey = (typeof BRIGADIER_QUOTE_PATCH_KEYS)[number];
+
+const BRIGADIER_QUOTE_PATCH_KEY_SET = new Set<string>(
+  BRIGADIER_QUOTE_PATCH_KEYS,
+);
+
+export function isBrigadierQuotePatchKey(key: string): boolean {
+  return BRIGADIER_QUOTE_PATCH_KEY_SET.has(key);
+}
+
+/** Disallowed keys in a brigadier PATCH body (`forceStock` is ignored). */
+export function forbiddenBrigadierQuotePatchKeys(
+  keys: readonly string[],
+): string[] {
+  return keys.filter(
+    (key) => key !== "forceStock" && !BRIGADIER_QUOTE_PATCH_KEY_SET.has(key),
+  );
 }
 
 /** See all events in lists (not only personal assignments). */
@@ -47,6 +93,13 @@ export function canSeeAllEvents(role: string | null | undefined): boolean {
 
 /** Edit event brief / ТЗ (manager + brigadier). */
 export function canEditBrief(role: string | null | undefined): boolean {
+  return isManager(role) || role === "BRIGADIER";
+}
+
+/** Upload/delete event files (manager + brigadier). Invoice-sent flag stays manager-only. */
+export function canManageEventAttachments(
+  role: string | null | undefined,
+): boolean {
   return isManager(role) || role === "BRIGADIER";
 }
 

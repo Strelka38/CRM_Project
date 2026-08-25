@@ -462,9 +462,9 @@ export function StatisticsView() {
                       description="За выбранный период нет подтверждённых или завершённых проектов"
                     />
                   ) : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left text-sm">
-                        <thead className="bg-[var(--table-head)] text-[11px] uppercase tracking-wider text-[var(--muted)]">
+                    <div className="data-table-shell overflow-x-auto">
+                      <table className="data-table data-table--editable w-full min-w-[900px] text-left text-sm">
+                        <thead className="bg-[var(--table-head)] text-caption uppercase tracking-wider text-[var(--muted)]">
                           <tr>
                             <th className="w-10 px-3 py-2 text-left">
                               <input
@@ -591,7 +591,7 @@ export function StatisticsView() {
                         {c.short} · {c.label}
                       </p>
                       <p
-                        className={`mt-1 text-2xl font-light tracking-tight ${
+                        className={`mt-1 text-2xl font-medium tracking-tight ${
                           c.profit < 0
                             ? "text-[var(--danger)]"
                             : "text-[var(--accent-deep)]"
@@ -622,9 +622,9 @@ export function StatisticsView() {
                       description="За выбранный период нет подтверждённых или завершённых проектов"
                     />
                   ) : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left text-sm">
-                        <thead className="bg-[var(--table-head)] text-[11px] uppercase tracking-wider text-[var(--muted)]">
+                    <div className="data-table-shell overflow-x-auto">
+                      <table className="data-table data-table--editable w-full min-w-[700px] text-left text-sm">
+                        <thead className="bg-[var(--table-head)] text-caption uppercase tracking-wider text-[var(--muted)]">
                           <tr>
                             <th className="w-10 px-3 py-2 text-left">
                               <input
@@ -681,19 +681,19 @@ export function StatisticsView() {
                                 </td>
                                 <td className="px-4 py-3 text-left tabular-nums">
                                   <div>{formatMoney(sm?.profit ?? 0)}</div>
-                                  <div className="text-[11px] text-[var(--muted)]">
+                                  <div className="text-caption text-[var(--muted)]">
                                     {formatMoney(sm?.revenue ?? 0)}
                                   </div>
                                 </td>
                                 <td className="px-4 py-3 text-left tabular-nums">
                                   <div>{formatMoney(dk?.profit ?? 0)}</div>
-                                  <div className="text-[11px] text-[var(--muted)]">
+                                  <div className="text-caption text-[var(--muted)]">
                                     {formatMoney(dk?.revenue ?? 0)}
                                   </div>
                                 </td>
                                 <td className="px-4 py-3 text-left tabular-nums">
                                   <div>{formatMoney(ni?.profit ?? 0)}</div>
-                                  <div className="text-[11px] text-[var(--muted)]">
+                                  <div className="text-caption text-[var(--muted)]">
                                     {formatMoney(ni?.revenue ?? 0)}
                                   </div>
                                 </td>
@@ -710,7 +710,7 @@ export function StatisticsView() {
                           })}
                         </tbody>
                       </table>
-                      <p className="border-t border-[var(--line)] px-4 py-2 text-[11px] text-[var(--muted)]">
+                      <p className="border-t border-[var(--line)] px-4 py-2 text-caption text-[var(--muted)]">
                         В ячейках: сверху прибыль фирмы, снизу выручка.
                       </p>
                     </div>
@@ -777,9 +777,9 @@ export function StatisticsView() {
                       description="За выбранный период назначений не найдено"
                     />
                   ) : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left text-sm">
-                        <thead className="bg-[var(--table-head)] text-[11px] uppercase tracking-wider text-[var(--muted)]">
+                    <div className="data-table-shell overflow-x-auto">
+                      <table className="data-table data-table--editable w-full min-w-[560px] text-left text-sm">
+                        <thead className="bg-[var(--table-head)] text-caption uppercase tracking-wider text-[var(--muted)]">
                           <tr>
                             <th className="w-10 px-3 py-2 text-left">
                               <input
@@ -860,9 +860,9 @@ export function StatisticsView() {
                       description="У выбранного сотрудника нет назначений за период"
                     />
                   ) : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left text-sm">
-                        <thead className="bg-[var(--table-head)] text-[11px] uppercase tracking-wider text-[var(--muted)]">
+                    <div className="data-table-shell overflow-x-auto">
+                      <table className="data-table data-table--editable w-full min-w-[800px] text-left text-sm">
+                        <thead className="bg-[var(--table-head)] text-caption uppercase tracking-wider text-[var(--muted)]">
                           <tr>
                             <th className="w-10 px-3 py-2 text-left">
                               <input
@@ -1072,9 +1072,9 @@ function WorkloadSection({ data }: { data: StatsData }) {
             description="За выбранный период назначений не найдено"
           />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-[var(--table-head)] text-[11px] uppercase tracking-wider text-[var(--muted)]">
+          <div className="data-table-shell overflow-x-auto">
+            <table className="data-table w-full min-w-[560px] text-left text-sm">
+              <thead className="bg-[var(--table-head)] text-caption uppercase tracking-wider text-[var(--muted)]">
                 <tr>
                   <th className="px-4 py-3">Сотрудник</th>
                   <th className="px-4 py-3 text-left">Смены</th>
@@ -1214,7 +1214,7 @@ function EmployeeCheckFilter({
         className="field mt-1 flex min-w-[16rem] items-center justify-between gap-2 text-left"
       >
         <span className="truncate">{label}</span>
-        <span className="text-[10px] opacity-70" aria-hidden>
+        <span className="text-caption opacity-70" aria-hidden>
           {open ? "▴" : "▾"}
         </span>
       </button>
@@ -1262,9 +1262,9 @@ function WorkloadRowsTable({
   showPerson?: boolean;
 }) {
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-left text-sm">
-        <thead className="bg-[var(--table-head)] text-[11px] uppercase tracking-wider text-[var(--muted)]">
+    <div className="data-table-shell overflow-x-auto">
+      <table className="data-table w-full min-w-[800px] text-left text-sm">
+        <thead className="bg-[var(--table-head)] text-caption uppercase tracking-wider text-[var(--muted)]">
           <tr>
             {showPerson && <th className="px-4 py-3">Сотрудник</th>}
             <th className="px-4 py-3">Мероприятие</th>
@@ -1341,7 +1341,7 @@ function StatCard({
         {label}
       </p>
       <p
-        className={`mt-1 text-2xl font-light tracking-tight ${
+        className={`mt-1 text-2xl font-medium tracking-tight ${
           danger
             ? "text-[var(--danger)]"
             : accent

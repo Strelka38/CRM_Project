@@ -18,3 +18,4 @@ export { PageHeader } from "./PageHeader";
 export { Skeleton, TableSkeleton } from "./Skeleton";
 export { EmptyState } from "./EmptyState";
 export { NavLink } from "./NavLink";
+export { PriceInput } from "./PriceInput";

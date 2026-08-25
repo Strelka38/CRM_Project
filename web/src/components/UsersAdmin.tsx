@@ -34,8 +34,13 @@ type UserRow = {
   monthlySalary: number;
   owners: CatalogOwnerValue[];
   createdAt: string;
-  specialties?: Array<{ specialty: { name: string } }>;
+  specialties?: Array<{ specialty: { id?: string; name: string } }>;
 };
+
+type SpecialtyOpt = { id: string; name: string };
+
+const BULK_SELECT =
+  "max-w-[10.5rem] rounded-md border border-[var(--line)] bg-[var(--panel)] px-1.5 py-1 text-xs text-[var(--ink)] disabled:opacity-40";
 
 export function UsersAdmin({ actorRole }: { actorRole: string }) {
   const [users, setUsers] = useState<UserRow[]>([]);
@@ -55,6 +60,8 @@ export function UsersAdmin({ actorRole }: { actorRole: string }) {
     id: string;
     name: string;
   } | null>(null);
+  const [specialties, setSpecialties] = useState<SpecialtyOpt[]>([]);
+  const selectAllRef = useRef<HTMLInputElement>(null);
   const createRoles = assignableRoles(actorRole);
   const canReset = canResetUserPassword(actorRole);
 
@@ -75,6 +82,12 @@ export function UsersAdmin({ actorRole }: { actorRole: string }) {
 
   useEffect(() => {
     void load();
+    void fetch("/api/specialties")
+      .then((res) => (res.ok ? res.json() : []))
+      .then((rows: SpecialtyOpt[]) => {
+        if (Array.isArray(rows)) setSpecialties(rows);
+      })
+      .catch(() => setSpecialties([]));
   }, []);
 
   async function createUser() {
@@ -128,15 +141,27 @@ export function UsersAdmin({ actorRole }: { actorRole: string }) {
     });
   }
 
-  async function bulkDelete() {
+  async function bulk(
+    action: "delete" | "activate" | "deactivate" | "role" | "addSpecialty",
+    extra?: Record<string, unknown>,
+  ) {
     if (selected.size === 0) return;
     setBusy(true);
     setError("");
     try {
-      await postBulkAction("/api/users/bulk", "delete", [...selected]);
-      setSelected(new Set());
+      const result = await postBulkAction(
+        "/api/users/bulk",
+        action,
+        [...selected],
+        extra,
+      );
       setConfirmDelete(false);
       void load();
+      if (result.skipped) {
+        setCsvMessage(
+          `Обновлено ${result.count ?? 0}, пропущено ${result.skipped}`,
+        );
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Не удалось выполнить");
     } finally {
@@ -170,6 +195,13 @@ export function UsersAdmin({ actorRole }: { actorRole: string }) {
   }
 
   const allSelected = users.length > 0 && users.every((u) => selected.has(u.id));
+  const someSelected = selected.size > 0 && !allSelected;
+
+  useEffect(() => {
+    if (selectAllRef.current) {
+      selectAllRef.current.indeterminate = someSelected;
+    }
+  }, [someSelected]);
 
   return (
     <div className="w-full px-4 py-6 md:px-6">
@@ -177,7 +209,7 @@ export function UsersAdmin({ actorRole }: { actorRole: string }) {
         <p className="text-xs uppercase tracking-[0.15em] text-[var(--muted)]">
           База данных
         </p>
-        <h1 className="mt-1 text-3xl font-light tracking-tight">Пользователи</h1>
+        <h1 className="mt-1 text-3xl font-medium tracking-tight">Пользователи</h1>
         <p className="mt-1 text-sm text-[var(--muted)]">
           Менеджеров назначает только админ. Базовые ставки — во вкладке
           «Ставки», индивидуальные — в карточке сотрудника.
@@ -196,6 +228,67 @@ export function UsersAdmin({ actorRole }: { actorRole: string }) {
               count={selected.size}
               disabled={busy}
               onDelete={() => setConfirmDelete(true)}
+              extra={
+                <>
+                  <span className="px-1.5 text-xs tabular-nums text-[var(--accent)]">
+                    {selected.size}
+                  </span>
+                  <select
+                    className={BULK_SELECT}
+                    defaultValue=""
+                    disabled={busy}
+                    aria-label="Роль выбранных"
+                    onChange={(e) => {
+                      const role = e.target.value as AppRole;
+                      e.target.value = "";
+                      if (role) void bulk("role", { role });
+                    }}
+                  >
+                    <option value="">Роль…</option>
+                    {createRoles.map((r) => (
+                      <option key={r} value={r}>
+                        {roleLabelRuTitle(r)}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    className={BULK_SELECT}
+                    defaultValue=""
+                    disabled={busy || specialties.length === 0}
+                    aria-label="Должность выбранных"
+                    onChange={(e) => {
+                      const specialtyId = e.target.value;
+                      e.target.value = "";
+                      if (specialtyId) {
+                        void bulk("addSpecialty", { specialtyId });
+                      }
+                    }}
+                  >
+                    <option value="">Должность…</option>
+                    {specialties.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    className={BULK_SELECT}
+                    defaultValue=""
+                    disabled={busy}
+                    aria-label="Статус выбранных"
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      e.target.value = "";
+                      if (value === "on") void bulk("activate");
+                      if (value === "off") setConfirmDelete(true);
+                    }}
+                  >
+                    <option value="">Статус…</option>
+                    <option value="on">Активен</option>
+                    <option value="off">Отключён</option>
+                  </select>
+                </>
+              }
             />
             <DirectoryCsvMenu
               busy={csvBusy}
@@ -278,12 +371,13 @@ export function UsersAdmin({ actorRole }: { actorRole: string }) {
           </div>
         ) : null}
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
+        <div className="data-table-shell overflow-x-auto">
+          <table className="data-table data-table--editable w-full text-left text-sm">
             <thead className="bg-[var(--table-head)] text-xs uppercase text-[var(--muted)]">
               <tr>
                 <th className="w-10 px-3 py-2 text-left">
                   <input
+                    ref={selectAllRef}
                     type="checkbox"
                     checked={allSelected}
                     onChange={toggleAll}
@@ -387,7 +481,7 @@ export function UsersAdmin({ actorRole }: { actorRole: string }) {
         message={`Отключить выбранные учётки (${selected.size})? Последний админ не отключается.`}
         confirmLabel="Отключить"
         busy={busy}
-        onConfirm={() => void bulkDelete()}
+        onConfirm={() => void bulk("deactivate")}
         onCancel={() => setConfirmDelete(false)}
       />
 

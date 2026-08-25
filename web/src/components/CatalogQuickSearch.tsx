@@ -159,7 +159,7 @@ export function CatalogQuickSearch({
         />
       </div>
       {zoneName ? (
-        <p className="mt-0.5 text-[10px] text-[var(--muted)]">
+        <p className="mt-0.5 text-caption text-[var(--muted)]">
           / — поиск · ⌘K — каталог · qty {parseQty(qty)} в «{zoneName}»
         </p>
       ) : null}
@@ -195,7 +195,7 @@ export function CatalogQuickSearch({
                 onClick={() => pick(item)}
               >
                 <span className="block truncate text-sm">{item.name}</span>
-                <span className="block truncate text-[10px] text-[var(--muted)]">
+                <span className="block truncate text-caption text-[var(--muted)]">
                   {item.category?.path || item.category?.name || ""}
                   {item.basePrice != null
                     ? ` · ${formatMoney(item.basePrice)}`

@@ -10,6 +10,10 @@ function line(partial: Partial<SpecLine> & { key: string }): SpecLine {
   return {
     deriveKey: partial.deriveKey ?? partial.key,
     source: partial.source ?? "derived",
+    zoneId: partial.zoneId ?? null,
+    zoneName: partial.zoneName ?? null,
+    zoneSortOrder: partial.zoneSortOrder ?? null,
+    zoneActive: partial.zoneActive !== false,
     type: partial.type ?? "ITEM",
     title: partial.title ?? null,
     name: partial.name ?? partial.key,
@@ -25,7 +29,16 @@ function line(partial: Partial<SpecLine> & { key: string }): SpecLine {
 }
 
 const current: SpecLine[] = [
-  line({ key: "item:a", deriveKey: "item:a", name: "Zoom (переименован)", qty: 2, hidden: true }),
+  line({
+    key: "item:a",
+    deriveKey: "item:a",
+    name: "Zoom (переименован)",
+    qty: 2,
+    hidden: true,
+    zoneId: "zone-old",
+    zoneName: "Старая зона",
+    zoneSortOrder: 5,
+  }),
   line({ key: "item:gone", deriveKey: "item:gone", name: "Старый прибор" }),
   line({
     key: "extra:1",
@@ -38,7 +51,15 @@ const current: SpecLine[] = [
 ];
 
 const incoming: SpecLine[] = [
-  line({ key: "item:a", deriveKey: "item:a", name: "Zoom", qty: 6 }),
+  line({
+    key: "item:a",
+    deriveKey: "item:a",
+    name: "Zoom",
+    qty: 6,
+    zoneId: "zone-main",
+    zoneName: "Сцена",
+    zoneSortOrder: 0,
+  }),
   line({ key: "item:new", deriveKey: "item:new", name: "Новый свет" }),
 ];
 
@@ -60,11 +81,15 @@ const zoom = merged.find((l) => l.key === "item:a")!;
 assert.equal(zoom.hidden, true);
 assert.equal(zoom.name, "Zoom (переименован)");
 assert.equal(zoom.qty, 2);
+assert.equal(zoom.zoneId, "zone-main");
+assert.equal(zoom.zoneName, "Сцена");
 assert.ok(merged.some((l) => l.key === "extra:1"));
 assert.ok(!merged.some((l) => l.key === "item:gone"));
 
 const parsed = parseSpecLines(JSON.parse(JSON.stringify(merged)));
 assert.equal(parsed.length, 3);
 assert.equal(parsed[0].hidden, true);
+assert.equal(parsed[0].zoneId, "zone-main");
+assert.equal(parsed[0].zoneName, "Сцена");
 
 console.log("spec-merge.test.ts ok");

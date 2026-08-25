@@ -165,7 +165,7 @@ export function LegalEntityEditor({ entityId }: { entityId: string }) {
         >
           ← Назад
         </button>
-        <h1 className="text-xl font-light">Карточка юрлица</h1>
+        <h1 className="text-xl font-medium">Карточка юрлица</h1>
         <button
           type="button"
           disabled={saving}

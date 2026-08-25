@@ -44,7 +44,7 @@ function FirmBadges({ owners }: { owners?: CatalogOwnerValue[] | null }) {
         <span
           key={o.value}
           title={o.label}
-          className="rounded border border-[var(--solid)] bg-[var(--solid)] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[var(--on-solid)]"
+          className="rounded border border-[var(--solid)] bg-[var(--solid)] px-1.5 py-0.5 text-caption font-medium uppercase tracking-wide text-[var(--on-solid)]"
         >
           {o.short}
         </span>
@@ -157,8 +157,8 @@ export function QuoteSummary({
           применяется к безналичной цене позиций (база — наличные).
         </p>
 
-        <div className="overflow-x-auto rounded-xl border border-[var(--line)] bg-[var(--panel)]">
-          <table className="w-full min-w-[720px] text-sm">
+        <div className="data-table-shell">
+          <table className="data-table w-full min-w-[680px] text-sm">
             <thead className="bg-[var(--table-head)] text-xs uppercase text-[var(--muted)]">
               <tr>
                 <th className="px-3 py-2 text-left">№</th>
@@ -182,7 +182,7 @@ export function QuoteSummary({
                   <td className="px-3 py-2 font-medium">
                     {z.name}
                     {z.active === false ? (
-                      <span className="ml-2 text-[10px] font-normal uppercase tracking-wide text-[var(--muted)]">
+                      <span className="ml-2 text-caption font-normal uppercase tracking-wide text-[var(--muted)]">
                         выкл.
                       </span>
                     ) : null}
@@ -260,7 +260,7 @@ export function QuoteSummary({
                 key={o.value}
                 className="rounded-lg border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-sm"
               >
-                <span className="mr-2 rounded border border-[var(--solid)] bg-[var(--solid)] px-1.5 py-0.5 text-[10px] font-medium uppercase text-[var(--on-solid)]">
+                <span className="mr-2 rounded border border-[var(--solid)] bg-[var(--solid)] px-1.5 py-0.5 text-caption font-medium uppercase text-[var(--on-solid)]">
                   {o.short}
                 </span>
                 <span className="text-[var(--muted)]">{o.label}: </span>
@@ -280,8 +280,8 @@ export function QuoteSummary({
           )}
         </div>
 
-        <div className="overflow-x-auto rounded-xl border border-[var(--line)] bg-[var(--panel)]">
-          <table className="w-full min-w-[640px] text-sm">
+        <div className="data-table-shell">
+          <table className="data-table w-full min-w-[600px] text-sm">
             <thead className="bg-[var(--table-head)] text-xs uppercase text-[var(--muted)]">
               <tr>
                 <th className="px-3 py-2 text-left">Сотрудник</th>
@@ -316,7 +316,7 @@ export function QuoteSummary({
                     <td className="px-3 py-2 font-medium">
                       {a.user.name}
                       {a.isFreelancer ? (
-                        <span className="ml-1 text-[10px] font-normal text-[var(--muted)]">
+                        <span className="ml-1 text-caption font-normal text-[var(--muted)]">
                           фр.
                         </span>
                       ) : null}

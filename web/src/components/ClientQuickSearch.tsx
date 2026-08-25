@@ -156,7 +156,7 @@ export function ClientQuickSearch({
               onClick={() => pick(item)}
             >
               <span className="block truncate text-sm">{item.companyName}</span>
-              <span className="block truncate text-[10px] text-[var(--muted)]">
+              <span className="block truncate text-caption text-[var(--muted)]">
                 {[item.contactName, item.phone, item.inn ? `ИНН ${item.inn}` : ""]
                   .filter(Boolean)
                   .join(" · ") || "Без контакта"}

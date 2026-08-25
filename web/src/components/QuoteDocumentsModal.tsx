@@ -5,6 +5,7 @@ import type { ZoneTab } from "@/components/QuoteZoneTabs";
 import { customerWarnings, type LegalDocInput } from "@/lib/legal-docs";
 import { formatMoney } from "@/lib/format";
 import type { QuoteBlockInput } from "@/lib/quote-calc";
+import type { ExportMeta } from "@/lib/export/quote-zones";
 
 type Account = {
   id: string;
@@ -65,20 +66,7 @@ export type QuoteDocumentsPanelProps = {
   blocks: QuoteBlockInput[];
   canEdit?: boolean;
   onInvoiceSentChange?: (sent: boolean) => void;
-  exportMeta: {
-    proposalNumber: string;
-    eventName: string;
-    date: string;
-    time: string;
-    place: string;
-    client: string;
-    managerName: string;
-    cashless: boolean;
-    cashlessPercent: number;
-    durationDays: number;
-    discountPercent: number;
-    notes: string[];
-  };
+  exportMeta: ExportMeta;
 };
 
 function todayRu() {
@@ -317,9 +305,15 @@ export function QuoteDocumentsPanel({
           showServicePrice: true,
           zoneIds: zones.map((z) => z.id),
         };
+        const kpMeta: ExportMeta = {
+          ...exportMeta,
+          clientId,
+          ownerId: exportMeta.ownerId,
+          managerPhone: exportMeta.managerPhone,
+        };
         if (attachPdf) {
           const pdf = await mod.exportQuoteZonesPdf(
-            exportMeta,
+            kpMeta,
             zones,
             blocks,
             filters,
@@ -328,7 +322,7 @@ export function QuoteDocumentsPanel({
         }
         if (attachXls) {
           const xls = await mod.exportQuoteZonesExcel(
-            exportMeta,
+            kpMeta,
             zones,
             blocks,
             filters,
@@ -585,13 +579,13 @@ export function QuoteDocumentsPanel({
                     title="Счёт отправлен заказчику"
                     onChange={() => void toggleInvoiceSent(a)}
                   />
-                  <span className="text-[10px] leading-tight text-[var(--muted)]">
+                  <span className="text-caption leading-tight text-[var(--muted)]">
                     {a.invoiceSent ? "отправлен" : "счёт"}
                   </span>
                 </label>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{a.filename}</p>
-                  <p className="text-[11px] text-[var(--muted)]">
+                  <p className="text-caption text-[var(--muted)]">
                     {formatWhen(a.createdAt)}
                     {a.uploader?.name ? ` · ${a.uploader.name}` : ""}
                     {` · ${formatBytes(a.size)}`}

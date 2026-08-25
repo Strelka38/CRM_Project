@@ -304,7 +304,7 @@ export function RatesAdmin() {
         <p className="text-xs uppercase tracking-[0.15em] text-[var(--muted)]">
           База данных
         </p>
-        <h1 className="mt-1 text-3xl font-light tracking-tight">Ставки</h1>
+        <h1 className="mt-1 text-3xl font-medium tracking-tight">Ставки</h1>
         <p className="mt-1 text-sm text-[var(--muted)]">
           Справочник специальностей и базовые ставки. При назначении сотруднику
           подставляются эти значения — индивидуальные ставки правятся в карточке
@@ -425,8 +425,8 @@ export function RatesAdmin() {
           </div>
         ) : null}
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
+        <div className="data-table-shell overflow-x-auto">
+          <table className="data-table data-table--editable w-full text-left text-sm">
             <thead className="bg-[var(--table-head)] text-xs uppercase text-[var(--muted)]">
               <tr>
                 <th className="w-8 px-2 py-2 text-left">

@@ -155,6 +155,10 @@ BOOTSTRAP_MANAGER_NAME="$(env_escape "$ADMIN_NAME")"
 EOF
 
 echo
+echo "==> Каталоги данных: data/postgres, data/uploads, backups"
+mkdir -p "$ROOT/data/postgres" "$ROOT/data/uploads" "$ROOT/backups"
+
+echo
 echo "==> Собираю и запускаю контейнеры..."
 "${COMPOSE[@]}" up -d --build
 
@@ -168,6 +172,9 @@ echo
 echo "Сертификат выпускает Caddy (Let's Encrypt)."
 echo "Если HTTPS ещё не открывается — подождите минуту"
 echo "и проверьте, что домен указывает на этот сервер."
+echo
+echo "Данные:   ./data/postgres  ./data/uploads"
+echo "Снимки:   ./backups        (./scripts/backup.sh)"
 echo
 echo "Управление:"
 echo "  ${COMPOSE[*]} ps"

@@ -1,9 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ItemDrawer, type DrawerItem } from "@/components/ItemDrawer";
 import { type PickedCatalogItem } from "@/components/CatalogPicker";
 import { cn } from "@/lib/cn";
+import {
+  beginCatalogDrag,
+  endCatalogDrag,
+  setCatalogDragData,
+} from "@/lib/catalog-dnd";
 
 type CategoryNode = {
   id: string;
@@ -27,6 +32,45 @@ type Props = {
   addTargetLabel?: string;
 };
 
+const CATALOG_NAV = "[data-catalog-nav]";
+
+function bumpCatalogQty(raw: string, dir: -1 | 1): string {
+  const n = Math.round(Number(raw));
+  const base = Number.isFinite(n) && n > 0 ? n : 1;
+  return String(Math.max(1, base + dir));
+}
+
+function focusCatalogNav(from: HTMLElement, dir: -1 | 1) {
+  const tree = from.closest("[data-catalog-tree]");
+  const sidebar = from.closest("[data-catalog-sidebar]");
+  const list = Array.from(
+    tree?.querySelectorAll<HTMLElement>(CATALOG_NAV) ?? [],
+  );
+  const index = list.indexOf(from);
+  const next = index >= 0 ? list[index + dir] : undefined;
+  if (!next) {
+    if (dir === -1) {
+      sidebar
+        ?.querySelector<HTMLInputElement>("input[type='search']")
+        ?.focus();
+    }
+    return;
+  }
+  next.focus();
+  if (next instanceof HTMLInputElement) next.select();
+  next.scrollIntoView({ block: "nearest" });
+}
+
+function focusFirstCatalogNav(sidebar: HTMLElement) {
+  const first = sidebar
+    .querySelector("[data-catalog-tree]")
+    ?.querySelector<HTMLElement>(CATALOG_NAV);
+  if (!first) return;
+  first.focus();
+  if (first instanceof HTMLInputElement) first.select();
+  first.scrollIntoView({ block: "nearest" });
+}
+
 function FolderIcon({ open }: { open: boolean }) {
   return (
     <svg
@@ -49,31 +93,44 @@ function FolderIcon({ open }: { open: boolean }) {
 }
 
 function InlineQtyAdd({
+  qty,
+  onQtyChange,
   onAdd,
   addTargetLabel,
 }: {
+  qty: string;
+  onQtyChange: (qty: string) => void;
   onAdd: (qty: number) => void;
   addTargetLabel: string;
 }) {
-  const [qty, setQty] = useState("1");
+  const inputRef = useRef<HTMLInputElement>(null);
   const [justAdded, setJustAdded] = useState(false);
+  const reselect = useRef(false);
+
+  useLayoutEffect(() => {
+    if (!reselect.current) return;
+    reselect.current = false;
+    inputRef.current?.select();
+  }, [qty]);
 
   function submit() {
     const n = Math.max(1, Math.round(Number(qty) || 1));
     onAdd(n);
-    setQty("1");
+    onQtyChange("");
     setJustAdded(true);
     window.setTimeout(() => setJustAdded(false), 1100);
+    window.requestAnimationFrame(() => inputRef.current?.focus());
   }
 
   return (
-    <div className="flex items-center gap-1.5 py-0.5">
+    <div className="flex items-center gap-1 py-0.5">
       <button
         type="button"
+        tabIndex={-1}
         title={`Добавить в ${addTargetLabel}`}
         aria-label={`Добавить в ${addTargetLabel}`}
         className={cn(
-          "flex size-6 shrink-0 items-center justify-center rounded-full text-sm font-semibold leading-none text-white transition-colors",
+          "flex size-5 shrink-0 items-center justify-center rounded-full text-xs font-semibold leading-none text-white transition-colors",
           justAdded ? "bg-emerald-600" : "bg-[var(--accent)] hover:opacity-90",
         )}
         onClick={submit}
@@ -81,20 +138,169 @@ function InlineQtyAdd({
         {justAdded ? "✓" : "+"}
       </button>
       <input
-        type="number"
-        min={1}
-        step={1}
+        ref={inputRef}
+        type="text"
+        inputMode="numeric"
+        autoComplete="off"
+        spellCheck={false}
+        data-catalog-nav="qty"
         value={qty}
-        onChange={(e) => setQty(e.target.value)}
+        onChange={(e) => {
+          const raw = e.target.value;
+          if (raw !== "" && !/^\d+$/.test(raw)) return;
+          onQtyChange(raw);
+        }}
+        onFocus={(e) => e.currentTarget.select()}
         onKeyDown={(e) => {
           if (e.key === "Enter") {
             e.preventDefault();
             submit();
+            return;
+          }
+          if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+            e.preventDefault();
+            reselect.current = true;
+            onQtyChange(
+              bumpCatalogQty(qty, e.key === "ArrowLeft" ? -1 : 1),
+            );
+            return;
+          }
+          if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+            e.preventDefault();
+            focusCatalogNav(e.currentTarget, e.key === "ArrowUp" ? -1 : 1);
           }
         }}
-        className="quote-catalog-qty field !h-7 !w-12 px-1 py-0 text-center text-sm font-semibold tabular-nums !text-[var(--ink)]"
+        className="quote-catalog-qty field !h-6 !w-10 px-1 py-0 text-center text-xs font-semibold tabular-nums !text-[var(--ink)]"
         aria-label="Количество"
       />
+    </div>
+  );
+}
+
+function CatalogItemRow({
+  item,
+  branched,
+  addTargetLabel,
+  currentQty,
+  currentQtyLabel,
+  onPickItem,
+  onOpenDrawer,
+}: {
+  item: PickedCatalogItem;
+  branched: boolean;
+  addTargetLabel: string;
+  currentQty: number;
+  currentQtyLabel: string;
+  onPickItem: (item: PickedCatalogItem, qty?: number) => void;
+  onOpenDrawer: (item: PickedCatalogItem) => void;
+}) {
+  const [qty, setQty] = useState("1");
+  const [dragging, setDragging] = useState(false);
+  const available = item.available ?? item.stockQty;
+  const low = available <= 0;
+  const addQty = Math.max(1, Math.round(Number(qty) || 1));
+
+  return (
+    <div className="relative">
+      {branched ? (
+        <span
+          className="catalog-tree-guide catalog-tree-guide-h absolute -left-3 top-5 h-px w-3"
+          aria-hidden
+        />
+      ) : null}
+      <div
+        draggable
+        title={`Перетащить в ${addTargetLabel}`}
+        onClick={(e) => {
+          const target = e.target as HTMLElement;
+          if (target.closest("input, button, [data-no-drag]")) return;
+          const qtyInput = e.currentTarget.querySelector<HTMLInputElement>(
+            'input[data-catalog-nav="qty"]',
+          );
+          qtyInput?.focus();
+        }}
+        onDragStart={(e) => {
+          const target = e.target as HTMLElement;
+          if (target.closest("input, [data-no-drag]")) {
+            e.preventDefault();
+            return;
+          }
+          const payload = beginCatalogDrag(item, addQty);
+          setCatalogDragData(e.dataTransfer, payload);
+          setDragging(true);
+        }}
+        onDragEnd={() => {
+          endCatalogDrag();
+          setDragging(false);
+        }}
+        className={cn(
+          "flex min-w-0 cursor-grab items-start gap-1 border-b border-[var(--line)]/50 px-1 py-0.5 hover:bg-[var(--header-hover)] active:cursor-grabbing",
+          dragging && "opacity-50",
+        )}
+      >
+        <span className="mt-1 shrink-0 text-caption text-[var(--muted)]" aria-hidden>
+          ▱
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="grid min-w-0 grid-cols-[1.5rem_1.5rem_2.75rem_minmax(0,1fr)_1.1rem] items-center gap-0.5">
+            <span
+              className={cn(
+                "text-right text-xs font-bold tabular-nums",
+                low ? "text-amber-400" : "text-sky-400",
+              )}
+              title={
+                item.available != null
+                  ? `На складе ${item.stockQty} · свободно ${available}`
+                  : `На складе ${item.stockQty}`
+              }
+            >
+              {item.stockQty}
+            </span>
+            <span
+              className="text-right text-xs font-semibold tabular-nums text-[var(--muted)]"
+              title={currentQtyLabel}
+            >
+              {currentQty}
+            </span>
+            <span
+              className="text-right text-xs font-bold tabular-nums text-emerald-500 dark:text-emerald-400"
+              title="Цена за штуку"
+            >
+              {Math.round(item.basePrice)}
+            </span>
+            <button
+              type="button"
+              tabIndex={-1}
+              className="min-w-0 truncate text-left text-xs font-medium text-[var(--ink)] hover:text-[var(--accent)] hover:underline"
+              title={item.name}
+              onClick={() => onOpenDrawer(item)}
+            >
+              {item.name}
+            </button>
+            <button
+              type="button"
+              tabIndex={-1}
+              data-no-drag
+              className="flex size-5 items-center justify-center rounded-full border border-[var(--line)] text-caption text-[var(--muted)] hover:text-[var(--ink)]"
+              title="Карточка"
+              aria-label={`Карточка ${item.name}`}
+              onClick={() => onOpenDrawer(item)}
+            >
+              i
+            </button>
+          </div>
+          <div className="mt-0.5" data-no-drag>
+            <InlineQtyAdd
+              qty={qty}
+              onQtyChange={setQty}
+              addTargetLabel={addTargetLabel}
+              onAdd={(n) => {
+                onPickItem(item, n);
+              }}
+            />
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -238,77 +444,17 @@ export function QuoteCatalogSidebar({
   }
 
   function renderItem(item: PickedCatalogItem, branched = true) {
-    const available = item.available ?? item.stockQty;
-    const low = available <= 0;
-    const currentQty = currentQtyByItem?.get(item.id) || 0;
     return (
-      <div key={item.id} className="relative">
-        {branched ? (
-          <span
-            className="catalog-tree-guide catalog-tree-guide-h absolute -left-3 top-5 h-px w-3"
-            aria-hidden
-          />
-        ) : null}
-        <div className="flex min-w-0 items-start gap-1 border-b border-[var(--line)]/40 px-1 py-1 hover:bg-[var(--header-hover)]">
-          <span className="mt-1 shrink-0 text-[11px] text-[var(--muted)]" aria-hidden>
-            ▱
-          </span>
-          <div className="min-w-0 flex-1">
-            <div className="grid min-w-0 grid-cols-[1.75rem_1.75rem_3.25rem_minmax(0,1fr)_1.25rem] items-center gap-1">
-              <span
-                className={cn(
-                  "text-right text-xs font-bold tabular-nums",
-                  low ? "text-amber-400" : "text-sky-400",
-                )}
-                title={
-                  item.available != null
-                    ? `На складе ${item.stockQty} · свободно ${available}`
-                    : `На складе ${item.stockQty}`
-                }
-              >
-                {item.stockQty}
-              </span>
-              <span
-                className="text-right text-xs font-semibold tabular-nums text-[var(--muted)]"
-                title={currentQtyLabel}
-              >
-                {currentQty}
-              </span>
-              <span
-                className="text-right text-xs font-bold tabular-nums text-emerald-500 dark:text-emerald-400"
-                title="Цена за штуку"
-              >
-                {Math.round(item.basePrice)}
-              </span>
-              <button
-                type="button"
-                className="min-w-0 truncate text-left text-xs font-medium text-[var(--ink)] hover:text-[var(--accent)] hover:underline"
-                title={item.name}
-                onClick={() => setDrawer(item)}
-              >
-                {item.name}
-              </button>
-              <button
-                type="button"
-                className="flex size-5 items-center justify-center rounded-full border border-[var(--line)] text-[10px] text-[var(--muted)] hover:text-[var(--ink)]"
-                title="Карточка"
-                aria-label={`Карточка ${item.name}`}
-                onClick={() => setDrawer(item)}
-              >
-                i
-              </button>
-            </div>
-            <div className="mt-0.5">
-              <InlineQtyAdd
-                addTargetLabel={addTargetLabel}
-                onAdd={(qty) => {
-                  onPickItem(item, qty);
-                }}
-              />
-            </div>
-          </div>
-        </div>
-      </div>
+      <CatalogItemRow
+        key={item.id}
+        item={item}
+        branched={branched}
+        addTargetLabel={addTargetLabel}
+        currentQty={currentQtyByItem?.get(item.id) || 0}
+        currentQtyLabel={currentQtyLabel}
+        onPickItem={onPickItem}
+        onOpenDrawer={setDrawer}
+      />
     );
   }
 
@@ -334,21 +480,61 @@ export function QuoteCatalogSidebar({
         ) : null}
         <button
           type="button"
+          data-catalog-nav="folder"
+          data-catalog-id={cat.id}
+          data-catalog-parent={cat.parentId ?? ""}
+          aria-expanded={canExpand ? isOpen : undefined}
           onClick={() => (canExpand ? toggleExpand(cat) : undefined)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              if (!canExpand) return;
+              e.preventDefault();
+              toggleExpand(cat);
+              return;
+            }
+            if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+              e.preventDefault();
+              focusCatalogNav(e.currentTarget, e.key === "ArrowUp" ? -1 : 1);
+              return;
+            }
+            if (e.key === "ArrowRight") {
+              e.preventDefault();
+              if (canExpand && !isOpen) toggleExpand(cat);
+              else focusCatalogNav(e.currentTarget, 1);
+              return;
+            }
+            if (e.key === "ArrowLeft") {
+              e.preventDefault();
+              if (isOpen) {
+                toggleExpand(cat);
+                return;
+              }
+              if (!cat.parentId) {
+                searchRef.current?.focus();
+                return;
+              }
+              const tree = e.currentTarget.closest("[data-catalog-tree]");
+              const parent = tree?.querySelector<HTMLElement>(
+                `[data-catalog-nav="folder"][data-catalog-id="${CSS.escape(cat.parentId)}"]`,
+              );
+              parent?.focus();
+              parent?.scrollIntoView({ block: "nearest" });
+            }
+          }}
           className={cn(
-            "quote-catalog-folder relative z-[1] flex w-full items-center gap-1 py-1.5 pr-2 text-left transition-colors hover:bg-[var(--header-hover)]",
-            depth === 0 && "mt-1 border-t border-[var(--line)] pt-2",
+            "quote-catalog-folder relative z-[1] flex w-full items-center gap-1 rounded-md py-1 pr-1.5 text-left transition-colors hover:bg-[var(--header-hover)]",
+            depth === 0 && "mt-0.5 border-t border-[var(--line)] pt-1.5",
             isOpen && "text-[var(--accent-deep)]",
           )}
         >
-          <span className="flex h-5 w-3 shrink-0 items-center justify-center text-[9px] text-[var(--muted)]">
+          <span className="flex h-5 w-3 shrink-0 items-center justify-center text-caption text-[var(--muted)]">
             {canExpand ? (isOpen ? "▾" : "▸") : "·"}
           </span>
           <FolderIcon open={isOpen} />
           <span
             className={cn(
               "min-w-0 flex-1 truncate text-[var(--ink)]",
-              depth === 0 ? "text-sm font-semibold" : "text-[13px] font-medium",
+              depth === 0 ? "text-xs font-semibold" : "text-xs font-medium",
             )}
           >
             {cat.name}
@@ -364,7 +550,7 @@ export function QuoteCatalogSidebar({
             {kids.map((child) => renderNode(child, depth + 1))}
             {loading && !items ? (
               <p
-                className="px-2 py-1 text-[11px] text-[var(--muted)]"
+                className="px-2 py-1 text-caption text-[var(--muted)]"
               >
                 Загрузка…
               </p>
@@ -372,7 +558,7 @@ export function QuoteCatalogSidebar({
             {items?.map((item) => renderItem(item))}
             {items && items.length === 0 && !hasKids ? (
               <p
-                className="px-2 py-1 text-[11px] text-[var(--muted)]"
+                className="px-2 py-1 text-caption text-[var(--muted)]"
               >
                 Нет позиций
               </p>
@@ -385,14 +571,15 @@ export function QuoteCatalogSidebar({
 
   return (
     <aside
+      data-catalog-sidebar
       className={cn(
         "flex min-h-0 w-full flex-col overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--panel)]",
         embedded
           ? "h-full max-h-none"
-          : "max-h-[46vh] lg:sticky lg:top-3 lg:h-[calc(100dvh-6.5rem)] lg:max-h-none lg:w-[340px] lg:shrink-0 xl:w-[360px]",
+          : "max-h-[46vh] lg:sticky lg:top-2 lg:h-[calc(100dvh-5.5rem)] lg:max-h-none lg:w-[280px] lg:shrink-0 xl:w-[300px]",
       )}
     >
-      <div className="border-b border-[var(--line)] px-3 py-2">
+      <div className="border-b border-[var(--line)] px-2 py-1.5">
         <div className="flex items-center gap-2">
           <input
             id="quote-catalog-search"
@@ -400,17 +587,25 @@ export function QuoteCatalogSidebar({
             type="search"
             value={q}
             onChange={(e) => setQ(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowDown") {
+                const sidebar = e.currentTarget.closest("[data-catalog-sidebar]");
+                if (!sidebar) return;
+                e.preventDefault();
+                focusFirstCatalogNav(sidebar);
+              }
+            }}
             placeholder="Поиск"
-            className="field min-w-0 flex-1 py-1.5 text-sm"
+            className="field min-w-0 flex-1 px-2 py-1 text-xs"
             autoComplete="off"
           />
         </div>
         {zoneName ? (
-          <p className="mt-1 text-[10px] text-[var(--muted)]">
-            Добавление в «{zoneName}» · ⌘K поиск
+          <p className="mt-1 text-caption text-[var(--muted)]">
+            Добавление в «{zoneName}» · перетащите или + · ⌘K поиск
           </p>
         ) : (
-          <p className="mt-1 text-[10px] text-[var(--muted)]">
+          <p className="mt-1 text-caption text-[var(--muted)]">
             Раскройте раздел — позиции внутри дерева
           </p>
         )}
@@ -433,7 +628,10 @@ export function QuoteCatalogSidebar({
         </div>
       ) : null}
 
-      <div className="catalog-tree quote-catalog-tree min-h-[220px] flex-1 overflow-y-auto px-2 pb-2 text-sm lg:min-h-0">
+      <div
+        data-catalog-tree
+        className="catalog-tree quote-catalog-tree min-h-[220px] flex-1 overflow-y-auto px-1.5 pb-1.5 text-xs lg:min-h-0"
+      >
         {searching ? (
           <>
             {searchLoading && searchItems.length === 0 ? (

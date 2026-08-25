@@ -210,12 +210,23 @@ model QuoteAssignment {
   owners         CatalogOwner[] @default([])
   /// Участник шоу vs монтажник. Один человек может быть и EVENT, и MOUNT.
   kind           AssignmentKind @default(EVENT)
+  /// Зона сметы, из которой пришёл слот (можно сменить вручную).
+  zoneId         String?
+  zone           QuoteZone?     @relation(fields: [zoneId], references: [id], onDelete: SetNull)
+  /// Рабочий день мероприятия (1-based). null = все дни / монтажник.
+  dayIndex       Int?
+  /// Монтажник был на монтаже (для расчёта монтажных).
+  onMount        Boolean  @default(true)
+  /// Монтажник был на демонтаже.
+  onDemount      Boolean  @default(true)
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
   @@index([quoteId, kind])
+  @@index([quoteId, kind, dayIndex])
   @@index([userId])
   @@index([specialtyId])
+  @@index([zoneId])
 }
 
 model CatalogCategory {
@@ -518,6 +529,8 @@ model Quote {
   client          String            @default("")
   clientId        String?
   clientRef       Client?           @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  /// Контакт, с которого поступила заявка на КП: телефон, Telegram и примечание
+  requestContact  String            @default("")
   managerName     String            @default("")
   cashless        Boolean           @default(true)
   /// % начисления безнала к базовой (наличной) цене. База 10 → цена / 0.9
@@ -636,7 +649,8 @@ model QuoteZone {
   active    Boolean      @default(true)
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
-  blocks    QuoteBlock[]
+  blocks      QuoteBlock[]
+  assignments QuoteAssignment[]
 
   @@index([quoteId])
 }

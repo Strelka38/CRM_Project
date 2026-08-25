@@ -133,7 +133,7 @@ export function CalculationsView() {
         <p className="text-xs uppercase tracking-[0.15em] text-[var(--muted)]">
           CRM
         </p>
-        <h1 className="mt-1 text-3xl font-light tracking-tight">Калькуляции</h1>
+        <h1 className="mt-1 text-3xl font-medium tracking-tight">Калькуляции</h1>
         <p className="mt-1 max-w-3xl text-sm text-[var(--muted)]">
           Финальное распределение выручки между ШМ, ДК и NE. Суммы всегда в
           наличных (безнал пересчитывается в кэш). Доли — по владельцам
@@ -216,9 +216,9 @@ export function CalculationsView() {
               description="Под выбранные период и фильтры сметы не найдены"
             />
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-[var(--table-head)] text-[11px] uppercase tracking-wider text-[var(--muted)]">
+            <div className="data-table-shell overflow-x-auto">
+              <table className="data-table data-table--editable w-full min-w-[960px] text-left text-sm">
+                <thead className="bg-[var(--table-head)] text-caption uppercase tracking-wider text-[var(--muted)]">
                   <tr>
                     <th className="w-10 px-3 py-2 text-left">
                       <input
@@ -295,7 +295,7 @@ export function CalculationsView() {
                             r.breakdown.map((b) => (
                               <span
                                 key={b.company}
-                                className="inline-flex items-center rounded-md bg-[var(--selected)] px-1.5 py-0.5 text-[11px] text-[var(--accent-deep)]"
+                                className="inline-flex items-center rounded-md bg-[var(--selected)] px-1.5 py-0.5 text-caption text-[var(--accent-deep)]"
                                 title={`${b.label}: ${formatMoney(b.net)}`}
                               >
                                 {b.short} {b.percent}%
@@ -337,7 +337,7 @@ function SummaryCard({
         {label}
       </p>
       <p
-        className={`mt-1 text-2xl font-light tracking-tight ${
+        className={`mt-1 text-2xl font-medium tracking-tight ${
           accent ? "text-[var(--accent-deep)]" : "text-[var(--ink)]"
         }`}
       >

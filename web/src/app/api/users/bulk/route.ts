@@ -1,49 +1,142 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { directoryBulkSchema } from "@/lib/csv";
 import { requireDatabaseAccess } from "@/lib/session";
+import {
+  filterDeactivateIds,
+  filterRoleChangeIds,
+  uniqueBulkIds,
+} from "@/lib/user-bulk";
+import { canAssignRole } from "@/lib/roles";
+
+const bodySchema = z.object({
+  action: z.enum([
+    "delete",
+    "deactivate",
+    "activate",
+    "role",
+    "addSpecialty",
+  ]),
+  ids: z.array(z.string()).min(1),
+  role: z.enum(["ADMIN", "MANAGER", "EMPLOYEE", "BRIGADIER"]).optional(),
+  specialtyId: z.string().min(1).optional(),
+});
 
 export async function POST(req: NextRequest) {
   try {
     const session = await requireDatabaseAccess();
-    const body = directoryBulkSchema.parse(await req.json());
-    const ids = [...new Set(body.ids)].filter((id) => id !== session.user.id);
+    const body = bodySchema.parse(await req.json());
+    const ids = uniqueBulkIds(body.ids, session.user.id);
+    const skippedSelf = body.ids.length - ids.length;
 
-    if (body.action === "copy") {
-      return NextResponse.json(
-        { error: "Копирование пользователей недоступно — нужен уникальный email" },
-        { status: 400 },
-      );
+    if (ids.length === 0) {
+      return NextResponse.json({
+        ok: true,
+        count: 0,
+        skipped: skippedSelf,
+      });
     }
 
     const targets = await prisma.user.findMany({
       where: { id: { in: ids } },
       select: { id: true, role: true, active: true },
     });
-    const adminIds = targets
-      .filter((u) => u.role === "ADMIN" && u.active)
-      .map((u) => u.id);
-    const skipAdmin = new Set<string>();
-    if (adminIds.length) {
+
+    if (body.action === "addSpecialty") {
+      if (!body.specialtyId) {
+        return NextResponse.json(
+          { error: "Не указана должность" },
+          { status: 400 },
+        );
+      }
+      const specialty = await prisma.specialty.findUnique({
+        where: { id: body.specialtyId },
+        select: { id: true, hourlyRate: true, shiftRate: true },
+      });
+      if (!specialty) {
+        return NextResponse.json(
+          { error: "Должность не найдена" },
+          { status: 400 },
+        );
+      }
+      const result = await prisma.userSpecialty.createMany({
+        data: targets.map((u) => ({
+          userId: u.id,
+          specialtyId: specialty.id,
+          hourlyRate: specialty.hourlyRate,
+          shiftRate: specialty.shiftRate,
+        })),
+        skipDuplicates: true,
+      });
+      return NextResponse.json({
+        ok: true,
+        count: result.count,
+        skipped: skippedSelf + (ids.length - targets.length),
+      });
+    }
+
+    if (body.action === "role") {
+      if (!body.role) {
+        return NextResponse.json(
+          { error: "Не указана роль" },
+          { status: 400 },
+        );
+      }
+      if (!canAssignRole(session.user.role, body.role)) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
       const adminCount = await prisma.user.count({
         where: { role: "ADMIN", active: true },
       });
-      if (adminCount <= adminIds.length && adminIds[0]) {
-        skipAdmin.add(adminIds[0]);
-      }
+      const { apply, skipped } = filterRoleChangeIds(
+        targets,
+        session.user.role,
+        body.role,
+        adminCount,
+      );
+      const result = apply.length
+        ? await prisma.user.updateMany({
+            where: { id: { in: apply } },
+            data: { role: body.role },
+          })
+        : { count: 0 };
+      return NextResponse.json({
+        ok: true,
+        count: result.count,
+        skipped: skipped + skippedSelf,
+      });
     }
-    const deactivate = ids.filter((id) => !skipAdmin.has(id));
-    const result = deactivate.length
+
+    if (body.action === "activate") {
+      const result = await prisma.user.updateMany({
+        where: { id: { in: ids } },
+        data: { active: true },
+      });
+      return NextResponse.json({
+        ok: true,
+        count: result.count,
+        skipped: skippedSelf,
+      });
+    }
+
+    const adminCount = await prisma.user.count({
+      where: { role: "ADMIN", active: true },
+    });
+    const { apply, skipped } = filterDeactivateIds(
+      targets,
+      ids,
+      adminCount,
+    );
+    const result = apply.length
       ? await prisma.user.updateMany({
-          where: { id: { in: deactivate } },
+          where: { id: { in: apply } },
           data: { active: false },
         })
       : { count: 0 };
     return NextResponse.json({
       ok: true,
       count: result.count,
-      skipped: skipAdmin.size + (body.ids.length - ids.length),
+      skipped: skipped + skippedSelf,
     });
   } catch (e) {
     if (e instanceof Response) return e;
@@ -51,6 +144,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: e.flatten() }, { status: 400 });
     }
     console.error("[POST /api/users/bulk]", e);
-    return NextResponse.json({ error: "Не удалось выполнить действие" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Не удалось выполнить действие" },
+      { status: 500 },
+    );
   }
 }

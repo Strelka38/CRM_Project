@@ -2,13 +2,22 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  FILE_ACCEPT,
+  IconAttachPlus,
+  IconPaperclip,
+  isChatImageFile,
+  useFileDrop,
+} from "@/components/FileDrop";
 import { SideDrawer } from "@/components/ui/SideDrawer";
+import { cn } from "@/lib/cn";
 import {
   endDateFromDuration,
   formatRuDate,
   parseEventDate,
 } from "@/lib/dates";
 import { roleLabelRu } from "@/lib/roles";
+import { whoWorksView, type WhoWorksLine } from "@/lib/quote-assignment-days";
 
 type Assignment = {
   id: string;
@@ -16,6 +25,7 @@ type Assignment = {
   isFreelancer?: boolean;
   freelancerName?: string;
   kind?: string;
+  dayIndex?: number | null;
   user: {
     id: string;
     name: string;
@@ -52,6 +62,7 @@ type Project = {
   isManager: boolean;
   canManageAssignments?: boolean;
   canEditBrief?: boolean;
+  canManageAttachments?: boolean;
 };
 
 type Comment = {
@@ -99,6 +110,31 @@ function personName(u: {
 function projectManagerName(p: Project) {
   if (p.owner) return personName(p.owner);
   return p.managerName?.trim() || "";
+}
+
+function WhoWorksLines({ lines }: { lines: WhoWorksLine[] }) {
+  return (
+    <ul className="space-y-1.5 text-sm">
+      {lines.map((line) => (
+        <li
+          key={line.id}
+          className="flex items-baseline justify-between gap-2 border-b border-[var(--line)]/60 py-1"
+        >
+          <span className={line.vacant ? "text-[var(--muted)]" : undefined}>
+            {line.vacant ? line.text : line.name}
+            {line.freelancer && (
+              <span className="ml-1 text-caption text-[var(--muted)]">фр.</span>
+            )}
+          </span>
+          <span className="text-xs text-[var(--muted)]">
+            {line.vacant
+              ? ""
+              : [line.role, line.detail].filter(Boolean).join(" · ")}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 function dateRangeLabel(date: string, durationDays: number) {
@@ -298,7 +334,7 @@ export function ProjectModal({
   }
 
   function onPickChatImage(file: File) {
-    if (!file.type.startsWith("image/")) {
+    if (!isChatImageFile(file)) {
       alert("Можно прикрепить только изображение (png, jpg)");
       return;
     }
@@ -346,24 +382,30 @@ export function ProjectModal({
     }
   }
 
-  async function onUpload(file: File) {
+  async function uploadFiles(list: File[]) {
+    if (list.length === 0) return;
     setUploading(true);
     try {
-      const fd = new FormData();
-      fd.set("file", file);
-      const res = await fetch(`/api/quotes/${quoteId}/attachments`, {
-        method: "POST",
-        body: fd,
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        alert(
-          typeof data.error === "string" ? data.error : "Не удалось загрузить",
-        );
-        return;
+      for (const file of list) {
+        const fd = new FormData();
+        fd.set("file", file);
+        const res = await fetch(`/api/quotes/${quoteId}/attachments`, {
+          method: "POST",
+          body: fd,
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          alert(
+            typeof data.error === "string" ? data.error : "Не удалось загрузить",
+          );
+          return;
+        }
+        const created = (await res.json()) as Attachment;
+        setAttachments((prev) => [
+          created,
+          ...prev.filter((a) => a.id !== created.id),
+        ]);
       }
-      const created = (await res.json()) as Attachment;
-      setAttachments((prev) => [created, ...prev]);
     } finally {
       setUploading(false);
     }
@@ -372,7 +414,7 @@ export function ProjectModal({
   async function removeAttachment(id: string) {
     if (!confirm("Удалить файл?")) return;
     const res = await fetch(
-      `/api/quotes/${quoteId}/attachments?attachmentId=${id}`,
+      `/api/quotes/${quoteId}/attachments?attachmentId=${encodeURIComponent(id)}`,
       { method: "DELETE" },
     );
     if (res.ok) {
@@ -409,6 +451,38 @@ export function ProjectModal({
   const managerLabel = project ? projectManagerName(project) : "";
   const periodLabel = project ? eventPeriodLabel(project) : "";
   const canSend = Boolean(commentText.trim() || pendingImage);
+  const canManageAttachments = Boolean(
+    project?.canManageAttachments ?? project?.isManager,
+  );
+
+  function handleChatFiles(list: File[]) {
+    if (list.length === 0) return;
+    const images = list.filter(isChatImageFile);
+    const docs = list.filter((f) => !isChatImageFile(f));
+    if (images[0]) onPickChatImage(images[0]);
+    const rest = [...images.slice(1), ...docs];
+    if (rest.length === 0) return;
+    if (canManageAttachments) {
+      void uploadFiles(rest);
+      return;
+    }
+    if (!images[0]) {
+      alert(
+        "В чат можно перетащить фото (png, jpg). PDF и Excel — в блок «Файлы».",
+      );
+    }
+  }
+
+  const { dragOver: fileDragOver, dropProps: fileDropProps } = useFileDrop(
+    canManageAttachments && !uploading,
+    (list) => {
+      void uploadFiles(list);
+    },
+  );
+  const { dragOver: chatDragOver, dropProps: chatDropProps } = useFileDrop(
+    Boolean(project),
+    handleChatFiles,
+  );
 
   return (
     <>
@@ -497,7 +571,7 @@ export function ProjectModal({
                       ТЗ к мероприятию
                     </h3>
                     {project.canEditBrief && briefSaved && (
-                      <span className="text-[10px] text-[var(--muted)]">
+                      <span className="text-caption text-[var(--muted)]">
                         сохранено
                       </span>
                     )}
@@ -526,41 +600,65 @@ export function ProjectModal({
                   )}
                 </section>
 
-                <section>
+                <section
+                  className={cn(
+                    "rounded-lg border px-2.5 py-2 transition-colors",
+                    canManageAttachments ? "border-dashed" : "border-solid",
+                    fileDragOver
+                      ? "border-[var(--accent)] bg-[var(--accent)]/10"
+                      : "border-[var(--line)]",
+                  )}
+                  {...(canManageAttachments ? fileDropProps : {})}
+                >
                   <div className="mb-2 flex items-center justify-between gap-2">
                     <h3 className="text-xs font-medium uppercase tracking-wider text-[var(--muted)]">
                       Файлы
                       {attachments.length > 0 ? ` · ${attachments.length}` : ""}
                     </h3>
-                    {project.isManager ? (
+                    {canManageAttachments ? (
                       <>
                         <input
                           ref={fileRef}
                           type="file"
-                          accept=".pdf,.xlsx,.xls,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+                          multiple
+                          accept={FILE_ACCEPT}
                           className="hidden"
                           onChange={(e) => {
-                            const f = e.target.files?.[0];
-                            if (f) void onUpload(f);
+                            void uploadFiles(Array.from(e.target.files ?? []));
                             e.target.value = "";
                           }}
                         />
                         <button
                           type="button"
                           disabled={uploading}
+                          title="Прикрепить файл"
+                          aria-label="Прикрепить файл"
                           onClick={() => fileRef.current?.click()}
-                          className="text-xs text-[var(--accent)] disabled:opacity-40"
+                          className="inline-flex size-7 items-center justify-center rounded-md text-[var(--accent)] hover:bg-[var(--accent)]/10 disabled:opacity-40"
                         >
-                          {uploading ? "Загрузка…" : "+ Прикрепить"}
+                          <IconAttachPlus />
                         </button>
                       </>
                     ) : null}
                   </div>
                   {filesError ? (
                     <p className="text-sm text-[var(--danger)]">{filesError}</p>
-                  ) : attachments.length === 0 ? (
-                    <p className="text-sm text-[var(--muted)]">Нет вложений</p>
                   ) : (
+                    <>
+                      {attachments.length === 0 ? (
+                        <p className="text-sm text-[var(--muted)]">
+                          {canManageAttachments
+                            ? fileDragOver
+                              ? "Отпустите, чтобы прикрепить"
+                              : "PDF, Excel или фото — перетащите сюда"
+                            : "Нет вложений"}
+                        </p>
+                      ) : fileDragOver ? (
+                        <p className="mb-2 text-sm text-[var(--accent)]">
+                          Отпустите, чтобы прикрепить
+                        </p>
+                      ) : null}
+                      {attachments.length > 0 ? (
                     <ul className="space-y-2">
                       {attachments.map((a) => (
                         <li
@@ -584,11 +682,11 @@ export function ProjectModal({
                               title={a.filename}
                             >
                               {a.filename}
-                              <span className="ml-2 text-[10px] text-[var(--muted)]">
+                              <span className="ml-2 text-caption text-[var(--muted)]">
                                 {formatBytes(a.size)}
                               </span>
                               {a.invoiceSent ? (
-                                <span className="ml-2 text-[10px] text-[var(--accent)]">
+                                <span className="ml-2 text-caption text-[var(--accent)]">
                                   счёт отправлен
                                 </span>
                               ) : null}
@@ -603,7 +701,7 @@ export function ProjectModal({
                             >
                               Открыть
                             </a>
-                            {project.isManager ? (
+                            {canManageAttachments ? (
                               <button
                                 type="button"
                                 className="text-xs text-[var(--danger)]"
@@ -616,6 +714,8 @@ export function ProjectModal({
                         </li>
                       ))}
                     </ul>
+                      ) : null}
+                    </>
                   )}
                 </section>
 
@@ -626,54 +726,21 @@ export function ProjectModal({
                             ? "Кто требуется / назначен"
                             : "Кто работает"}
                         </h3>
-                        {project.assignments.filter(
-                          (a) => (a.kind || "EVENT") !== "MOUNT",
-                        ).length === 0 ? (
-                          <p className="text-sm text-[var(--muted)]">
-                            Никто не назначен
-                          </p>
-                        ) : (
-                          <ul className="space-y-1.5 text-sm">
-                            {project.assignments
-                              .filter((a) => (a.kind || "EVENT") !== "MOUNT")
-                              .map((a) => {
-                                const vacant = !a.userId && !a.isFreelancer;
-                                const fl = Boolean(a.isFreelancer);
-                                const name = vacant
-                                  ? "не назначен"
-                                  : fl
-                                    ? (a.freelancerName || "").trim() ||
-                                      "Фрилансер"
-                                    : a.user
-                                      ? personName(a.user)
-                                      : "не назначен";
-                                return (
-                                  <li
-                                    key={a.id}
-                                    className="flex items-baseline justify-between gap-2 border-b border-[var(--line)]/60 py-1"
-                                  >
-                                    <span
-                                      className={
-                                        vacant
-                                          ? "text-[var(--muted)]"
-                                          : undefined
-                                      }
-                                    >
-                                      {name}
-                                      {fl && (
-                                        <span className="ml-1 text-[10px] text-[var(--muted)]">
-                                          фр.
-                                        </span>
-                                      )}
-                                    </span>
-                                    <span className="text-xs text-[var(--muted)]">
-                                      {a.specialty.name}
-                                    </span>
-                                  </li>
-                                );
-                              })}
-                          </ul>
-                        )}
+                        {(() => {
+                          const who = whoWorksView(
+                            project.assignments,
+                            project.durationDays,
+                            project.date,
+                          );
+                          if (who.lines.length === 0) {
+                            return (
+                              <p className="text-sm text-[var(--muted)]">
+                                Никто не назначен
+                              </p>
+                            );
+                          }
+                          return <WhoWorksLines lines={who.lines} />;
+                        })()}
                       </div>
                       <div>
                         <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-[var(--muted)]">
@@ -717,7 +784,7 @@ export function ProjectModal({
                                     >
                                       {name}
                                       {fl && (
-                                        <span className="ml-1 text-[10px] text-[var(--muted)]">
+                                        <span className="ml-1 text-caption text-[var(--muted)]">
                                           фр.
                                         </span>
                                       )}
@@ -756,10 +823,23 @@ export function ProjectModal({
                 </div>
               </div>
 
-              <div className="shrink-0 border-t border-[var(--line)] bg-[var(--panel)] px-4 py-3">
+              <div
+                className={cn(
+                  "shrink-0 border-t bg-[var(--panel)] px-4 py-3 transition-colors",
+                  chatDragOver
+                    ? "border-[var(--accent)] bg-[var(--accent)]/10"
+                    : "border-[var(--line)]",
+                )}
+                {...chatDropProps}
+              >
                 <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-[var(--muted)]">
                   Комментарии
                 </h3>
+                {chatDragOver ? (
+                  <p className="mb-2 text-caption text-[var(--accent)]">
+                    Отпустите фото или файл
+                  </p>
+                ) : null}
 
                 {comments.length > 0 && (
                   <div className="mb-3 max-h-48 space-y-2 overflow-y-auto rounded-lg border border-[var(--line)] bg-[var(--bg)] p-2">
@@ -775,7 +855,7 @@ export function ProjectModal({
                               {roleLabelRu(c.author.role)}
                             </span>
                           </span>
-                          <span className="text-[10px] text-[var(--muted)]">
+                          <span className="text-caption text-[var(--muted)]">
                             {new Date(c.createdAt).toLocaleString("ru-RU", {
                               day: "2-digit",
                               month: "2-digit",
@@ -824,7 +904,7 @@ export function ProjectModal({
                       <button
                         type="button"
                         onClick={clearPendingImage}
-                        className="absolute right-1 top-1 rounded bg-black/60 px-1.5 text-[10px] text-white"
+                        className="absolute right-1 top-1 rounded bg-black/60 px-1.5 text-caption text-white"
                       >
                         ✕
                       </button>
@@ -836,21 +916,22 @@ export function ProjectModal({
                   <input
                     ref={chatImageRef}
                     type="file"
-                    accept="image/png,image/jpeg,.png,.jpg,.jpeg"
+                    multiple
+                    accept={FILE_ACCEPT}
                     className="hidden"
                     onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      if (f) onPickChatImage(f);
+                      handleChatFiles(Array.from(e.target.files ?? []));
                       e.target.value = "";
                     }}
                   />
                   <button
                     type="button"
-                    title="Прикрепить картинку"
+                    title="Прикрепить фото или файл"
+                    aria-label="Прикрепить фото или файл"
                     onClick={() => chatImageRef.current?.click()}
-                    className="shrink-0 rounded-md border border-[var(--line)] px-2.5 py-2 text-xs text-[var(--muted)] hover:text-[var(--ink)]"
+                    className="inline-flex size-9 shrink-0 items-center justify-center rounded-md border border-[var(--line)] text-[var(--muted)] hover:text-[var(--ink)]"
                   >
-                    Фото
+                    <IconPaperclip />
                   </button>
                   <input
                     className="field flex-1"

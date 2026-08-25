@@ -356,6 +356,7 @@ export function EquipmentItemPage({
           item={item}
           categories={categories}
           lockStock
+          embedded={isDrawer}
           onClose={() => setDrawerOpen(false)}
           onSave={saveItem}
           onPhotoChange={() => void reload()}
@@ -446,6 +447,10 @@ export function EquipmentItemPage({
   );
 
   if (isDrawer) {
+    if (drawerOpen) {
+      return <div className="h-full min-h-0 overflow-hidden">{editors}</div>;
+    }
+
     return (
       <div className="flex h-full min-h-0 flex-col">
         <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[var(--line)] px-4 py-3">

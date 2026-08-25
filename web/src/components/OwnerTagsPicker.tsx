@@ -31,17 +31,15 @@ export function OwnerTagsPicker({
   }
 
   return (
-    <div>
+    <div className={compact && !label ? "inline-flex" : undefined}>
       {label ? (
-        <span
-          className={`mb-1 block uppercase text-[var(--muted)] ${
-            compact ? "text-[10px]" : "text-[10px]"
-          }`}
-        >
+        <span className="mb-1 block text-caption uppercase text-[var(--muted)]">
           {label}
         </span>
       ) : null}
-      <div className={`flex flex-wrap gap-1 ${compact ? "" : "gap-1.5"}`}>
+      <div
+        className={`flex gap-1 ${compact ? "flex-nowrap" : "flex-wrap gap-1.5"}`}
+      >
         {CATALOG_OWNERS.map((o) => {
           const active = selected.includes(o.value);
           return (
@@ -50,7 +48,7 @@ export function OwnerTagsPicker({
               type="button"
               title={o.label}
               onClick={() => toggle(o.value)}
-              className={`rounded border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide transition-colors ${
+              className={`rounded border px-1.5 py-0.5 text-caption font-medium uppercase tracking-wide transition-colors ${
                 active
                   ? "border-[var(--solid)] bg-[var(--solid)] text-[var(--on-solid)]"
                   : "border-[var(--line)] bg-[var(--panel)] text-[var(--ink)] hover:bg-white/10"

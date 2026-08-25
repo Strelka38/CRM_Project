@@ -211,7 +211,7 @@ export function DateRangePicker({
         </button>
       </div>
 
-      <div className="grid grid-cols-7 gap-px text-center text-[9px] uppercase tracking-wide text-[var(--muted)]">
+      <div className="grid grid-cols-7 gap-px text-center text-caption uppercase tracking-wide text-[var(--muted)]">
         {WEEKDAYS.map((w) => (
           <div key={w} className="py-0.5">
             {w}
@@ -247,7 +247,7 @@ export function DateRangePicker({
         })}
       </div>
 
-      <p className="mt-1.5 text-[10px] leading-snug text-[var(--muted)]">
+      <p className="mt-1.5 text-caption leading-snug text-[var(--muted)]">
         {pickingEnd
           ? "Выберите конечную дату"
           : "Клик — начало, ещё раз — конец"}
@@ -256,7 +256,7 @@ export function DateRangePicker({
       {start && !disabled && (
         <button
           type="button"
-          className="mt-0.5 text-[10px] text-[var(--accent-deep)] hover:underline"
+          className="mt-0.5 text-caption text-[var(--accent-deep)] hover:underline"
           onClick={() => {
             onChange("", 1);
             setPickingEnd(false);
@@ -283,7 +283,7 @@ export function DateRangePicker({
 
   return (
     <div ref={rootRef} className={cn("relative text-sm", className)}>
-      <span className={cn(dense && "text-[11px]", "text-[var(--muted)]")}>
+      <span className={cn(dense && "text-caption", "text-[var(--muted)]")}>
         {fieldLabel}
       </span>
       <button

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type PickedCatalogItem } from "@/components/CatalogPicker";
@@ -27,6 +27,7 @@ import {
   type StockInfo,
 } from "@/components/StockMarks";
 import { formatMoney, formatNumber } from "@/lib/format";
+import { PriceInput } from "@/components/ui/PriceInput";
 import { collapseKitBlocks } from "@/lib/kit-blocks";
 import {
   isPersonnelOrServiceKind,
@@ -50,12 +51,21 @@ import {
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { PaymentFlags } from "@/components/ui";
 import { cn } from "@/lib/cn";
-import { isQuoteOwnerRole } from "@/lib/roles";
+import {
+  BRIGADIER_QUOTE_PATCH_KEYS,
+  isQuoteOwnerRole,
+} from "@/lib/roles";
 import { parseTemplatePayload } from "@/lib/quote-structure";
+import {
+  isCatalogDrag,
+  nearestInsertGap,
+  parseCatalogDrag,
+  relatedTargetStillInside,
+} from "@/lib/catalog-dnd";
 
 type Lifecycle = "CALCULATED" | "CONFIRMED" | "CANCELLED" | "COMPLETED";
 
-type ManagerOption = { id: string; name: string };
+type ManagerOption = { id: string; name: string; phone: string };
 
 type QuoteMeta = {
   id: string;
@@ -71,6 +81,7 @@ type QuoteMeta = {
   venueId: string | null;
   client: string;
   clientId: string | null;
+  requestContact: string;
   managerName: string;
   ownerId: string;
   cashless: boolean;
@@ -137,8 +148,10 @@ type EditorPane = (typeof EDITOR_PANES)[number];
 function parseEditorPane(
   value: string | null | undefined,
   isManager: boolean,
+  canViewQuote = false,
 ): EditorPane {
-  if ((value === "quote" || value === "docs") && !isManager) return "spec";
+  if (value === "docs" && !isManager) return "spec";
+  if (value === "quote" && !(isManager || canViewQuote)) return "spec";
   if (
     value === "main" ||
     value === "spec" ||
@@ -156,16 +169,29 @@ export function QuoteEditor({
   quoteId,
   isManager = false,
   canEditSpec = false,
+  canEditBrief = false,
+  canEditSchedule = false,
+  canViewQuote = false,
+  canManageAttachments = false,
   initialZone = null,
   initialPane = null,
 }: {
   quoteId: string;
   isManager?: boolean;
   canEditSpec?: boolean;
+  canEditBrief?: boolean;
+  canEditSchedule?: boolean;
+  canViewQuote?: boolean;
+  canManageAttachments?: boolean;
   initialZone?: string | null;
   initialPane?: string | null;
 }) {
   const router = useRouter();
+  const viewQuote = isManager || canViewQuote || canEditSpec;
+  const editBrief = isManager || canEditBrief || canEditSpec;
+  const editSchedule = isManager || canEditSchedule || canEditSpec;
+  const canEditQuote = isManager;
+  const canAutosave = canEditQuote || editBrief || editSchedule;
   const [meta, setMeta] = useState<QuoteMeta | null>(null);
   const [zones, setZones] = useState<ZoneTab[]>([]);
   const [blocks, setBlocks] = useState<EditableBlock[]>([]);
@@ -180,16 +206,19 @@ export function QuoteEditor({
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [editorPane, setEditorPane] = useState<EditorPane>(() =>
-    parseEditorPane(initialPane, isManager),
+    parseEditorPane(initialPane, isManager, viewQuote),
   );
   const [openedPanes, setOpenedPanes] = useState<Set<EditorPane>>(
-    () => new Set([parseEditorPane(initialPane, isManager)]),
+    () => new Set([parseEditorPane(initialPane, isManager, viewQuote)]),
   );
   const [reloadKey, setReloadKey] = useState(0);
   const [managers, setManagers] = useState<ManagerOption[]>([]);
   const [laborKey, setLaborKey] = useState(0);
   const [dragKey, setDragKey] = useState<string | null>(null);
   const [dropKey, setDropKey] = useState<string | null>(null);
+  const [catalogOver, setCatalogOver] = useState(false);
+  const [catalogGapIndex, setCatalogGapIndex] = useState<number | null>(null);
+  const tableRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState("");
   const [stockIssues, setStockIssues] = useState<
     Array<{
@@ -230,6 +259,8 @@ export function QuoteEditor({
         venueId: data.venueId ?? null,
         client: data.client,
         clientId: data.clientId ?? null,
+        requestContact:
+          typeof data.requestContact === "string" ? data.requestContact : "",
         managerName: data.managerName,
         ownerId: data.ownerId || data.owner?.id || "",
         cashless: data.cashless,
@@ -309,13 +340,18 @@ export function QuoteEditor({
             name: string;
             role: string;
             active: boolean;
+            phone?: string;
           }>,
         ) => {
           if (!Array.isArray(list)) return;
           setManagers(
             list
               .filter((u) => isQuoteOwnerRole(u.role) && u.active)
-              .map((u) => ({ id: u.id, name: u.name })),
+              .map((u) => ({
+                id: u.id,
+                name: u.name,
+                phone: typeof u.phone === "string" ? u.phone : "",
+              })),
           );
         },
       )
@@ -324,7 +360,7 @@ export function QuoteEditor({
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (exportOpen || templateOpen || fromTemplateOpen) return;
+      if (!canEditQuote || exportOpen || templateOpen || fromTemplateOpen) return;
       const el = e.target as HTMLElement | null;
       const inField =
         !!el &&
@@ -344,7 +380,7 @@ export function QuoteEditor({
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [exportOpen, templateOpen, fromTemplateOpen]);
+  }, [canEditQuote, exportOpen, templateOpen, fromTemplateOpen]);
 
   const zoneSummary = useMemo(() => {
     if (!meta) {
@@ -473,6 +509,7 @@ export function QuoteEditor({
       nextBlocks: EditableBlock[],
     ): Promise<boolean> => {
       if (
+        canEditQuote &&
         (nextMeta.lifecycle === "CONFIRMED" ||
           nextMeta.lifecycle === "COMPLETED") &&
         !nextMeta.venueId
@@ -484,55 +521,61 @@ export function QuoteEditor({
       setSaving(true);
       setError("");
       setStockIssues([]);
+      const payload = canEditQuote
+        ? {
+            proposalNumber: nextMeta.proposalNumber,
+            eventName: nextMeta.eventName,
+            date: nextMeta.date,
+            mountDate: nextMeta.mountDate,
+            mountDurationDays: nextMeta.mountDurationDays,
+            demountDate: nextMeta.demountDate,
+            demountDurationDays: nextMeta.demountDurationDays,
+            time: nextMeta.time,
+            place: nextMeta.place,
+            venueId: nextMeta.venueId,
+            client: nextMeta.client,
+            clientId: nextMeta.clientId,
+            requestContact: nextMeta.requestContact,
+            managerName: nextMeta.managerName,
+            ownerId: nextMeta.ownerId || undefined,
+            cashless: nextMeta.cashless,
+            cashlessPercent: nextMeta.cashlessPercent,
+            durationDays: nextMeta.durationDays,
+            notes: nextMeta.notes,
+            lifecycle: nextMeta.lifecycle,
+            invoiceSent: nextMeta.invoiceSent,
+            paid: nextMeta.paid,
+            paymentComment: nextMeta.paymentComment,
+            discountPercent: nextMeta.discountPercent,
+            brief: nextMeta.brief,
+            zones: nextZones.map((z, i) => ({
+              id: z.id,
+              name: z.name,
+              sortOrder: i,
+              active: z.active !== false,
+            })),
+            blocks: nextBlocks.map((b, i) => ({
+              type: b.type,
+              sortOrder: i,
+              title: b.title ?? null,
+              name: b.name ?? null,
+              qty: b.qty ?? 0,
+              unitPrice: b.unitPrice ?? 0,
+              cashlessOverride: b.cashlessOverride ?? null,
+              dayMode: toPrismaDayMode(String(b.dayMode || "HALF_EXTRA")),
+              dayCoefOverride: b.dayCoefOverride ?? null,
+              catalogItemId: b.catalogItemId ?? null,
+              kitId: b.kitId ?? null,
+              zoneId: b.zoneId,
+            })),
+          }
+        : Object.fromEntries(
+            BRIGADIER_QUOTE_PATCH_KEYS.map((key) => [key, nextMeta[key]]),
+          );
       const res = await fetch(`/api/quotes/${quoteId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          proposalNumber: nextMeta.proposalNumber,
-          eventName: nextMeta.eventName,
-          date: nextMeta.date,
-          mountDate: nextMeta.mountDate,
-          mountDurationDays: nextMeta.mountDurationDays,
-          demountDate: nextMeta.demountDate,
-          demountDurationDays: nextMeta.demountDurationDays,
-          time: nextMeta.time,
-          place: nextMeta.place,
-          venueId: nextMeta.venueId,
-          client: nextMeta.client,
-          clientId: nextMeta.clientId,
-          managerName: nextMeta.managerName,
-          ownerId: nextMeta.ownerId || undefined,
-          cashless: nextMeta.cashless,
-          cashlessPercent: nextMeta.cashlessPercent,
-          durationDays: nextMeta.durationDays,
-          notes: nextMeta.notes,
-          lifecycle: nextMeta.lifecycle,
-          invoiceSent: nextMeta.invoiceSent,
-          paid: nextMeta.paid,
-          paymentComment: nextMeta.paymentComment,
-          discountPercent: nextMeta.discountPercent,
-          brief: nextMeta.brief,
-          zones: nextZones.map((z, i) => ({
-            id: z.id,
-            name: z.name,
-            sortOrder: i,
-            active: z.active !== false,
-          })),
-          blocks: nextBlocks.map((b, i) => ({
-            type: b.type,
-            sortOrder: i,
-            title: b.title ?? null,
-            name: b.name ?? null,
-            qty: b.qty ?? 0,
-            unitPrice: b.unitPrice ?? 0,
-            cashlessOverride: b.cashlessOverride ?? null,
-            dayMode: toPrismaDayMode(String(b.dayMode || "HALF_EXTRA")),
-            dayCoefOverride: b.dayCoefOverride ?? null,
-            catalogItemId: b.catalogItemId ?? null,
-            kitId: b.kitId ?? null,
-            zoneId: b.zoneId,
-          })),
-        }),
+        body: JSON.stringify(payload),
       });
       setSaving(false);
       if (!res.ok) {
@@ -548,16 +591,17 @@ export function QuoteEditor({
       setSavedAt(new Date().toLocaleTimeString("ru-RU"));
       return true;
     },
-    [quoteId],
+    [quoteId, canEditQuote],
   );
 
   useEffect(() => {
-    if (!isManager || !meta || loading || zones.length === 0) return;
+    if (!canAutosave || !meta || loading) return;
+    if (canEditQuote && zones.length === 0) return;
     const t = setTimeout(() => {
       void persist(meta, zones, blocks);
     }, 800);
     return () => clearTimeout(t);
-  }, [isManager, meta, zones, blocks, loading, persist]);
+  }, [canAutosave, canEditQuote, meta, zones, blocks, loading, persist]);
 
   function updateMeta<K extends keyof QuoteMeta>(key: K, value: QuoteMeta[K]) {
     setMeta((prev) => (prev ? { ...prev, [key]: value } : prev));
@@ -804,20 +848,122 @@ export function QuoteEditor({
           `«${item.name}» уже есть в зоне «${zoneName}» — добавлено ещё раз`,
         );
       }
-      return insertAfterSection(prev, zoneId, sectionTitle, {
-        key: uid(),
-        type: "ITEM",
-        sortOrder: 0,
-        name: item.name,
-        qty: addQty,
-        unitPrice: item.basePrice,
-        cashlessOverride: item.cashlessOverride,
-        dayMode: item.dayMode,
-        catalogItemId: item.id,
+      return insertAfterSection(
+        prev,
         zoneId,
-        itemKind: item.itemKind || "EQUIPMENT",
-      });
+        sectionTitle,
+        catalogItemBlock(item, zoneId, addQty),
+      );
     });
+  }
+
+  function catalogItemBlock(
+    item: PickedCatalogItem,
+    zoneId: string,
+    qty: number,
+  ): EditableBlock {
+    return {
+      key: uid(),
+      type: "ITEM",
+      sortOrder: 0,
+      name: item.name,
+      qty,
+      unitPrice: item.basePrice,
+      cashlessOverride: item.cashlessOverride,
+      dayMode: item.dayMode,
+      catalogItemId: item.id,
+      zoneId,
+      itemKind: item.itemKind || "EQUIPMENT",
+    };
+  }
+
+  function insertFromCatalogAt(
+    index: number,
+    item: PickedCatalogItem,
+    qty = 1,
+  ) {
+    const zoneId = requireZone();
+    if (!zoneId) return;
+    const addQty = Math.max(1, Math.round(qty) || 1);
+    setLineNotice("");
+    setBlocks((prev) => {
+      const zone = prev
+        .filter((b) => b.zoneId === zoneId)
+        .sort((a, b) => a.sortOrder - b.sortOrder);
+      const others = prev.filter((b) => b.zoneId !== zoneId);
+      const at = Math.max(0, Math.min(index, zone.length));
+      const nextZone = [
+        ...zone.slice(0, at),
+        catalogItemBlock(item, zoneId, addQty),
+        ...zone.slice(at),
+      ];
+      return [...others, ...nextZone].map((b, i) => ({ ...b, sortOrder: i }));
+    });
+  }
+
+  function updateCatalogInsertHint(clientY: number) {
+    const root = tableRef.current;
+    if (!root || !canEditQuote) return;
+    const rows = root.querySelectorAll<HTMLElement>("[data-quote-row]");
+    const best = nearestInsertGap(rows, clientY, catalogGapIndex);
+    setCatalogGapIndex((prev) => (prev === best ? prev : best));
+  }
+
+  function onCatalogTableDragOver(e: React.DragEvent) {
+    if (!canEditQuote || !isCatalogDrag(e.dataTransfer)) return false;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = "copy";
+    if (!catalogOver) setCatalogOver(true);
+    updateCatalogInsertHint(e.clientY);
+    return true;
+  }
+
+  function onCatalogTableDragLeave(e: React.DragEvent) {
+    if (!isCatalogDrag(e.dataTransfer)) return;
+    if (relatedTargetStillInside(e.currentTarget, e.relatedTarget)) return;
+    setCatalogOver(false);
+    setCatalogGapIndex(null);
+  }
+
+  function onCatalogTableDrop(e: React.DragEvent) {
+    if (!canEditQuote || !isCatalogDrag(e.dataTransfer)) return false;
+    e.preventDefault();
+    e.stopPropagation();
+    const payload = parseCatalogDrag(e.dataTransfer);
+    setCatalogOver(false);
+    if (!payload) {
+      setCatalogGapIndex(null);
+      return true;
+    }
+    const rows = tableRef.current?.querySelectorAll<HTMLElement>("[data-quote-row]");
+    if (rows && rows.length > 0) {
+      const index = nearestInsertGap(rows, e.clientY, catalogGapIndex);
+      insertFromCatalogAt(index, payload.item, payload.qty);
+    } else {
+      addFromCatalog(payload.item, payload.qty);
+    }
+    setCatalogGapIndex(null);
+    return true;
+  }
+
+  function renderCatalogGap(index: number) {
+    if (!canEditQuote || !catalogOver || catalogGapIndex !== index) return null;
+    return (
+      <tr key={`gap-${index}`} className="relative h-0 border-0">
+        <td
+          colSpan={canEditQuote ? 10 : 9}
+          className="relative h-0 p-0"
+        >
+          <div
+            className="pointer-events-none absolute inset-x-0 z-20"
+            style={{ height: 0, top: 0 }}
+          >
+            <div className="absolute inset-x-3 top-0 h-0.5 -translate-y-1/2 bg-[var(--accent)]" />
+          </div>
+        </td>
+      </tr>
+    );
   }
 
   function addZone() {
@@ -874,7 +1020,7 @@ export function QuoteEditor({
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-[1680px] flex-col gap-4 px-3 py-4 md:px-6">
+    <div className="mx-auto flex w-full max-w-[1920px] flex-col gap-3 px-2 py-3 md:px-3">
       <header className="flex flex-col gap-2">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
           <button
@@ -902,7 +1048,7 @@ export function QuoteEditor({
             disabled={!isManager}
             onChange={(e) => updateMeta("eventName", e.target.value)}
           />
-          <p className="text-[11px] text-[var(--muted)]">
+          <p className="text-caption text-[var(--muted)]">
             {saving
               ? "Сохранение…"
               : savedAt
@@ -913,7 +1059,7 @@ export function QuoteEditor({
         </div>
         <div className="flex flex-wrap items-end gap-x-3 border-b border-[var(--line)]">
           <div
-            className="flex min-w-0 flex-1 items-end gap-1 overflow-x-auto"
+            className="flex flex-1 flex-wrap items-end gap-1 overflow-visible"
             role="tablist"
             aria-label="Разделы карточки сметы"
           >
@@ -928,7 +1074,8 @@ export function QuoteEditor({
               ] as const
             )
               .filter(([id]) => {
-                if (id === "quote" || id === "docs") return isManager;
+                if (id === "quote") return viewQuote;
+                if (id === "docs") return isManager;
                 if (id === "history") return showHistory;
                 return true;
               })
@@ -1096,7 +1243,7 @@ export function QuoteEditor({
           <div className="grid items-start gap-3 xl:grid-cols-[minmax(0,1.15fr)_minmax(22rem,0.85fr)]">
             <div className="grid gap-2.5">
               <div className="flex flex-wrap items-end gap-x-3 gap-y-1.5">
-                <label className="w-[11.5rem] min-w-0 text-[11px] text-[var(--muted)]">
+                <label className="w-[11.5rem] min-w-0 text-caption text-[var(--muted)]">
                   Статус КП
                   <select
                     className="field mt-0.5 text-sm"
@@ -1115,7 +1262,7 @@ export function QuoteEditor({
                   </select>
                 </label>
                 {meta.createdAt ? (
-                  <p className="pb-2 text-[10px] text-[var(--muted)]">
+                  <p className="pb-2 text-caption text-[var(--muted)]">
                     {new Date(meta.createdAt).toLocaleDateString("ru-RU", {
                       day: "numeric",
                       month: "short",
@@ -1124,7 +1271,7 @@ export function QuoteEditor({
                   </p>
                 ) : null}
                 <div className="ml-auto min-w-0">
-                  <div className="mb-0.5 text-[11px] text-[var(--muted)]">
+                  <div className="mb-0.5 text-caption text-[var(--muted)]">
                     Оплата
                   </div>
                   <PaymentFlags
@@ -1144,7 +1291,7 @@ export function QuoteEditor({
                   dense
                   date={meta.date}
                   durationDays={meta.durationDays}
-                  disabled={!isManager}
+                  disabled={!editSchedule}
                   onChange={(date, durationDays) => {
                     setMeta((prev) => {
                       if (!prev) return prev;
@@ -1166,7 +1313,7 @@ export function QuoteEditor({
                   emptyLabel="Не указан"
                   date={meta.mountDate}
                   durationDays={meta.mountDurationDays}
-                  disabled={!isManager}
+                  disabled={!editSchedule}
                   onChange={(mountDate, mountDurationDays) => {
                     setMeta((prev) =>
                       prev
@@ -1175,12 +1322,12 @@ export function QuoteEditor({
                     );
                   }}
                 />
-                <label className="text-[11px] text-[var(--muted)]">
+                <label className="text-caption text-[var(--muted)]">
                   Время
                   <select
                     className="field mt-0.5 text-sm"
                     value={meta.time}
-                    disabled={!isManager}
+                    disabled={!editSchedule}
                     onChange={(e) => updateMeta("time", e.target.value)}
                   >
                     <option value="">Не указано</option>
@@ -1197,7 +1344,7 @@ export function QuoteEditor({
                   emptyLabel="Не указан"
                   date={meta.demountDate}
                   durationDays={meta.demountDurationDays}
-                  disabled={!isManager}
+                  disabled={!editSchedule}
                   onChange={(demountDate, demountDurationDays) => {
                     setMeta((prev) =>
                       prev
@@ -1206,13 +1353,13 @@ export function QuoteEditor({
                     );
                   }}
                 />
-                <div className="text-[11px] text-[var(--muted)]">
+                <div className="text-caption text-[var(--muted)]">
                   <span className="flex items-baseline justify-between gap-2">
                     Площадка
                     {meta.venueId && isManager ? (
                       <button
                         type="button"
-                        className="text-[10px] text-[var(--accent)] hover:underline"
+                        className="text-caption text-[var(--accent)] hover:underline"
                         onClick={() =>
                           setMeta((prev) =>
                             prev
@@ -1227,7 +1374,7 @@ export function QuoteEditor({
                       <Link
                         href="/venues"
                         target="_blank"
-                        className="text-[10px] text-[var(--accent)] hover:underline"
+                        className="text-caption text-[var(--accent)] hover:underline"
                       >
                         Добавить
                       </Link>
@@ -1263,7 +1410,7 @@ export function QuoteEditor({
                     }
                   />
                 </div>
-                <label className="text-[11px] text-[var(--muted)]">
+                <label className="text-caption text-[var(--muted)]">
                   Менеджер
                   {isManager && managers.length > 0 ? (
                     <select
@@ -1302,10 +1449,11 @@ export function QuoteEditor({
                     />
                   )}
                 </label>
-                <label className="text-[11px] text-[var(--muted)]">
+                <label className="text-caption text-[var(--muted)]">
                   Заказчик
                   <ClientQuickSearch
                     value={meta.client}
+                    disabled={!isManager}
                     onChange={(text) =>
                       setMeta((prev) =>
                         prev
@@ -1326,6 +1474,19 @@ export function QuoteEditor({
                     }
                   />
                 </label>
+                <label className="text-caption text-[var(--muted)]">
+                  Контактная информация
+                  <input
+                    className="field mt-0.5 text-sm"
+                    value={meta.requestContact}
+                    disabled={!isManager}
+                    maxLength={1000}
+                    placeholder="Телефон, Telegram или примечание"
+                    onChange={(e) =>
+                      updateMeta("requestContact", e.target.value)
+                    }
+                  />
+                </label>
                 <div className="grid grid-cols-[minmax(0,1fr)_4.75rem] items-end gap-2">
                   <label className="field flex items-center gap-2 text-sm">
                     <input
@@ -1339,7 +1500,7 @@ export function QuoteEditor({
                     Безнал
                   </label>
                   <label
-                    className="text-[11px] text-[var(--muted)]"
+                    className="text-caption text-[var(--muted)]"
                     title="К безналу от наличной цены (стандарт 10%). Наличные без начисления; безнал = нал / (1 − %/100)."
                   >
                     %
@@ -1362,15 +1523,18 @@ export function QuoteEditor({
                 </div>
               </div>
 
-              <QuoteFilesField quoteId={quoteId} canEdit={isManager} />
+              <QuoteFilesField
+                quoteId={quoteId}
+                canEdit={isManager || canManageAttachments}
+              />
             </div>
 
-            <label className="flex min-h-0 min-w-0 flex-col text-[11px] text-[var(--muted)] xl:self-stretch">
+            <label className="flex min-h-0 min-w-0 flex-col text-caption text-[var(--muted)] xl:self-stretch">
               ТЗ от заказчика
               <textarea
                 className="field mt-0.5 min-h-[12rem] flex-1 resize-y text-sm"
                 placeholder="Техническое задание. Позже подставится из анкеты администратора."
-                disabled={!isManager}
+                disabled={!editBrief}
                 value={meta.brief}
                 onChange={(e) => updateMeta("brief", e.target.value)}
               />
@@ -1387,6 +1551,8 @@ export function QuoteEditor({
               canEdit={showHistory}
               compact
               kind="EVENT"
+              zones={zones}
+              durationDays={meta.durationDays}
               onChanged={() => setLaborKey((k) => k + 1)}
             />
             <QuoteAssignments
@@ -1394,6 +1560,7 @@ export function QuoteEditor({
               canEdit={showHistory}
               compact
               kind="MOUNT"
+              zones={zones}
               onChanged={() => setLaborKey((k) => k + 1)}
             />
           </div>
@@ -1401,7 +1568,8 @@ export function QuoteEditor({
       ) : null}
 
       {editorPane === "quote" ? (
-        <div className="flex min-h-0 flex-col gap-3 lg:flex-row lg:items-start">
+        <div className="flex min-h-0 flex-col gap-2 lg:flex-row lg:items-start">
+          {isManager ? (
           <QuoteCatalogSidebar
             onPickItem={addFromCatalog}
             eventDate={meta.date}
@@ -1409,7 +1577,8 @@ export function QuoteEditor({
             zoneName={insertZoneName}
             currentQtyByItem={neededByItem}
           />
-          <div className="flex min-w-0 flex-1 flex-col gap-3">
+          ) : null}
+          <div className="flex min-w-0 flex-1 flex-col gap-2">
       <QuoteZoneTabs
         zones={zones}
         activeId={activeTab}
@@ -1437,43 +1606,62 @@ export function QuoteEditor({
         <>
           {zones.find((z) => z.id === activeTab)?.active === false ? (
             <p className="text-sm text-[var(--muted)]">
-              Зона выключена: не входит в сумму КП и складской резерв. Включить
-              можно в меню вкладки.
+              Зона выключена: не входит в сумму КП и складской резерв.
+              {canEditQuote ? " Включить можно в меню вкладки." : ""}
             </p>
           ) : null}
-          <div className="overflow-x-auto rounded-xl border border-[var(--line)] bg-[var(--panel)]">
-            <table className="w-full min-w-[1120px] table-fixed text-sm">
+          <fieldset
+            disabled={!isManager}
+            className="min-w-0 border-0 p-0 disabled:opacity-90"
+          >
+          <div
+            ref={tableRef}
+            className={cn(
+              "data-table-shell quote-estimate-table-wrap",
+              catalogOver && "ring-2 ring-inset ring-[var(--accent)]",
+            )}
+            onDragOver={canEditQuote ? onCatalogTableDragOver : undefined}
+            onDragLeave={canEditQuote ? onCatalogTableDragLeave : undefined}
+            onDrop={canEditQuote ? onCatalogTableDrop : undefined}
+          >
+            <table className={cn(
+              "data-table quote-estimate-table w-full min-w-[880px] table-fixed text-xs",
+              canEditQuote && "data-table--editable",
+            )}>
               <colgroup>
                 <col />
+                <col className="w-14" />
                 <col className="w-20" />
-                <col className="w-28" />
-                <col className="w-28" />
-                <col className="w-20" />
-                <col className="w-10" />
-                <col className="w-10" />
-                <col className="w-10" />
-                <col className="w-28" />
-                <col className="w-12" />
+                <col className="w-24" />
+                <col className="w-14" />
+                <col className="w-8" />
+                <col className="w-8" />
+                <col className="w-8" />
+                <col className="w-24" />
+                {canEditQuote ? <col className="w-9" /> : null}
               </colgroup>
-              <thead className="bg-[var(--table-head)] text-xs uppercase text-[var(--muted)]">
+              <thead className="bg-[var(--table-head)] text-caption uppercase tracking-wide text-[var(--muted)]">
                 <tr>
-                  <th className="px-2 py-2 text-left">Тип / название</th>
-                  <th className="px-2 py-2">Кол-во</th>
-                  <th className="px-2 py-2">Цена</th>
-                  <th className="px-2 py-2">Режим дня</th>
-                  <th className="px-2 py-2">Коэф</th>
+                  <th className="px-1.5 py-1.5 text-left">Тип / название</th>
+                  <th className="px-1.5 py-1.5">Кол-во</th>
+                  <th className="px-1.5 py-1.5">Цена</th>
+                  <th className="px-1.5 py-1.5">Режим дня</th>
+                  <th className="px-1.5 py-1.5">Коэф</th>
                   <StockHeaderCells />
-                  <th className="px-2 py-2 text-right">Сумма</th>
-                  <th className="px-2 py-2" />
+                  <th className="px-1.5 py-1.5 text-right">Сумма</th>
+                  {canEditQuote ? <th className="px-1 py-1.5" /> : null}
                 </tr>
               </thead>
               <tbody>
-                {zoneBlocks.map((block) => {
+                {canEditQuote ? renderCatalogGap(0) : null}
+                {zoneBlocks.map((block, index) => {
                   const line = calcByKey.get(block.key);
                   const isDragging = dragKey === block.key;
                   const isDropTarget = dropKey === block.key && dragKey !== block.key;
-                  const rowDragProps = {
+                  const rowDragProps = canEditQuote
+                    ? {
                     onDragOver: (e: React.DragEvent) => {
+                      if (onCatalogTableDragOver(e)) return;
                       if (!dragKey || dragKey === block.key) return;
                       e.preventDefault();
                       e.dataTransfer.dropEffect = "move";
@@ -1490,6 +1678,7 @@ export function QuoteEditor({
                       setDropKey((k) => (k === block.key ? null : k));
                     },
                     onDrop: (e: React.DragEvent) => {
+                      if (onCatalogTableDrop(e)) return;
                       e.preventDefault();
                       const from =
                         e.dataTransfer.getData("text/plain") || dragKey;
@@ -1497,12 +1686,14 @@ export function QuoteEditor({
                       setDropKey(null);
                       if (from) dropBlock(from, block.key);
                     },
-                  };
+                  }
+                    : {};
 
                   if (block.type === "SECTION" || block.type === "KIT_HEADER") {
                     return (
+                      <Fragment key={block.key}>
                       <tr
-                        key={block.key}
+                        data-quote-row
                         {...rowDragProps}
                         className={cn(
                           block.type === "SECTION"
@@ -1512,13 +1703,14 @@ export function QuoteEditor({
                           isDropTarget && "ring-2 ring-inset ring-[var(--accent)]",
                         )}
                       >
-                        <td className="px-2 py-2" colSpan={8}>
+                        <td className="px-1.5 py-1" colSpan={8}>
                           <div
                             className={cn(
                               "flex items-center gap-2",
                               block.type === "KIT_HEADER" && "pl-5",
                             )}
                           >
+                            {canEditQuote ? (
                             <DragHandle
                               label={
                                 isGroupHeader(block.type)
@@ -1535,12 +1727,13 @@ export function QuoteEditor({
                                 setDropKey(null);
                               }}
                             />
+                            ) : null}
                             <input
                               className={cn(
                                 "field",
                                 block.type === "SECTION"
-                                  ? "text-base font-bold"
-                                  : "text-sm font-semibold",
+                                  ? "text-sm font-bold"
+                                  : "text-xs font-semibold",
                               )}
                               value={block.title || ""}
                               onChange={(e) =>
@@ -1551,7 +1744,7 @@ export function QuoteEditor({
                             />
                           </div>
                         </td>
-                        <td className="px-2 py-2 text-right font-medium tabular-nums">
+                        <td className="px-1.5 py-1 text-right font-semibold tabular-nums">
                           {block.type === "SECTION"
                             ? formatMoney(
                                 zoneCalc.sections.find(
@@ -1560,12 +1753,16 @@ export function QuoteEditor({
                               )
                             : ""}
                         </td>
-                        <td className="px-2 py-2">
+                        {canEditQuote ? (
+                        <td className="px-1 py-1">
                           <RowActions
                             onRemove={() => removeBlock(block.key)}
                           />
                         </td>
+                        ) : null}
                       </tr>
+                      {canEditQuote ? renderCatalogGap(index + 1) : null}
+                      </Fragment>
                     );
                   }
                   const isKit = Boolean(block.kitId && !block.catalogItemId);
@@ -1577,8 +1774,9 @@ export function QuoteEditor({
                       ? needed - stock.available
                       : 0;
                   return (
+                    <Fragment key={block.key}>
                     <tr
-                      key={block.key}
+                      data-quote-row
                       {...rowDragProps}
                       className={cn(
                         isKit
@@ -1589,8 +1787,9 @@ export function QuoteEditor({
                         isDropTarget && "ring-2 ring-inset ring-[var(--accent)]",
                       )}
                     >
-                      <td className="py-2 pl-6 pr-2">
+                      <td className="py-1 pl-3 pr-1.5">
                         <div className="flex items-start gap-2">
+                          {canEditQuote ? (
                           <DragHandle
                             label="Перетащить позицию"
                             onDragStart={(e) => {
@@ -1603,16 +1802,17 @@ export function QuoteEditor({
                               setDropKey(null);
                             }}
                           />
-                          <div className="flex min-w-0 flex-1 flex-col gap-1">
+                          ) : null}
+                          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                           {isKit && (
-                            <span className="w-fit rounded bg-[var(--accent)]/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[var(--accent)]">
+                            <span className="w-fit rounded bg-[var(--accent)]/10 px-1.5 py-0.5 text-caption font-medium uppercase tracking-wide text-[var(--accent)]">
                               Комплект
                             </span>
                           )}
                           <textarea
                             ref={resizeItemNameField}
                             rows={1}
-                            className="field min-h-9 max-h-[6.5rem] resize-none overflow-hidden leading-5"
+                            className="field min-h-7 max-h-[5rem] resize-none overflow-hidden leading-4"
                             value={block.name || ""}
                             onChange={(e) => {
                               resizeItemNameField(e.currentTarget);
@@ -1627,7 +1827,7 @@ export function QuoteEditor({
                           </div>
                         </div>
                       </td>
-                      <td className="px-2 py-2">
+                      <td className="px-1.5 py-1">
                         <input
                           type="number"
                           min={0}
@@ -1645,20 +1845,18 @@ export function QuoteEditor({
                           }}
                         />
                       </td>
-                      <td className="px-2 py-2">
-                        <input
-                          type="number"
-                          min={0}
-                          className="field"
-                          value={block.unitPrice ?? 0}
-                          onChange={(e) =>
-                            updateBlock(block.key, {
-                              unitPrice: Math.max(0, Number(e.target.value) || 0),
-                            })
+                      <td className="px-1.5 py-1">
+                        <PriceInput
+                          className="w-full min-w-0"
+                          value={Number(block.unitPrice) || 0}
+                          disabled={!canEditQuote}
+                          navGroup="quote-unit-price"
+                          onChange={(unitPrice) =>
+                            updateBlock(block.key, { unitPrice })
                           }
                         />
                       </td>
-                      <td className="px-2 py-2">
+                      <td className="px-1.5 py-1">
                         <select
                           className="field"
                           value={String(block.dayMode || "HALF_EXTRA")}
@@ -1675,7 +1873,7 @@ export function QuoteEditor({
                           <option value="FIXED2">Фикс 2</option>
                         </select>
                       </td>
-                      <td className="px-2 py-2">
+                      <td className="px-1.5 py-1">
                         <input
                           type="number"
                           step={0.1}
@@ -1697,61 +1895,72 @@ export function QuoteEditor({
                         />
                       </td>
                       <StockMarks needed={needed} info={isKit ? null : stock} />
-                      <td className="px-2 py-2 text-right align-middle font-medium tabular-nums">
+                      <td className="px-1.5 py-1 text-right align-middle font-semibold tabular-nums">
                         {formatMoney(line?.lineTotal ?? 0)}
-                        <p className="text-[10px] font-normal text-[var(--muted)]">
+                        <p className="text-caption font-normal text-[var(--muted)]">
                           коэф {formatNumber(line?.dayCoef ?? 0)}
                         </p>
                       </td>
-                      <td className="px-2 py-2 align-middle">
+                      {canEditQuote ? (
+                      <td className="px-1 py-1 align-middle">
                         <RowActions onRemove={() => removeBlock(block.key)} />
                       </td>
+                      ) : null}
                     </tr>
+                    {canEditQuote ? renderCatalogGap(index + 1) : null}
+                    </Fragment>
                   );
                 })}
                 {zoneBlocks.length === 0 && (
                   <tr>
                     <td
-                      colSpan={10}
+                      colSpan={canEditQuote ? 10 : 9}
                       className="px-4 py-8 text-center text-[var(--muted)]"
                     >
-                      Добавьте позицию из каталога слева или создайте раздел вручную
+                      {canEditQuote
+                        ? "Добавьте позицию из каталога слева, перетащите её в таблицу или создайте раздел вручную"
+                        : "В этой зоне пока нет позиций"}
                     </td>
                   </tr>
                 )}
               </tbody>
             </table>
           </div>
-          <p className="text-[11px] text-[var(--muted)]">
-            Тяните ⠿ за ручку: раздел переносится вместе с позициями. R — нужно
-            в этом КП · RT — свободно на дату · T — всего на складе
+          <p className="text-caption text-[var(--muted)]">
+            {canEditQuote
+              ? "Тяните ⠿ за ручку: раздел переносится вместе с позициями. Позиции из каталога можно перетащить в таблицу. "
+              : ""}
+            R — нужно в этом КП · RT — свободно на дату · T — всего на складе
           </p>
 
-          <div className="flex flex-wrap gap-2">
+          {isManager ? (
+          <div className="flex flex-wrap gap-1.5">
               <button
                 type="button"
                 onClick={addSection}
-                className="rounded-md border border-[var(--line)] px-3 py-2 text-sm"
+                className="rounded-md border border-[var(--line)] px-2.5 py-1.5 text-xs"
               >
                 + Раздел
               </button>
               <button
                 type="button"
                 onClick={addCustomItem}
-                className="rounded-md border border-[var(--line)] px-3 py-2 text-sm"
+                className="rounded-md border border-[var(--line)] px-2.5 py-1.5 text-xs"
               >
                 + Позиция
               </button>
           </div>
+          ) : null}
+          </fieldset>
         </>
       )}
 
-      <section className="flex flex-col gap-4 rounded-xl border border-[var(--line)] bg-[var(--bg)]/95 px-4 py-3 sm:flex-row sm:items-end sm:justify-between">
+      <section className="flex flex-col gap-2 rounded-lg border border-[var(--line)] bg-[var(--bg)]/95 px-3 py-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-xs uppercase tracking-wider text-[var(--muted)]">
             Итого по блоку
           </p>
-          <p className="font-display text-3xl">
+          <p className="font-display text-2xl">
             {formatMoney(blockTotals.payable)}
           </p>
           <p className="text-xs text-[var(--muted)]">
@@ -1763,7 +1972,7 @@ export function QuoteEditor({
           <p className="text-xs uppercase tracking-wider text-[var(--muted)]">
             Итого к оплате
           </p>
-          <p className="font-display text-3xl">
+          <p className="font-display text-2xl">
             {formatMoney(zoneSummary.payable)}
           </p>
           <p className="text-xs text-[var(--muted)]">
@@ -1834,7 +2043,12 @@ export function QuoteEditor({
               time: meta.time,
               place: meta.place,
               client: meta.client,
+              clientId: meta.clientId,
+              ownerId: meta.ownerId,
+              requestContact: meta.requestContact,
               managerName: meta.managerName,
+              managerPhone:
+                managers.find((m) => m.id === meta.ownerId)?.phone || "",
               cashless: meta.cashless,
               cashlessPercent: meta.cashlessPercent,
               durationDays: meta.durationDays,
@@ -1855,7 +2069,12 @@ export function QuoteEditor({
           time: meta.time,
           place: meta.place,
           client: meta.client,
+          clientId: meta.clientId,
+          ownerId: meta.ownerId,
+          requestContact: meta.requestContact,
           managerName: meta.managerName,
+          managerPhone:
+            managers.find((m) => m.id === meta.ownerId)?.phone || "",
           cashless: meta.cashless,
           cashlessPercent: meta.cashlessPercent,
           durationDays: meta.durationDays,

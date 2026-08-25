@@ -62,7 +62,7 @@ export function Modal({
         onClick={(e) => e.stopPropagation()}
       >
         {title && (
-          <h2 id="modal-title" className="text-xl font-light tracking-tight">
+          <h2 id="modal-title" className="text-xl font-medium tracking-tight">
             {title}
           </h2>
         )}

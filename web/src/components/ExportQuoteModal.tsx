@@ -5,6 +5,33 @@ import type { ZoneTab } from "@/components/QuoteZoneTabs";
 import type { QuoteBlockInput } from "@/lib/quote-calc";
 import type { ExportFilters, ExportMeta } from "@/lib/export/quote-zones";
 
+async function resolveExportMeta(meta: ExportMeta): Promise<ExportMeta> {
+  if (meta.managerPhone?.trim() || !meta.ownerId) return meta;
+  try {
+    const res = await fetch(`/api/users/${meta.ownerId}`);
+    if (!res.ok) return meta;
+    const data: unknown = await res.json();
+    const phone =
+      data &&
+      typeof data === "object" &&
+      "phone" in data &&
+      typeof data.phone === "string"
+        ? data.phone
+        : "";
+    const name =
+      data &&
+      typeof data === "object" &&
+      "name" in data &&
+      typeof data.name === "string" &&
+      data.name.trim()
+        ? data.name
+        : meta.managerName;
+    return { ...meta, managerPhone: phone, managerName: name };
+  } catch {
+    return meta;
+  }
+}
+
 type Props = {
   open: boolean;
   onClose: () => void;
@@ -60,17 +87,23 @@ export function ExportQuoteModal({
     setBusy(kind);
     try {
       const mod = await import("@/lib/export/quote-zones");
+      const resolved = await resolveExportMeta(meta);
       if (kind === "preview") {
-        const html = mod.buildExportPreviewHtml(meta, zones, blocks, filters);
-        const w = window.open("", "_blank");
-        if (w) {
-          w.document.write(html);
-          w.document.close();
-        }
+        const html = mod.buildExportPreviewHtml(
+          resolved,
+          zones,
+          blocks,
+          filters,
+        );
+        const url = URL.createObjectURL(
+          new Blob([html], { type: "text/html;charset=utf-8" }),
+        );
+        const w = window.open(url, "_blank");
+        if (!w) URL.revokeObjectURL(url);
       } else if (kind === "pdf") {
-        await mod.exportQuoteZonesPdf(meta, zones, blocks, filters);
+        await mod.exportQuoteZonesPdf(resolved, zones, blocks, filters);
       } else {
-        await mod.exportQuoteZonesExcel(meta, zones, blocks, filters);
+        await mod.exportQuoteZonesExcel(resolved, zones, blocks, filters);
       }
     } finally {
       setBusy(null);

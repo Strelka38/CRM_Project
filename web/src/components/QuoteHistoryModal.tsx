@@ -88,7 +88,7 @@ function SnapshotColumn({
         </button>
       </form>
       {count >= max ? (
-        <p className="mt-2 text-[11px] text-[var(--muted)]">
+        <p className="mt-2 text-caption text-[var(--muted)]">
           Лимит {max}. Новый снимок вытеснит самый старый.
         </p>
       ) : null}
@@ -102,7 +102,7 @@ function SnapshotColumn({
                 <p className="truncate text-sm font-medium">
                   {s.title?.trim() || "Без названия"}
                 </p>
-                <p className="truncate text-[11px] text-[var(--muted)]">
+                <p className="truncate text-caption text-[var(--muted)]">
                   {formatWhen(s.createdAt)}
                   {" · "}
                   {s.createdByName}

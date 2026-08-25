@@ -57,6 +57,15 @@ export function formatRuDate(d: Date): string {
   return `${day}.${m}.${d.getFullYear()}`;
 }
 
+/** «26 авг» */
+export function formatDayMonth(d: Date): string {
+  return d
+    .toLocaleDateString("ru-RU", { day: "numeric", month: "short" })
+    .replace(/\./g, "")
+    .replace(/\u00a0/g, " ")
+    .trim();
+}
+
 /** Inclusive day count between two dates (same day = 1). */
 export function daysInclusive(start: Date, end: Date): number {
   const a = startOfDay(start).getTime();

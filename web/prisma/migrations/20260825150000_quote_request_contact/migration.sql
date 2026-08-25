@@ -1,0 +1,2 @@
+ALTER TABLE "Quote"
+ADD COLUMN "requestContact" TEXT NOT NULL DEFAULT '';

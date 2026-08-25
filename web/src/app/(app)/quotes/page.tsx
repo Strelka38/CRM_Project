@@ -428,8 +428,9 @@ export default function QuotesPage() {
                 </li>
               ))}
             </ul>
-            <table className="hidden w-full text-left text-sm md:table">
-            <thead className="bg-[var(--table-head)] text-[11px] uppercase tracking-wider text-[var(--muted)]">
+            <div className="data-table-shell hidden overflow-x-auto md:block">
+              <table className="data-table w-full text-left text-sm">
+            <thead className="bg-[var(--table-head)] text-caption uppercase tracking-wider text-[var(--muted)]">
               <tr>
                 {isManager ? (
                   <th className="w-12 px-4 py-3">
@@ -500,7 +501,8 @@ export default function QuotesPage() {
                 </tr>
               ))}
             </tbody>
-          </table>
+              </table>
+            </div>
           </>
         )}
       </section>

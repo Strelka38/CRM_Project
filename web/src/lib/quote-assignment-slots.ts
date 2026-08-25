@@ -1,5 +1,6 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { calcBlock, blocksInActiveZones } from "@/lib/quote-calc";
+import { normDayIndex, workingDayCount } from "@/lib/quote-assignment-days";
 
 export type AssignmentKindValue = "EVENT" | "MOUNT";
 
@@ -10,28 +11,51 @@ export type SlotExisting = {
   userId: string | null;
   isFreelancer: boolean;
   freelancerName: string;
+  zoneId?: string | null;
+  dayIndex?: number | null;
 };
 
 export type DesiredSlots = {
   specialtyId: string;
   kind: AssignmentKindValue;
   qty: number;
+  zoneId?: string | null;
 };
 
 export type SlotPlan = {
-  create: Array<{ specialtyId: string; kind: AssignmentKindValue }>;
+  create: Array<{
+    specialtyId: string;
+    kind: AssignmentKindValue;
+    zoneId?: string | null;
+    dayIndex?: number | null;
+  }>;
   deleteIds: string[];
   watermarks: SlotWatermarks;
 };
 
-/** Ключ: "MOUNT:specialtyId" → сколько слотов уже импортировали из сметы. */
+/** Ключ: "MOUNT:specialtyId" или "MOUNT:specialtyId:zoneId". */
 export type SlotWatermarks = Record<string, number>;
+
+export function normZoneId(zoneId?: string | null): string | null {
+  const z = String(zoneId || "").trim();
+  return z || null;
+}
+
+export function slotGroupKey(
+  kind: AssignmentKindValue,
+  specialtyId: string,
+  zoneId?: string | null,
+): string {
+  const z = normZoneId(zoneId);
+  return z ? `${kind}:${specialtyId}:${z}` : `${kind}:${specialtyId}`;
+}
 
 export function slotWatermarkKey(
   kind: AssignmentKindValue,
   specialtyId: string,
+  zoneId?: string | null,
 ): string {
-  return `${kind}:${specialtyId}`;
+  return slotGroupKey(kind, specialtyId, zoneId);
 }
 
 export function parseSlotWatermarks(raw: unknown): SlotWatermarks {
@@ -167,22 +191,166 @@ function slotQty(raw: number | null | undefined): number {
 }
 
 export function groupDesiredQty(
-  items: Array<{ specialtyId: string; kind: AssignmentKindValue; qty: number }>,
+  items: Array<{
+    specialtyId: string;
+    kind: AssignmentKindValue;
+    qty: number;
+    zoneId?: string | null;
+  }>,
 ): DesiredSlots[] {
   const map = new Map<string, DesiredSlots>();
   for (const item of items) {
     const qty = slotQty(item.qty);
     if (qty <= 0 || !item.specialtyId) continue;
-    const key = `${item.kind}:${item.specialtyId}`;
+    const zoneId = normZoneId(item.zoneId);
+    const key = slotGroupKey(item.kind, item.specialtyId, zoneId);
     const prev = map.get(key);
     if (prev) prev.qty += qty;
-    else map.set(key, { specialtyId: item.specialtyId, kind: item.kind, qty });
+    else {
+      map.set(key, {
+        specialtyId: item.specialtyId,
+        kind: item.kind,
+        qty,
+        zoneId,
+      });
+    }
   }
   return [...map.values()];
 }
 
 /**
- * EVENT: qty — источник истины (сначала снимаем пустые).
+ * Старые слоты без зоны: разложить по зонам сметы, чтобы не плодить дубли.
+ */
+export function allocateZonesToSlots(
+  existing: SlotExisting[],
+  desired: DesiredSlots[],
+): SlotExisting[] {
+  const result = existing.map((s) => ({
+    ...s,
+    zoneId: normZoneId(s.zoneId),
+  }));
+  const remaining = new Map<string, Array<string | null>>();
+  for (const d of desired) {
+    const specKey = `${d.kind}:${d.specialtyId}`;
+    const list = remaining.get(specKey) ?? [];
+    for (let i = 0; i < d.qty; i++) list.push(normZoneId(d.zoneId));
+    remaining.set(specKey, list);
+  }
+  for (const slot of result) {
+    if (!slot.zoneId) continue;
+    const list = remaining.get(`${slot.kind}:${slot.specialtyId}`);
+    if (!list) continue;
+    const i = list.findIndex((z) => z === slot.zoneId);
+    if (i >= 0) list.splice(i, 1);
+  }
+  for (const slot of result) {
+    if (slot.zoneId) continue;
+    const list = remaining.get(`${slot.kind}:${slot.specialtyId}`);
+    if (!list || list.length === 0) continue;
+    const next = list.shift();
+    if (next) slot.zoneId = next;
+  }
+  return result;
+}
+
+/** Следующая зона сметы для новой строки той же должности. */
+export function pickZoneForNewSlot(args: {
+  specialtyId: string;
+  kind: AssignmentKindValue;
+  desired: DesiredSlots[];
+  existing: Array<{
+    specialtyId: string;
+    kind: AssignmentKindValue;
+    zoneId?: string | null;
+  }>;
+}): string | null {
+  const needed: string[] = [];
+  for (const d of args.desired) {
+    if (d.kind !== args.kind || d.specialtyId !== args.specialtyId) continue;
+    const z = normZoneId(d.zoneId);
+    if (!z) continue;
+    for (let i = 0; i < d.qty; i++) needed.push(z);
+  }
+  const remaining = [...needed];
+  for (const e of args.existing) {
+    if (e.kind !== args.kind || e.specialtyId !== args.specialtyId) continue;
+    const z = normZoneId(e.zoneId);
+    if (!z) continue;
+    const i = remaining.indexOf(z);
+    if (i >= 0) remaining.splice(i, 1);
+  }
+  return remaining[0] || needed[0] || null;
+}
+
+function mountImportedQty(
+  watermarks: SlotWatermarks,
+  specialtyId: string,
+  zoneId: string | null | undefined,
+  rows: SlotExisting[],
+  qty: number,
+): { imported: number; writeKey: string } {
+  const writeKey = slotWatermarkKey("MOUNT", specialtyId, zoneId);
+  if (Object.prototype.hasOwnProperty.call(watermarks, writeKey)) {
+    return { imported: Math.max(0, watermarks[writeKey] ?? 0), writeKey };
+  }
+  const legacyKey = slotWatermarkKey("MOUNT", specialtyId, null);
+  if (
+    normZoneId(zoneId) &&
+    Object.prototype.hasOwnProperty.call(watermarks, legacyKey)
+  ) {
+    return { imported: Math.max(rows.length, qty), writeKey };
+  }
+  if (rows.length > 0) {
+    return { imported: Math.max(rows.length, qty), writeKey };
+  }
+  return { imported: 0, writeKey };
+}
+
+function syncEventQty(
+  rows: SlotExisting[],
+  specialtyId: string,
+  zoneId: string | null,
+  qty: number,
+  dayIndex: number | null,
+  create: SlotPlan["create"],
+  deleteIds: string[],
+) {
+  const filled = rows.filter(isFilledSlot);
+  const empty = rows.filter((a) => !isFilledSlot(a));
+  if (rows.length < qty) {
+    for (let i = 0; i < qty - rows.length; i++) {
+      create.push({
+        specialtyId,
+        kind: "EVENT",
+        zoneId,
+        dayIndex,
+      });
+    }
+    return;
+  }
+  if (rows.length <= qty) return;
+
+  let overflow = rows.length - qty;
+  const emptyNewestFirst = [...empty].reverse();
+  for (const slot of emptyNewestFirst) {
+    if (overflow <= 0) break;
+    deleteIds.push(slot.id);
+    overflow -= 1;
+  }
+  if (overflow > 0 && filled.length > qty) {
+    const extraFilled = filled.length - qty;
+    const toDrop = Math.min(overflow, extraFilled);
+    const filledNewestFirst = [...filled].reverse();
+    for (let i = 0; i < toDrop; i++) {
+      deleteIds.push(filledNewestFirst[i].id);
+    }
+  }
+}
+
+/**
+ * EVENT: qty — число позиций, не qty × дни. Пустые слоты на каждый день
+ * не создаём: нехватка по дням показывается в сводке. Заполненные
+ * подневные слоты оставляем. Монтажники — один раз, без дня.
  * MOUNT: импорт из сметы один раз. Watermark не уменьшается —
  * удалённые слоты не добираются. Рост qty в смете добавляет только дельту.
  * Лишние слоты бригадира не трогаем.
@@ -191,56 +359,108 @@ export function planSlotSync(
   existing: SlotExisting[],
   desired: DesiredSlots[],
   watermarks: SlotWatermarks = {},
+  eventDays = 1,
 ): SlotPlan {
   const create: SlotPlan["create"] = [];
   const deleteIds: string[] = [];
   const nextWatermarks: SlotWatermarks = { ...watermarks };
-  const desiredKeys = new Set(desired.map((d) => `${d.kind}:${d.specialtyId}`));
+  const days = workingDayCount(eventDays);
+  const desiredKeys = new Set(
+    desired.map((d) => slotGroupKey(d.kind, d.specialtyId, d.zoneId)),
+  );
 
   for (const d of desired) {
+    const zoneId = normZoneId(d.zoneId);
     const rows = existing.filter(
-      (a) => a.kind === d.kind && a.specialtyId === d.specialtyId,
+      (a) =>
+        a.kind === d.kind &&
+        a.specialtyId === d.specialtyId &&
+        normZoneId(a.zoneId) === zoneId,
     );
     const qty = Math.max(0, Math.round(d.qty) || 0);
     if (d.kind === "MOUNT") {
-      const key = slotWatermarkKey("MOUNT", d.specialtyId);
-      const hasPrev = Object.prototype.hasOwnProperty.call(watermarks, key);
-      let imported = hasPrev ? Math.max(0, watermarks[key] ?? 0) : 0;
-      if (!hasPrev && rows.length > 0) {
-        // Старые КП без watermark: не заполнять уже удалённые слоты.
-        imported = Math.max(rows.length, qty);
-      }
+      const { imported, writeKey } = mountImportedQty(
+        watermarks,
+        d.specialtyId,
+        zoneId,
+        rows,
+        qty,
+      );
       const missing = Math.max(0, qty - imported);
       for (let i = 0; i < missing; i++) {
-        create.push({ specialtyId: d.specialtyId, kind: "MOUNT" });
+        create.push({
+          specialtyId: d.specialtyId,
+          kind: "MOUNT",
+          zoneId,
+          dayIndex: null,
+        });
       }
-      nextWatermarks[key] = Math.max(imported, qty);
+      nextWatermarks[writeKey] = Math.max(imported, qty);
       continue;
     }
 
-    const filled = rows.filter(isFilledSlot);
-    const empty = rows.filter((a) => !isFilledSlot(a));
-    if (rows.length < qty) {
-      for (let i = 0; i < qty - rows.length; i++) {
-        create.push({ specialtyId: d.specialtyId, kind: "EVENT" });
+    if (days <= 1) {
+      const singleDay = rows.filter((a) => {
+        const di = normDayIndex(a.dayIndex);
+        return di == null || di === 1;
+      });
+      syncEventQty(
+        singleDay,
+        d.specialtyId,
+        zoneId,
+        qty,
+        null,
+        create,
+        deleteIds,
+      );
+      for (const slot of rows) {
+        const di = normDayIndex(slot.dayIndex);
+        if (di != null && di > 1 && !isFilledSlot(slot)) {
+          deleteIds.push(slot.id);
+        }
       }
       continue;
     }
-    if (rows.length <= qty) continue;
 
-    let overflow = rows.length - qty;
-    const emptyNewestFirst = [...empty].reverse();
-    for (const slot of emptyNewestFirst) {
-      if (overflow <= 0) break;
-      deleteIds.push(slot.id);
-      overflow -= 1;
+    const perDay = rows.filter((a) => normDayIndex(a.dayIndex) != null);
+    const allDays = rows.filter((a) => normDayIndex(a.dayIndex) == null);
+
+    for (const slot of perDay) {
+      const di = normDayIndex(slot.dayIndex);
+      if (!isFilledSlot(slot) || (di != null && di > days)) {
+        deleteIds.push(slot.id);
+      }
     }
-    if (overflow > 0 && filled.length > qty) {
-      const extraFilled = filled.length - qty;
-      const toDrop = Math.min(overflow, extraFilled);
-      const filledNewestFirst = [...filled].reverse();
-      for (let i = 0; i < toDrop; i++) {
-        deleteIds.push(filledNewestFirst[i].id);
+
+    const filledPerDay = perDay.filter(
+      (a) => isFilledSlot(a) && !deleteIds.includes(a.id),
+    );
+    let maxPerDayFilled = 0;
+    for (let day = 1; day <= days; day++) {
+      const n = filledPerDay.filter(
+        (a) => normDayIndex(a.dayIndex) === day,
+      ).length;
+      if (n > maxPerDayFilled) maxPerDayFilled = n;
+    }
+    const current = allDays.length + maxPerDayFilled;
+    if (current < qty) {
+      for (let i = 0; i < qty - current; i++) {
+        create.push({
+          specialtyId: d.specialtyId,
+          kind: "EVENT",
+          zoneId,
+          dayIndex: null,
+        });
+      }
+    } else if (current > qty) {
+      let overflow = current - qty;
+      const emptyAllNewestFirst = [...allDays]
+        .filter((a) => !isFilledSlot(a))
+        .reverse();
+      for (const slot of emptyAllNewestFirst) {
+        if (overflow <= 0) break;
+        deleteIds.push(slot.id);
+        overflow -= 1;
       }
     }
   }
@@ -248,7 +468,7 @@ export function planSlotSync(
   // EVENT-специальности, исчезнувшие из сметы: снимаем только пустые
   const existingGroups = new Map<string, SlotExisting[]>();
   for (const a of existing) {
-    const key = `${a.kind}:${a.specialtyId}`;
+    const key = slotGroupKey(a.kind, a.specialtyId, a.zoneId);
     const list = existingGroups.get(key) ?? [];
     list.push(a);
     existingGroups.set(key, list);
@@ -431,6 +651,8 @@ export async function syncQuoteAssignmentSlots(
           userId: true,
           isFreelancer: true,
           freelancerName: true,
+          zoneId: true,
+          dayIndex: true,
         },
       },
     },
@@ -464,24 +686,47 @@ export async function syncQuoteAssignmentSlots(
     specialtyId: string;
     kind: AssignmentKindValue;
     qty: number;
+    zoneId: string | null;
   }> = [];
   for (const req of requests) {
     const specialtyId = await resolveSpecialtyId(tx, req.label, cache);
-    desiredParts.push({ specialtyId, kind: req.kind, qty: req.qty });
+    desiredParts.push({
+      specialtyId,
+      kind: req.kind,
+      qty: req.qty,
+      zoneId: normZoneId(req.block.zoneId),
+    });
   }
   const desired = groupDesiredQty(desiredParts);
 
-  const existing: SlotExisting[] = quote.assignments.map((a) => ({
+  const existingRaw: SlotExisting[] = quote.assignments.map((a) => ({
     id: a.id,
     specialtyId: a.specialtyId,
     kind: (a.kind as AssignmentKindValue) || "EVENT",
     userId: a.userId,
     isFreelancer: a.isFreelancer,
     freelancerName: a.freelancerName,
+    zoneId: a.zoneId,
+    dayIndex: a.dayIndex,
   }));
+  const existing = allocateZonesToSlots(existingRaw, desired);
+  for (const slot of existing) {
+    const orig = existingRaw.find((e) => e.id === slot.id);
+    if (orig && normZoneId(orig.zoneId) !== normZoneId(slot.zoneId)) {
+      await tx.quoteAssignment.update({
+        where: { id: slot.id },
+        data: { zoneId: slot.zoneId },
+      });
+    }
+  }
 
   const prevWatermarks = parseSlotWatermarks(quote.assignmentImportWatermark);
-  const plan = planSlotSync(existing, desired, prevWatermarks);
+  const plan = planSlotSync(
+    existing,
+    desired,
+    prevWatermarks,
+    quote.durationDays,
+  );
   if (plan.deleteIds.length > 0) {
     await tx.quoteAssignment.deleteMany({
       where: { id: { in: plan.deleteIds }, quoteId },
@@ -494,6 +739,8 @@ export async function syncQuoteAssignmentSlots(
         userId: null,
         specialtyId: c.specialtyId,
         kind: c.kind,
+        zoneId: normZoneId(c.zoneId),
+        dayIndex: c.kind === "MOUNT" ? null : (c.dayIndex ?? null),
         payMode: "SHIFT",
         hours: null,
         rateOverride: null,
@@ -510,4 +757,138 @@ export async function syncQuoteAssignmentSlots(
     });
   }
   return plan;
+}
+
+async function loadQuoteDesiredSlots(
+  tx: Tx,
+  quoteId: string,
+): Promise<{
+  desired: DesiredSlots[];
+  existing: SlotExisting[];
+} | null> {
+  const quote = await tx.quote.findUnique({
+    where: { id: quoteId },
+    select: {
+      zones: { select: { id: true, active: true } },
+      blocks: {
+        select: {
+          type: true,
+          name: true,
+          title: true,
+          qty: true,
+          zoneId: true,
+          catalogItem: { select: { name: true, itemKind: true } },
+        },
+      },
+      assignments: {
+        select: {
+          id: true,
+          specialtyId: true,
+          kind: true,
+          userId: true,
+          isFreelancer: true,
+          freelancerName: true,
+          zoneId: true,
+          dayIndex: true,
+        },
+      },
+    },
+  });
+  if (!quote) return null;
+  const activeBlocks = blocksInActiveZones(quote.zones, quote.blocks);
+  const requests = collectPersonnelSlotRequests(
+    activeBlocks.map((b) => ({
+      type: b.type,
+      name: b.name,
+      title: b.title,
+      qty: b.qty,
+      itemKind: b.catalogItem?.itemKind ?? null,
+      catalogName: b.catalogItem?.name ?? null,
+      zoneId: b.zoneId,
+    })),
+  );
+  const specialties = await tx.specialty.findMany({
+    select: { id: true, name: true },
+  });
+  const desiredParts: Array<{
+    specialtyId: string;
+    kind: AssignmentKindValue;
+    qty: number;
+    zoneId: string | null;
+  }> = [];
+  for (const req of requests) {
+    const spec = findBestSpecialty(req.label, specialties);
+    if (!spec) continue;
+    desiredParts.push({
+      specialtyId: spec.id,
+      kind: req.kind,
+      qty: req.qty,
+      zoneId: normZoneId(req.block.zoneId),
+    });
+  }
+  return {
+    desired: groupDesiredQty(desiredParts),
+    existing: quote.assignments.map((a) => ({
+      id: a.id,
+      specialtyId: a.specialtyId,
+      kind: (a.kind as AssignmentKindValue) || "EVENT",
+      userId: a.userId,
+      isFreelancer: a.isFreelancer,
+      freelancerName: a.freelancerName,
+      zoneId: a.zoneId,
+      dayIndex: a.dayIndex,
+    })),
+  };
+}
+
+export async function inferAssignmentZoneId(
+  tx: Tx,
+  quoteId: string,
+  specialtyId: string,
+  kind: AssignmentKindValue,
+): Promise<string | null> {
+  const loaded = await loadQuoteDesiredSlots(tx, quoteId);
+  if (!loaded) return null;
+  return pickZoneForNewSlot({
+    specialtyId,
+    kind,
+    desired: loaded.desired,
+    existing: loaded.existing,
+  });
+}
+
+export async function backfillAssignmentZones(
+  tx: Tx,
+  quoteId: string,
+): Promise<void> {
+  const loaded = await loadQuoteDesiredSlots(tx, quoteId);
+  if (!loaded) return;
+  const next = allocateZonesToSlots(loaded.existing, loaded.desired);
+  for (const slot of next) {
+    const orig = loaded.existing.find((e) => e.id === slot.id);
+    if (
+      orig &&
+      slot.zoneId &&
+      normZoneId(orig.zoneId) !== normZoneId(slot.zoneId)
+    ) {
+      await tx.quoteAssignment.update({
+        where: { id: slot.id },
+        data: { zoneId: slot.zoneId },
+      });
+    }
+  }
+}
+
+export async function quoteZoneIdOrNull(
+  tx: Tx,
+  quoteId: string,
+  zoneId?: string | null,
+): Promise<string | null> {
+  const id = normZoneId(zoneId);
+  if (!id) return null;
+  const zone = await tx.quoteZone.findFirst({
+    where: { id, quoteId },
+    select: { id: true },
+  });
+  return zone?.id ?? null;
 }

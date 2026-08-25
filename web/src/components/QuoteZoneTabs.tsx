@@ -19,6 +19,7 @@ type Props = {
   onDelete: (id: string) => void;
   onToggleActive?: (id: string) => void;
   canEdit?: boolean;
+  showSummary?: boolean;
 };
 
 export function QuoteZoneTabs({
@@ -30,6 +31,7 @@ export function QuoteZoneTabs({
   onDelete,
   onToggleActive,
   canEdit = true,
+  showSummary = true,
 }: Props) {
   const [menuId, setMenuId] = useState<string | null>(null);
   const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(
@@ -100,7 +102,7 @@ export function QuoteZoneTabs({
         return (
           <div
             key={z.id}
-            className={`group relative flex items-center gap-1 rounded-t-md border border-b-0 px-2 py-1.5 text-sm ${
+            className={`group relative flex items-center gap-0.5 rounded-t border border-b-0 px-2 py-1 text-xs ${
               selected
                 ? "border-[var(--line)] bg-[var(--panel)] font-medium text-[var(--ink)]"
                 : "border-transparent bg-transparent text-[var(--muted)] hover:bg-[var(--panel-muted)]"
@@ -141,23 +143,25 @@ export function QuoteZoneTabs({
         );
       })}
 
-      <button
-        type="button"
-        onClick={() => onSelect("summary")}
-        className={`rounded-t-md border border-b-0 px-3 py-1.5 text-sm ${
-          activeId === "summary"
-            ? "border-[var(--line)] bg-[var(--panel)] font-medium"
-            : "border-transparent text-[var(--muted)] hover:bg-[var(--panel-muted)]"
-        }`}
-      >
-        Сводная
-      </button>
+      {showSummary ? (
+        <button
+          type="button"
+          onClick={() => onSelect("summary")}
+          className={`rounded-t border border-b-0 px-2.5 py-1 text-xs ${
+            activeId === "summary"
+              ? "border-[var(--line)] bg-[var(--panel)] font-medium"
+              : "border-transparent text-[var(--muted)] hover:bg-[var(--panel-muted)]"
+          }`}
+        >
+          Сводная
+        </button>
+      ) : null}
 
       {canEdit && (
         <button
           type="button"
           onClick={onAdd}
-          className="mb-0.5 ml-1 flex size-7 items-center justify-center rounded-md border border-[var(--line)] text-sm text-[var(--accent)] hover:bg-white/10"
+          className="mb-0.5 ml-1 flex size-6 items-center justify-center rounded border border-[var(--line)] text-xs text-[var(--accent)] hover:bg-white/10"
           title="Добавить зону"
         >
           +

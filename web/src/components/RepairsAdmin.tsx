@@ -337,7 +337,7 @@ export function RepairsAdmin() {
                     onChange={() => toggleRow(r.id)}
                   />
                   <div className="min-w-0 flex-1">
-                    <p className="text-[11px] uppercase tracking-wider text-[var(--muted)]">
+                    <p className="text-caption uppercase tracking-wider text-[var(--muted)]">
                       {r.unit.catalogItem.category?.path || "Оборудование"}
                     </p>
                     <Link
@@ -372,8 +372,9 @@ export function RepairsAdmin() {
                 </li>
               ))}
             </ul>
-            <table className="hidden w-full text-left text-sm md:table">
-              <thead className="bg-[var(--table-head)] text-[11px] uppercase tracking-wider text-[var(--muted)]">
+            <div className="data-table-shell hidden overflow-x-auto md:block">
+              <table className="data-table w-full text-left text-sm">
+              <thead className="bg-[var(--table-head)] text-caption uppercase tracking-wider text-[var(--muted)]">
                 <tr>
                   <th className="w-12 px-4 py-3">
                     <input
@@ -468,7 +469,8 @@ export function RepairsAdmin() {
                   </tr>
                 ))}
               </tbody>
-            </table>
+              </table>
+            </div>
           </>
         )}
       </Card>

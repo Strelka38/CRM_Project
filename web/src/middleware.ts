@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { authConfig } from "@/lib/auth.config";
 import {
   canAccessDatabase,
+  canAccessRoster,
   canAccessWorkloadStats,
   isManager,
 } from "@/lib/roles";
@@ -60,6 +61,10 @@ export default auth((req) => {
     pathname.startsWith("/statistics") &&
     !canAccessWorkloadStats(role)
   ) {
+    return NextResponse.redirect(new URL("/calendar", req.nextUrl.origin));
+  }
+
+  if (isLoggedIn && pathname.startsWith("/roster") && !canAccessRoster(role)) {
     return NextResponse.redirect(new URL("/calendar", req.nextUrl.origin));
   }
 

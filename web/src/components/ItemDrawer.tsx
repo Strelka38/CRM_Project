@@ -70,6 +70,8 @@ type Props = {
   categories?: CategoryOption[];
   /** Количество задаётся единицами на складе, не вручную */
   lockStock?: boolean;
+  /** Render inside an existing drawer instead of opening a second overlay. */
+  embedded?: boolean;
 };
 
 type Draft = {
@@ -130,6 +132,7 @@ export function ItemDrawer({
   onPhotoChange,
   categories = [],
   lockStock = false,
+  embedded = false,
 }: Props) {
   const editable = Boolean(onSave);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -225,9 +228,8 @@ export function ItemDrawer({
     .join(" × ");
   const imgSrc = photoUrl(item.id, item.photoPath);
 
-  return (
-    <SideDrawer open onClose={onClose} zIndex={80}>
-      <div className="flex h-full min-h-0 flex-col overflow-hidden">
+  const content = (
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
         <div className="flex items-start justify-between gap-3 border-b border-[var(--line)] px-4 py-3">
           <div className="min-w-0 flex-1">
             <p className="text-xs uppercase tracking-wide text-[var(--muted)]">
@@ -330,7 +332,7 @@ export function ItemDrawer({
                   <span className="block font-medium">
                     Отражать товар в каталоге
                   </span>
-                  <span className="text-[11px] text-[var(--muted)]">
+                  <span className="text-caption text-[var(--muted)]">
                     Если выключить, менеджер не увидит позицию в каталоге сметы.
                     В комплекты и спецификации её по-прежнему можно добавлять.
                   </span>
@@ -400,7 +402,7 @@ export function ItemDrawer({
                 />
               </div>
               <label className="block">
-                <span className="mb-1 block text-[10px] uppercase text-[var(--muted)]">
+                <span className="mb-1 block text-caption uppercase text-[var(--muted)]">
                   Комментарий
                 </span>
                 <textarea
@@ -541,7 +543,14 @@ export function ItemDrawer({
             )}
           </div>
         )}
-      </div>
+    </div>
+  );
+
+  if (embedded) return content;
+
+  return (
+    <SideDrawer open onClose={onClose} zIndex={80}>
+      {content}
     </SideDrawer>
   );
 }
@@ -559,7 +568,7 @@ function Field({
 }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-[10px] uppercase text-[var(--muted)]">
+      <span className="mb-1 block text-caption uppercase text-[var(--muted)]">
         {label}
       </span>
       <input
@@ -575,7 +584,7 @@ function Field({
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg border border-[var(--line)] bg-[var(--panel-muted)] px-3 py-2">
-      <p className="text-[10px] uppercase text-[var(--muted)]">{label}</p>
+      <p className="text-caption uppercase text-[var(--muted)]">{label}</p>
       <p className="font-medium tabular-nums">{value}</p>
     </div>
   );

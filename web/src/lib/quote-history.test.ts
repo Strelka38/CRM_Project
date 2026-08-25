@@ -32,6 +32,7 @@ const payload = buildQuoteSnapshotPayload({
   venueId: "v1",
   client: "Клиент",
   clientId: "c1",
+  requestContact: "@client · +7 900 000-00-00",
   managerName: "Менеджер",
   ownerId: "u1",
   cashless: true,
@@ -60,6 +61,7 @@ const payload = buildQuoteSnapshotPayload({
 assert.equal(payload.zones[1].active, true);
 assert.equal(payload.blocks[0].qty, 2);
 assert.equal(payload.meta.proposalNumber, "91");
+assert.equal(payload.meta.requestContact, "@client · +7 900 000-00-00");
 
 const audit = summarizeQuotePatch({
   prevLifecycle: "CALCULATED",
@@ -88,6 +90,7 @@ assert.equal(isQuoteSnapshotPayload({}), false);
 const patch = snapshotToQuotePatch(payload);
 assert.equal(patch.zones.length, 2);
 assert.equal(patch.blocks[0].zoneId, "z1");
+assert.equal(patch.requestContact, "@client · +7 900 000-00-00");
 assert.equal(patch.eventName, "Тест");
 
 console.log("quote-history.test.ts: ok");

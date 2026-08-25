@@ -33,6 +33,11 @@ export function parseSpecLines(raw: unknown): SpecLine[] {
       key,
       deriveKey: typeof o.deriveKey === "string" ? o.deriveKey : null,
       source,
+      zoneId: typeof o.zoneId === "string" ? o.zoneId : null,
+      zoneName: typeof o.zoneName === "string" ? o.zoneName : null,
+      zoneSortOrder:
+        typeof o.zoneSortOrder === "number" ? o.zoneSortOrder : null,
+      zoneActive: o.zoneActive !== false,
       type,
       title: typeof o.title === "string" ? o.title : o.title == null ? null : String(o.title),
       name: typeof o.name === "string" ? o.name : o.name == null ? null : String(o.name),
@@ -44,6 +49,7 @@ export function parseSpecLines(raw: unknown): SpecLine[] {
       extraId: typeof o.extraId === "string" ? o.extraId : null,
       hidden: Boolean(o.hidden),
       isKitHeader: Boolean(o.isKitHeader),
+      ownerLabel: typeof o.ownerLabel === "string" ? o.ownerLabel : undefined,
     });
   }
   return lines;
@@ -54,6 +60,10 @@ export function specLinesToJson(lines: SpecLine[]): SpecLine[] {
     key: l.key,
     deriveKey: l.deriveKey,
     source: l.source,
+    zoneId: l.zoneId ?? null,
+    zoneName: l.zoneName ?? null,
+    zoneSortOrder: l.zoneSortOrder ?? null,
+    zoneActive: l.zoneActive !== false,
     type: l.type,
     title: l.title,
     name: l.name,
@@ -64,6 +74,7 @@ export function specLinesToJson(lines: SpecLine[]): SpecLine[] {
     extraId: l.extraId,
     hidden: Boolean(l.hidden),
     isKitHeader: Boolean(l.isKitHeader),
+    ownerLabel: l.ownerLabel,
   }));
 }
 
@@ -104,7 +115,18 @@ export function mergeSpecImport(
   for (const line of incoming) {
     const key = derivedKey(line);
     if (!key) continue;
-    result.push(keptByKey.get(key) ?? line);
+    const kept = keptByKey.get(key);
+    result.push(
+      kept
+        ? {
+            ...kept,
+            zoneId: line.zoneId ?? null,
+            zoneName: line.zoneName ?? null,
+            zoneSortOrder: line.zoneSortOrder ?? null,
+            zoneActive: line.zoneActive !== false,
+          }
+        : line,
+    );
   }
   result.push(...diff.extras);
   return result;

@@ -233,7 +233,7 @@ export function EquipmentCard({
               <span className="block text-sm font-medium text-[var(--ink)]">
                 Отражать товар в каталоге
               </span>
-              <span className="mt-0.5 block text-[11px] leading-snug text-[var(--muted)]">
+              <span className="mt-0.5 block text-caption leading-snug text-[var(--muted)]">
                 Если выключить, менеджер не увидит позицию в каталоге сметы.
                 В комплекты и спецификации её по-прежнему можно добавлять.
               </span>
@@ -346,8 +346,8 @@ export function EquipmentCard({
               Единиц пока нет. Нажмите «+ Единица».
             </p>
           ) : (
-            <div className="overflow-x-auto rounded-lg border border-[var(--line)]">
-              <table className="w-full text-left text-sm">
+            <div className="data-table-shell overflow-x-auto">
+              <table className="data-table w-full text-left text-sm">
                 <thead className="bg-[var(--panel-muted)] text-xs uppercase text-[var(--muted)]">
                   <tr>
                     <th className="px-3 py-2 font-medium">ID единицы</th>

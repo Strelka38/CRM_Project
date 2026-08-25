@@ -125,10 +125,58 @@
   --body-glow-3: rgba(236, 20, 254, 0.04);
 }
 
+/*
+ * Типографика.
+ *
+ * Golos Text вариативный: ось веса 400–900. Начертания легче 400 не существует,
+ * поэтому font-light / font-thin молча отрисуются как 400 — использовать их нельзя.
+ * Иерархию строим весом (400 / 500 / 600) и цветом (--ink / --muted), а не кеглем:
+ * ниже 14px разница в один пиксель не читается как уровень.
+ *
+ * По умолчанию цифры пропорциональные: «1» на 22% уже «0» (485 против 620 единиц),
+ * поэтому суммы в столбцах не встали бы по разряду. Фича tnum в гарнитуре есть —
+ * включаем её через tabular-nums на body. Внимание: сокращённое свойство font
+ * сбрасывает font-variant-numeric, задавать шрифт им нельзя.
+ *
+ * Курсива у гарнитуры нет, браузер синтезирует наклон.
+ */
+:root {
+  --font-ui: "Golos Text Variable", "Golos Text", system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Кегль / интерлиньяж. Совпадает со шкалой Tailwind, кроме caption:
+     11px — нижняя граница читаемости кириллицы на экране. */
+  --fs-caption: 0.6875rem; /* 11px — шапки таблиц, бейджи, подписи */
+  --lh-caption: 0.9375rem; /* 15px */
+  --fs-dense: 0.75rem; /* 12px — плотные таблицы смет и поля в них */
+  --lh-dense: 1rem; /* 16px */
+  --fs-body: 0.875rem; /* 14px — формы, списки, боковые панели */
+  --lh-body: 1.25rem; /* 20px */
+  --fs-read: 1rem; /* 16px — описания, длинный текст */
+  --lh-read: 1.5rem; /* 24px */
+  --fs-title: 1.125rem; /* 18px — заголовки карточек и секций */
+  --lh-title: 1.5rem; /* 24px */
+  --fs-h1: 1.5rem; /* 24px — заголовок страницы */
+  --lh-h1: 1.875rem; /* 30px */
+  --fs-display: 1.875rem; /* 30px — итоговые суммы, KPI дашборда */
+  --lh-display: 2.25rem; /* 36px */
+
+  --fw-body: 400;
+  --fw-medium: 500; /* заголовки, подписи */
+  --fw-strong: 600; /* итоги, активные состояния, шапки таблиц */
+
+  /* Отрицательный трекинг только для крупных кеглей (от 18px). */
+  --tracking-display: -0.015em;
+  --tracking-caption: 0.04em;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: "Roboto", system-ui, sans-serif;
+  --font-sans: var(--font-ui);
+  /* Ступень, которой нет в шкале Tailwind: утилита text-caption вместо text-[10px] и прочих. */
+  --text-caption: var(--fs-caption);
+  --text-caption--line-height: var(--lh-caption);
 }
 
 body {
@@ -138,14 +186,21 @@ body {
     radial-gradient(600px 300px at 50% 100%, var(--body-glow-3) 0%, transparent 45%),
     var(--bg);
   color: var(--ink);
-  font-family: "Roboto", system-ui, sans-serif;
+  font-family: var(--font-ui);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  font-weight: var(--fw-body);
+  font-variant-numeric: tabular-nums;
   min-height: 100%;
 }
 
-.font-display {
-  font-family: "Roboto", system-ui, sans-serif;
-  font-weight: 300;
-  letter-spacing: -0.02em;
+/* В слое components, чтобы утилиты Tailwind (font-semibold и т.п.) перебивали
+   вес по умолчанию, а не наоборот. */
+@layer components {
+  .font-display {
+    font-weight: var(--fw-medium);
+    letter-spacing: var(--tracking-display);
+  }
 }
 
 .field {
@@ -197,9 +252,9 @@ body {
   min-width: 2.25rem;
   padding: 0.35rem 0.15rem;
   text-align: center;
-  font-size: 0.65rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-strong);
+  letter-spacing: var(--tracking-caption);
   border-left: 1px solid var(--line);
 }
 
@@ -208,7 +263,7 @@ body {
   min-width: 2.25rem;
   padding: 0.35rem 0.15rem;
   text-align: center;
-  font-size: 0.75rem;
+  font-size: var(--fs-dense);
   border-left: 1px dotted var(--line);
   background: var(--stock-cell-bg);
 }
@@ -218,7 +273,7 @@ body {
   width: 100%;
   padding: 0.35rem 0.15rem;
   text-align: center;
-  font-size: 0.75rem;
+  font-size: var(--fs-dense);
   background: transparent;
   border: 0;
   cursor: pointer;
@@ -227,6 +282,143 @@ body {
 
 .stock-cell-btn:hover {
   background: rgba(0, 158, 227, 0.15);
+}
+
+/* Shared dense spreadsheet tables. */
+.data-table-shell {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--panel);
+}
+
+.data-table,
+.quote-estimate-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.data-table {
+  font-size: var(--fs-dense);
+  line-height: var(--lh-dense);
+}
+
+.data-table th,
+.data-table td,
+.quote-estimate-table th,
+.quote-estimate-table td {
+  border-right: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+}
+
+.data-table th,
+.data-table td {
+  padding: 0.3rem 0.5rem;
+}
+
+.data-table th:last-child,
+.data-table td:last-child,
+.quote-estimate-table th:last-child,
+.quote-estimate-table td:last-child {
+  border-right: 0;
+}
+
+.data-table thead th,
+.quote-estimate-table thead th {
+  border-bottom: 1px solid var(--line);
+  font-weight: var(--fw-strong);
+  white-space: nowrap;
+}
+
+.data-table thead {
+  background: var(--table-head);
+  color: var(--muted);
+  font-size: var(--fs-caption);
+  line-height: var(--lh-caption);
+  letter-spacing: var(--tracking-caption);
+  text-transform: uppercase;
+}
+
+.data-table tbody td,
+.quote-estimate-table tbody td {
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+  vertical-align: middle;
+}
+
+.data-table tbody tr:last-child td,
+.quote-estimate-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.data-table tbody tr:not(:has(input:focus, textarea:focus, select:focus)):hover td,
+.quote-estimate-table tbody tr:not(:has(input:focus, textarea:focus, select:focus)):hover td {
+  background-color: color-mix(in srgb, var(--selected) 30%, transparent);
+}
+
+.data-table .field,
+.quote-estimate-table .field {
+  min-height: 1.75rem;
+  border-radius: 0.25rem;
+  padding: 0.25rem 0.35rem;
+  font-size: var(--fs-dense);
+  line-height: var(--lh-dense);
+  background: color-mix(in srgb, var(--field-bg) 74%, transparent);
+}
+
+.data-table textarea.field,
+.quote-estimate-table textarea.field {
+  padding-block: 0.3rem;
+}
+
+.data-table .stock-head,
+.data-table .stock-cell,
+.quote-estimate-table .stock-head,
+.quote-estimate-table .stock-cell {
+  width: 2rem;
+  min-width: 2rem;
+  padding: 0.2rem 0.1rem;
+  border-left: 0;
+  font-size: var(--fs-caption);
+}
+
+.data-table .stock-cell-btn,
+.quote-estimate-table .stock-cell-btn {
+  padding: 0.2rem 0.1rem;
+  font-size: var(--fs-caption);
+}
+
+.data-table--editable .field {
+  min-width: 0;
+}
+
+.data-table--sticky thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--table-head);
+}
+
+.data-table .data-table-number {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.data-table .data-table-checkbox,
+.data-table .data-table-actions {
+  width: 2rem;
+  min-width: 2rem;
+  padding-inline: 0.3rem;
+  text-align: center;
+}
+
+.data-table .data-table-total td {
+  border-top: 2px solid color-mix(in srgb, var(--ink) 20%, transparent);
+  background: color-mix(in srgb, var(--selected) 30%, transparent);
+  font-weight: var(--fw-strong);
+}
+
+.data-table th.calc-split,
+.data-table td.calc-split {
+  border-left: 2px solid var(--line);
 }
 
 /* Catalog category tree guides */
@@ -264,6 +456,33 @@ body {
   -webkit-appearance: none;
 }
 
+.quote-catalog-folder:focus,
+.quote-catalog-folder:focus-visible {
+  background: var(--selected);
+  box-shadow: inset 0 0 0 1px var(--accent);
+  outline: none;
+}
+
+.quote-catalog-qty:focus,
+.quote-catalog-qty:focus-visible {
+  border-color: var(--accent);
+  background: var(--bg-elevated);
+  box-shadow: 0 0 0 1px var(--accent);
+  outline: none;
+}
+
+/* Смета: без стрелок у number (кол-во / коэф). Цена — text PriceInput. */
+.quote-estimate-table input[type="number"] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+.quote-estimate-table input[type="number"]::-webkit-inner-spin-button,
+.quote-estimate-table input[type="number"]::-webkit-outer-spin-button {
+  margin: 0;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
 @keyframes fade-up {
   from {
     opacity: 0;
@@ -278,6 +497,188 @@ body {
 .cal-event-vacant {
   box-shadow: inset 0 0 0 2px #fff;
   z-index: 3;
+}
+
+.roster-bar {
+  z-index: 2;
+  cursor: grab;
+  user-select: none;
+}
+
+.roster-bar-fixed {
+  cursor: pointer;
+}
+
+.roster-bar-vacant {
+  box-shadow: inset 0 0 0 1.5px currentColor;
+  background: var(--panel-muted);
+}
+
+.roster-bar-selected {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  z-index: 5;
+}
+
+.roster-bar-past {
+  opacity: 0.55;
+  cursor: pointer;
+}
+
+.roster-event-label {
+  z-index: 2;
+  cursor: pointer;
+  user-select: none;
+  background: var(--panel-muted);
+  color: var(--ink);
+  box-shadow: inset 0 -1px 0 var(--line);
+  font-weight: var(--fw-strong);
+  letter-spacing: 0.01em;
+}
+
+.roster-bar-drop {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  z-index: 4;
+}
+
+.roster-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: ew-resize;
+  z-index: 3;
+}
+
+.roster-handle-start {
+  left: 0;
+}
+
+.roster-handle-end {
+  right: 0;
+}
+
+.roster-bar-clear {
+  position: absolute;
+  top: 0;
+  right: 8px;
+  z-index: 4;
+  display: flex;
+  height: 100%;
+  width: 14px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: var(--fs-caption);
+  line-height: 1;
+  opacity: 0.75;
+  cursor: pointer;
+}
+
+.roster-bar-clear:hover {
+  opacity: 1;
+}
+
+.roster-people-dock {
+  position: absolute;
+  top: 0.15rem;
+  right: 0.15rem;
+  z-index: 24;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  pointer-events: none;
+}
+
+.roster-people-dock.is-drop .roster-people-fab,
+.roster-people-dock.is-drop .roster-people-panel {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.roster-people-fab,
+.roster-people-panel {
+  pointer-events: auto;
+}
+
+.roster-people-fab {
+  display: flex;
+  height: 2.75rem;
+  width: 2.75rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--ink);
+  box-shadow: 0 8px 22px rgb(15 23 42 / 0.2);
+  transition:
+    transform 0.2s ease,
+    background 0.2s ease,
+    color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.roster-people-fab:hover {
+  transform: scale(1.06);
+}
+
+.roster-people-fab:active {
+  transform: scale(0.97);
+}
+
+.roster-people-fab.is-open {
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--accent) 92%, white),
+    var(--accent-deep)
+  );
+  color: #fff;
+  border-color: transparent;
+}
+
+.roster-people-panel {
+  display: flex;
+  width: min(16.75rem, calc(100vw - 1.5rem));
+  max-height: min(70vh, 28rem);
+  margin-top: 0.45rem;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  background: var(--panel);
+  padding: 0.75rem;
+  box-shadow: 0 18px 40px rgb(15 23 42 / 0.22);
+  transform-origin: top right;
+  animation: roster-people-in 0.22s ease;
+}
+
+@keyframes roster-people-in {
+  from {
+    opacity: 0;
+    transform: scale(0.72) translate(12px, -8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translate(0, 0);
+  }
+}
+
+.roster-earn-track {
+  display: block;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--line) 80%, transparent);
+}
+
+.roster-earn-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--accent) 70%, var(--muted));
 }
 
 .animate-fade-up {
@@ -496,6 +897,19 @@ html[data-theme="light"] .brand-logo-invert {
 
 .app-frame {
   min-height: 100%;
+}
+
+.roster-page {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100dvh - var(--app-topbar-height));
+}
+
+html[data-layout="mobile"] .roster-page {
+  min-height: calc(
+    100dvh - var(--app-topbar-height) - var(--app-bottombar-height) -
+      env(safe-area-inset-bottom)
+  );
 }
 
 .app-topnav {
@@ -779,8 +1193,11 @@ html[data-layout="mobile"] .app-main {
   .cal-dash-overlay,
   .cal-dash-overlay.is-motion,
   .cal-dash-fab-float,
+  .roster-people-fab,
+  .roster-people-panel,
   .side-drawer-overlay,
   .side-drawer-panel {
     transition: none;
+    animation: none;
   }
 }

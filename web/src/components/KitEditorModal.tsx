@@ -179,7 +179,7 @@ export function KitEditorModal({
           <div className="flex min-h-0 min-w-0 flex-col gap-3 overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--bg)]/45 p-3">
             <div className="grid shrink-0 gap-3 xl:grid-cols-2">
               <label className="block">
-                <span className="text-[10px] uppercase text-[var(--muted)]">
+                <span className="text-caption uppercase text-[var(--muted)]">
                   Название
                 </span>
                 <input
@@ -202,7 +202,7 @@ export function KitEditorModal({
                 />
               ) : categoryPath ? (
                 <div className="text-sm">
-                  <span className="text-[10px] uppercase text-[var(--muted)]">
+                  <span className="text-caption uppercase text-[var(--muted)]">
                     Раздел / подраздел
                   </span>
                   <p className="field mt-1">{categoryPath}</p>
@@ -210,13 +210,13 @@ export function KitEditorModal({
               ) : null}
             </div>
 
-            <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-[var(--line)] bg-[var(--panel)]">
-              <table className="w-full min-w-[680px] table-fixed text-sm">
+            <div className="data-table-shell min-h-0 flex-1 overflow-auto">
+              <table className="data-table data-table--editable data-table--sticky w-full min-w-[580px] table-fixed text-sm">
                 <colgroup>
                   <col />
-                  <col className="w-24" />
-                  <col className="w-32" />
-                  <col className="w-14" />
+                  <col className="w-20" />
+                  <col className="w-28" />
+                  <col className="w-12" />
                 </colgroup>
                 <thead className="sticky top-0 z-[1] bg-[var(--table-head)] text-xs uppercase text-[var(--muted)]">
                   <tr>

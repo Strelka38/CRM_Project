@@ -12,23 +12,34 @@ import {
 import { useRouter } from "next/navigation";
 import { type PickedCatalogItem } from "@/components/CatalogPicker";
 import { QuoteCatalogSidebar } from "@/components/QuoteCatalogSidebar";
-import {
-  isVacantStaff,
-  staffRoleLabel,
-} from "@/lib/staff-slots";
+import { QuoteZoneTabs, type ZoneTab } from "@/components/QuoteZoneTabs";
+import { staffCoverageLines } from "@/lib/quote-assignment-days";
+import { isVacantStaff } from "@/lib/staff-slots";
 import {
   StockHeaderCells,
   StockMarks,
   type StockInfo,
 } from "@/components/StockMarks";
 import { cn } from "@/lib/cn";
+import { CATALOG_OWNERS } from "@/lib/catalog-owner";
+import { omitEmptyDerivedSections } from "@/lib/spec-build";
 import { appendOccupancyParams } from "@/lib/quote-schedule";
 import { reorderBlocksByDrop } from "@/lib/quote-block-groups";
+import {
+  isCatalogDrag,
+  nearestInsertGap,
+  parseCatalogDrag,
+  relatedTargetStillInside,
+} from "@/lib/catalog-dnd";
 
 type SpecLine = {
   key: string;
   deriveKey: string | null;
   source: "derived" | "extra";
+  zoneId?: string | null;
+  zoneName?: string | null;
+  zoneSortOrder?: number | null;
+  zoneActive?: boolean;
   type: "SECTION" | "ITEM";
   title: string | null;
   name: string | null;
@@ -54,6 +65,10 @@ type Extra = {
   id: string;
   type: "SECTION" | "ITEM";
   sortOrder: number;
+  zoneId?: string | null;
+  zoneName?: string | null;
+  zoneSortOrder?: number | null;
+  zoneActive?: boolean;
   title?: string | null;
   name?: string | null;
   qty?: number;
@@ -64,6 +79,20 @@ type Extra = {
 
 type EditableExtra = Extra & { key: string };
 
+const OWNER_SHORTS = new Set(CATALOG_OWNERS.map((o) => o.short));
+
+function ownerSelectValue(label: string | undefined) {
+  const value = (label ?? "").trim();
+  if (!value || value === "—") return "";
+  return value;
+}
+
+function ownerSelectExtraOption(label: string | undefined) {
+  const value = ownerSelectValue(label);
+  if (!value || OWNER_SHORTS.has(value)) return null;
+  return <option value={value}>{value}</option>;
+}
+
 type StaffRow = {
   id: string;
   userId: string | null;
@@ -71,17 +100,20 @@ type StaffRow = {
   specialtyId: string;
   specialtyName: string;
   kind?: "EVENT" | "MOUNT";
+  dayIndex?: number | null;
+  zoneId?: string | null;
   vacant?: boolean;
   isFreelancer?: boolean;
+  freelancerName?: string;
+  specialty?: { id?: string; name?: string } | null;
+  user?: { name?: string; firstName?: string; lastName?: string } | null;
 };
 
 type ReplaceTarget =
   | { kind: "derived"; key: string; deriveKey: string }
   | { kind: "extra"; key: string };
 
-type PickerMode =
-  | { mode: "replace"; target: ReplaceTarget }
-  | { mode: "insert"; index: number };
+type PickerMode = { mode: "replace"; target: ReplaceTarget };
 
 function uid() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -92,6 +124,13 @@ function uid() {
 
 function extraKey(id: string) {
   return `extra:${id}`;
+}
+
+function staffAsCoverage(a: StaffRow) {
+  return {
+    ...a,
+    specialty: a.specialty || { id: a.specialtyId, name: a.specialtyName },
+  };
 }
 
 function EyeIcon({ crossed }: { crossed?: boolean }) {
@@ -198,6 +237,7 @@ export function SpecEditor({
   const [picker, setPicker] = useState<PickerMode | null>(null);
   const [canEdit, setCanEdit] = useState(false);
   const [showHidden, setShowHidden] = useState(true);
+  const [activeZoneId, setActiveZoneId] = useState("");
   const [exporting, setExporting] = useState<"excel" | "pdf" | null>(null);
   const [stockMap, setStockMap] = useState<Record<string, StockInfo | null>>(
     {},
@@ -205,6 +245,7 @@ export function SpecEditor({
   const [dragKey, setDragKey] = useState<string | null>(null);
   const [dropKey, setDropKey] = useState<string | null>(null);
   const [gapIndex, setGapIndex] = useState<number | null>(null);
+  const [catalogOver, setCatalogOver] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [importBusy, setImportBusy] = useState(false);
   const [importPreview, setImportPreview] = useState<{
@@ -222,6 +263,7 @@ export function SpecEditor({
   } | null>(null);
   const dirtyRef = useRef(false);
   const lineOrderRef = useRef<string[]>([]);
+  const tableRef = useRef<HTMLDivElement>(null);
   lineOrderRef.current = lineOrder;
 
   useEffect(() => {
@@ -263,15 +305,21 @@ export function SpecEditor({
           id: e.id,
           type: e.type,
           sortOrder: e.sortOrder,
+          zoneId: e.zoneId ?? null,
+          zoneName: e.zoneName ?? null,
+          zoneSortOrder: e.zoneSortOrder ?? null,
+          zoneActive: e.zoneActive !== false,
           title: e.title,
           name: e.name,
           qty: e.qty,
           comment: e.comment ?? "",
           catalogItemId: e.catalogItemId,
           ownerLabel:
+            e.ownerLabel ??
             (lines.find((l) => l.extraId === e.id)?.ownerLabel as
               | string
-              | undefined) || "—",
+              | undefined) ??
+            "",
         }),
       ),
     );
@@ -353,13 +401,28 @@ export function SpecEditor({
             id: e.id,
             type: e.type,
             sortOrder: i,
+            zoneId: e.zoneId ?? null,
+            zoneName: e.zoneName ?? null,
+            zoneSortOrder: e.zoneSortOrder ?? null,
+            zoneActive: e.zoneActive !== false,
             title: e.title ?? null,
             name: e.name ?? null,
             qty: e.qty ?? 0,
             comment: e.comment ?? "",
             catalogItemId: e.catalogItemId ?? null,
+            ownerLabel: e.ownerLabel ?? "",
           })),
           lineOrder: nextOrder,
+          ownerLabels: [
+            ...derived.map((line) => ({
+              key: line.key,
+              ownerLabel: line.ownerLabel ?? "",
+            })),
+            ...nextExtras.map((extra) => ({
+              key: extra.key,
+              ownerLabel: extra.ownerLabel ?? "",
+            })),
+          ],
         }),
       });
       setSaving(false);
@@ -372,7 +435,7 @@ export function SpecEditor({
       setSavedAt(new Date().toLocaleTimeString("ru-RU"));
       return true;
     },
-    [canEdit, quoteId, applyPayload],
+    [canEdit, quoteId, applyPayload, derived],
   );
 
   async function openImportPreview() {
@@ -433,7 +496,7 @@ export function SpecEditor({
       void persist(overrides, extras, lineOrder);
     }, 800);
     return () => clearTimeout(t);
-  }, [overrides, extras, lineOrder, loading, canEdit, persist]);
+  }, [overrides, extras, lineOrder, derived, loading, canEdit, persist]);
 
   useEffect(() => {
     if (!flushRef) return;
@@ -451,6 +514,10 @@ export function SpecEditor({
         key: e.key,
         deriveKey: null,
         source: "extra",
+        zoneId: e.zoneId ?? null,
+        zoneName: e.zoneName ?? null,
+        zoneSortOrder: e.zoneSortOrder ?? null,
+        zoneActive: e.zoneActive !== false,
         type: e.type,
         title: e.title ?? null,
         name: e.name ?? null,
@@ -475,15 +542,60 @@ export function SpecEditor({
     for (const [key, row] of byKey) {
       if (!seen.has(key)) ordered.push(row);
     }
-    return ordered;
+    return omitEmptyDerivedSections(ordered);
   }, [derived, extras, lineOrder]);
+
+  const specZones = useMemo<ZoneTab[]>(() => {
+    const byId = new Map<string, ZoneTab>();
+    let hasUnassigned = false;
+    for (const line of allRows) {
+      if (!line.zoneId || !line.zoneName) {
+        hasUnassigned = true;
+        continue;
+      }
+      if (!byId.has(line.zoneId)) {
+        byId.set(line.zoneId, {
+          id: line.zoneId,
+          name: line.zoneName,
+          sortOrder: line.zoneSortOrder ?? byId.size,
+          active: line.zoneActive !== false,
+        });
+      }
+    }
+    const zones = [...byId.values()].sort(
+      (a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name, "ru"),
+    );
+    if (hasUnassigned) {
+      zones.push({
+        id: "spec-unassigned",
+        name: "Без зоны",
+        sortOrder: Number.MAX_SAFE_INTEGER,
+        active: true,
+      });
+    }
+    return zones;
+  }, [allRows]);
+
+  const resolvedZoneId = specZones.some((zone) => zone.id === activeZoneId)
+    ? activeZoneId
+    : specZones[0]?.id ?? "";
+
+  const insertZone = useMemo(() => {
+    if (resolvedZoneId && resolvedZoneId !== "spec-unassigned") {
+      return specZones.find((zone) => zone.id === resolvedZoneId) ?? null;
+    }
+    return specZones.find((zone) => zone.id !== "spec-unassigned") ?? null;
+  }, [resolvedZoneId, specZones]);
 
   const displayRows = useMemo(() => {
     return allRows.filter((l) => {
-      if (!l.hidden) return true;
-      return canEdit && showHidden;
+      const visible = !l.hidden || (canEdit && showHidden);
+      if (!visible) return false;
+      if (!resolvedZoneId) return true;
+      if (resolvedZoneId === "spec-unassigned") return !l.zoneId;
+      return l.zoneId === resolvedZoneId;
     });
-  }, [allRows, canEdit, showHidden]);
+  }, [allRows, canEdit, showHidden, resolvedZoneId]);
 
   const neededByItem = useMemo(() => {
     const map = new Map<string, number>();
@@ -637,6 +749,14 @@ export function SpecEditor({
     );
   }
 
+  function updateDerivedOwner(line: SpecLine, ownerLabel: string) {
+    if (line.type !== "ITEM") return;
+    markDirty();
+    setDerived((prev) =>
+      prev.map((l) => (l.key === line.key ? { ...l, ownerLabel } : l)),
+    );
+  }
+
   function updateExtra(key: string, patch: Partial<EditableExtra>) {
     markDirty();
     setExtras((prev) =>
@@ -692,10 +812,20 @@ export function SpecEditor({
     });
   }
 
+  function activeExtraZone() {
+    return {
+      zoneId: insertZone?.id ?? null,
+      zoneName: insertZone?.name ?? null,
+      zoneSortOrder: insertZone?.sortOrder ?? null,
+      zoneActive: insertZone?.active !== false,
+    };
+  }
+
   function addSection() {
     appendExtra({
       id: uid(),
       type: "SECTION",
+      ...activeExtraZone(),
       title: "Новый раздел",
       comment: "",
     });
@@ -705,6 +835,7 @@ export function SpecEditor({
     appendExtra({
       id: uid(),
       type: "ITEM",
+      ...activeExtraZone(),
       name: "Новая позиция",
       qty: 1,
       comment: "",
@@ -714,7 +845,10 @@ export function SpecEditor({
   function addFromCatalog(item: PickedCatalogItem, qty = 1) {
     const addQty = Math.max(1, Math.round(qty) || 1);
     const existing = extras.find(
-      (e) => e.type === "ITEM" && e.catalogItemId === item.id,
+      (e) =>
+        e.type === "ITEM" &&
+        e.catalogItemId === item.id &&
+        (e.zoneId ?? null) === (insertZone?.id ?? null),
     );
     if (existing) {
       updateExtra(existing.key, {
@@ -725,6 +859,7 @@ export function SpecEditor({
     appendExtra({
       id: uid(),
       type: "ITEM",
+      ...activeExtraZone(),
       name: item.name,
       qty: addQty,
       comment: "",
@@ -741,6 +876,7 @@ export function SpecEditor({
     insertExtraAt(index, {
       id: uid(),
       type: "ITEM",
+      ...activeExtraZone(),
       name: item.name,
       qty: addQty,
       comment: "",
@@ -787,12 +923,6 @@ export function SpecEditor({
       setPicker(null);
       return;
     }
-    if (picker.mode === "insert") {
-      insertFromCatalogAt(picker.index, item, qty);
-      setPicker(null);
-      setGapIndex(null);
-      return;
-    }
   }
 
   function onPickFromSidebar(item: PickedCatalogItem, qty?: number) {
@@ -801,6 +931,47 @@ export function SpecEditor({
       return;
     }
     addFromCatalog(item, qty);
+  }
+
+  function onCatalogTableDragOver(e: React.DragEvent) {
+    if (!canEdit || !isCatalogDrag(e.dataTransfer)) return false;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = "copy";
+    if (!catalogOver) setCatalogOver(true);
+    const root = tableRef.current;
+    if (root) {
+      const rows = root.querySelectorAll<HTMLElement>("[data-spec-row]");
+      const best = nearestInsertGap(rows, e.clientY, gapIndex);
+      setGapIndex((prev) => (prev === best ? prev : best));
+    }
+    return true;
+  }
+
+  function onCatalogTableDragLeave(e: React.DragEvent) {
+    if (!isCatalogDrag(e.dataTransfer)) return;
+    if (relatedTargetStillInside(e.currentTarget, e.relatedTarget)) return;
+    setCatalogOver(false);
+    setGapIndex(null);
+  }
+
+  function onCatalogTableDrop(e: React.DragEvent) {
+    if (!canEdit || !isCatalogDrag(e.dataTransfer)) return false;
+    e.preventDefault();
+    e.stopPropagation();
+    const payload = parseCatalogDrag(e.dataTransfer);
+    setCatalogOver(false);
+    if (!payload) return true;
+    const rows = tableRef.current?.querySelectorAll<HTMLElement>("[data-spec-row]");
+    if (rows && rows.length > 0) {
+      const index = nearestInsertGap(rows, e.clientY, gapIndex);
+      insertFromCatalogAt(index, payload.item, payload.qty);
+    } else {
+      addFromCatalog(payload.item, payload.qty);
+    }
+    setPicker(null);
+    setGapIndex(null);
+    return true;
   }
 
   function exportLines(): SpecLine[] {
@@ -816,14 +987,18 @@ export function SpecEditor({
       const { exportSpecExcel, exportSpecPdf } = await import(
         "@/lib/export/spec"
       );
-      const staff = assignments.map((a) => {
-        const vacant = a.vacant ?? isVacantStaff(a);
-        const role = staffRoleLabel(a);
-        return {
-          name: vacant ? `Нужно назначить — ${role}` : a.name,
-          specialtyName: vacant ? "" : a.kind === "MOUNT" ? "монтаж" : a.specialtyName,
-        };
-      });
+      const staff = staffCoverageLines(
+        assignments.map(staffAsCoverage),
+        meta.durationDays,
+        meta.date,
+      ).map((line) => ({
+        name: line.text,
+        specialtyName: line.vacant
+          ? ""
+          : line.role === "должность" && line.text.includes("монтаж")
+            ? "монтаж"
+            : line.role,
+      }));
       if (kind === "excel") await exportSpecExcel(meta, lines, staff);
       else await exportSpecPdf(meta, lines, staff);
     } finally {
@@ -859,44 +1034,27 @@ export function SpecEditor({
   }
 
   const hiddenCount = derived.filter((l) => l.hidden).length;
+  const staffLines = staffCoverageLines(
+    assignments.map(staffAsCoverage),
+    meta.durationDays,
+    meta.date,
+  );
   const tableColSpan = canEdit ? 8 : 4;
   const catalogSelectionLabel =
     picker?.mode === "replace"
       ? "Выберите оборудование для замены"
-      : picker?.mode === "insert"
-        ? "Выберите оборудование для вставки"
-        : undefined;
+      : undefined;
 
   function renderGap(index: number) {
-    if (!canEdit) return null;
-    const active = gapIndex === index && !dragKey;
+    if (!canEdit || !catalogOver || gapIndex !== index) return null;
     return (
       <tr key={`gap-${index}`} className="relative h-0 border-0">
         <td colSpan={tableColSpan} className="relative h-0 p-0">
           <div
-            className="absolute inset-x-0 z-20 -translate-y-1/2"
-            style={{ height: 14, top: 0 }}
-            onMouseEnter={() => setGapIndex(index)}
-            onMouseLeave={() =>
-              setGapIndex((g) => (g === index ? null : g))
-            }
+            className="pointer-events-none absolute inset-x-0 z-20"
+            style={{ height: 0, top: 0 }}
           >
-            {active && (
-              <>
-                <div className="pointer-events-none absolute inset-x-3 top-1/2 h-0.5 -translate-y-1/2 bg-[var(--accent)]" />
-                <button
-                  type="button"
-                  title="Добавить оборудование сюда"
-                  className="absolute right-2 top-1/2 z-30 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full bg-[var(--accent)] text-sm font-semibold leading-none text-white shadow"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setPicker({ mode: "insert", index });
-                  }}
-                >
-                  +
-                </button>
-              </>
-            )}
+            <div className="absolute inset-x-3 top-0 h-0.5 -translate-y-1/2 bg-[var(--accent)]" />
           </div>
         </td>
       </tr>
@@ -904,10 +1062,10 @@ export function SpecEditor({
   }
 
   return (
-    <div className={embedded ? "flex flex-col gap-4" : "mx-auto flex max-w-[1680px] flex-col gap-6 px-4 py-6 md:px-6"}>
-      <header className={embedded ? "flex flex-wrap items-center justify-between gap-3" : "flex flex-wrap items-end justify-between gap-4 border-b border-[var(--line)] pb-4"}>
+    <div className={embedded ? "flex flex-col gap-2" : "mx-auto flex max-w-[1680px] flex-col gap-6 px-4 py-6 md:px-6"}>
+      {!embedded && (
+      <header className="flex flex-wrap items-end justify-between gap-4 border-b border-[var(--line)] pb-4">
         <div>
-          {!embedded && (
             <button
               type="button"
               onClick={() => {
@@ -924,79 +1082,22 @@ export function SpecEditor({
             >
               {isManager ? "← К смете" : "← К мероприятиям"}
             </button>
-          )}
-          {!embedded && (
             <h1 className="font-display mt-1 text-3xl text-[var(--ink)]">
               Спецификация на погрузку
             </h1>
-          )}
           <p className="text-sm text-[var(--muted)]">
-            {embedded
-              ? "Спецификация на погрузку"
-              : `№${meta.proposalNumber} · ${meta.eventName || meta.client || "Мероприятие"}${meta.date ? ` · ${meta.date}` : ""}`}
+            №{meta.proposalNumber} · {meta.eventName || meta.client || "Мероприятие"}
+            {meta.date ? ` · ${meta.date}` : ""}
           </p>
-          <p className="text-xs text-[var(--muted)]">
-            {canEdit
-              ? saving
-                ? "Сохранение…"
-                : savedAt
-                  ? `Сохранено в ${savedAt}`
-                  : "Автосохранение правок"
-              : "Только просмотр"}
-            {meta.hasSnapshot
-              ? " · снимок (смена статуса сметы не пересобирает)"
-              : " · следует за сметой, пока не сохраните правки или не импортируете"}
-            {error ? ` · ${error}` : ""}
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {canEdit && (
-            <button
-              type="button"
-              disabled={importBusy}
-              onClick={() => void openImportPreview()}
-              className="rounded-md border border-[var(--line)] px-4 py-2 text-sm disabled:opacity-40"
-            >
-              {importBusy ? "Сравнение…" : "Импорт из сметы"}
-            </button>
-          )}
-          <button
-            type="button"
-            disabled={
-              exporting !== null ||
-              (allRows.length === 0 && assignments.length === 0)
-            }
-            onClick={() => void onExport("excel")}
-            className="rounded-md bg-[var(--solid)] px-4 py-2 text-sm text-[var(--on-solid)] disabled:opacity-40"
-          >
-            {exporting === "excel" ? "Excel…" : "Excel"}
-          </button>
-          <button
-            type="button"
-            disabled={
-              exporting !== null ||
-              (allRows.length === 0 && assignments.length === 0)
-            }
-            onClick={() => void onExport("pdf")}
-            className="rounded-md bg-[var(--accent)] px-4 py-2 text-sm text-white disabled:opacity-40"
-          >
-            {exporting === "pdf" ? "PDF…" : "PDF"}
-          </button>
         </div>
       </header>
-
-      <p className="text-sm text-[var(--muted)]">
-        Отдельные позиции из сметы + разворот комплектов по составляющим. Цен
-        нет. Услуги технического персонала из сметы не включаются — внизу
-        указаны назначенные сотрудники.
-        {canEdit ? " Правки поверх сметы сохраняются отдельно." : ""}
-      </p>
+      )}
 
       <div
         className={cn(
           "min-w-0",
           canEdit &&
-            "grid items-start gap-3 lg:grid-cols-[340px_minmax(0,1fr)] xl:grid-cols-[360px_minmax(0,1fr)]",
+            "grid items-start gap-2 lg:grid-cols-[280px_minmax(0,1fr)] xl:grid-cols-[300px_minmax(0,1fr)]",
         )}
       >
         {canEdit ? (
@@ -1004,64 +1105,50 @@ export function SpecEditor({
             onPickItem={onPickFromSidebar}
             eventDate={meta.date || undefined}
             durationDays={meta.durationDays}
-            zoneName="спецификацию"
+            zoneName={insertZone?.name || "спецификацию"}
+            addTargetLabel="спецификацию"
             includeHidden
             currentQtyByItem={neededByItem}
             selectionLabel={catalogSelectionLabel}
             onCancelSelection={
-              picker
-                ? () => {
-                    setPicker(null);
-                    setGapIndex(null);
-                  }
-                : undefined
+              picker ? () => setPicker(null) : undefined
             }
           />
         ) : null}
 
-        <div className="min-w-0 space-y-4">
-      {canEdit && (
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            title={
-              showHidden
-                ? "Убрать отображение скрытых строк и разделов"
-                : "Показать скрытые строки и разделы"
-            }
-            aria-label={
-              showHidden
-                ? "Убрать отображение скрытых строк и разделов"
-                : "Показать скрытые строки и разделы"
-            }
-            aria-pressed={!showHidden}
-            onClick={() => setShowHidden((v) => !v)}
-            className={`btn-icon inline-flex items-center gap-1.5 px-2 ${
-              !showHidden ? "text-[var(--accent)]" : "text-[var(--muted)]"
-            }`}
-          >
-            <EyeIcon crossed={!showHidden} />
-            <span className="text-xs font-normal normal-case tracking-normal">
-              {showHidden
-                ? hiddenCount > 0
-                  ? `Скрытые (${hiddenCount})`
-                  : "Скрытые"
-                : "Скрытые спрятаны"}
-            </span>
-          </button>
-        </div>
-      )}
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
+      {specZones.length > 0 ? (
+        <QuoteZoneTabs
+          zones={specZones}
+          activeId={resolvedZoneId}
+          onSelect={setActiveZoneId}
+          onAdd={() => {}}
+          onRename={() => {}}
+          onDelete={() => {}}
+          canEdit={false}
+          showSummary={false}
+        />
+      ) : null}
 
-      <div className="overflow-x-auto rounded-xl border border-[var(--line)] bg-[var(--panel)]">
-        <table className="w-full min-w-[920px] text-sm">
-          <thead className="bg-[var(--table-head)] text-xs uppercase text-[var(--muted)]">
+      <div
+        ref={tableRef}
+        className={cn(
+          "data-table-shell quote-estimate-table-wrap relative",
+          catalogOver && "ring-2 ring-inset ring-[var(--accent)]",
+        )}
+        onDragOver={onCatalogTableDragOver}
+        onDragLeave={onCatalogTableDragLeave}
+        onDrop={onCatalogTableDrop}
+      >
+        <table className="data-table data-table--editable quote-estimate-table w-full min-w-[800px] table-fixed text-xs">
+          <thead className="bg-[var(--table-head)] text-caption uppercase tracking-wide text-[var(--muted)]">
             <tr>
-              <th className="px-3 py-2 text-left">Название</th>
-              <th className="w-24 px-3 py-2">Кол-во</th>
+              <th className="px-1.5 py-1.5 text-left">Название</th>
+              <th className="w-14 px-1.5 py-1.5">Кол-во</th>
+              <th className="w-20 px-1.5 py-1.5 text-left">Чьё</th>
+              <th className="px-1.5 py-1.5 text-left">Комментарий</th>
               {canEdit && <StockHeaderCells />}
-              <th className="w-16 px-3 py-2 text-left">Чьё</th>
-              <th className="min-w-[10rem] px-3 py-2 text-left">Комментарий</th>
-              {canEdit && <th className="w-28 px-3 py-2" />}
+              {canEdit && <th className="w-9 px-1 py-1.5" />}
             </tr>
           </thead>
           <tbody>
@@ -1080,6 +1167,7 @@ export function SpecEditor({
               const rowDragProps = canEdit
                 ? {
                     onDragOver: (e: React.DragEvent) => {
+                      if (onCatalogTableDragOver(e)) return;
                       if (!dragKey || dragKey === line.key) return;
                       e.preventDefault();
                       e.dataTransfer.dropEffect = "move";
@@ -1096,6 +1184,7 @@ export function SpecEditor({
                       setDropKey((k) => (k === line.key ? null : k));
                     },
                     onDrop: (e: React.DragEvent) => {
+                      if (onCatalogTableDrop(e)) return;
                       e.preventDefault();
                       const from =
                         e.dataTransfer.getData("text/plain") || dragKey;
@@ -1109,21 +1198,22 @@ export function SpecEditor({
               return (
                 <Fragment key={line.key}>
                   <tr
+                    data-spec-row
                     {...rowDragProps}
                     className={cn(
                       line.hidden
-                        ? "border-t border-[var(--line)] opacity-40"
+                        ? "opacity-40"
                         : isKitHeader
-                          ? "border-t border-[var(--line)] bg-[var(--accent)]/10"
+                          ? "bg-[var(--selected)]/35"
                           : isSection
-                            ? "border-t border-[var(--line)] bg-[var(--selected)]/50"
-                            : "border-t border-[var(--line)]",
+                            ? "bg-[var(--selected)]"
+                            : undefined,
                       isDragging && "opacity-50",
                       isDropTarget &&
                         "ring-2 ring-inset ring-[var(--accent)]",
                     )}
                   >
-                    <td className="px-3 py-2">
+                    <td className="px-1.5 py-1">
                       <div className="flex items-start gap-2">
                         {canEdit && (
                           <DragHandle
@@ -1146,18 +1236,21 @@ export function SpecEditor({
                         )}
                         <div className="min-w-0 flex-1">
                           {isKitHeader && (
-                            <span className="mb-1 block w-fit rounded bg-[var(--accent)]/15 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[var(--accent)]">
+                            <span className="mb-1 block w-fit rounded bg-[var(--accent)]/15 px-1.5 py-0.5 text-caption font-medium uppercase tracking-wide text-[var(--accent)]">
                               Комплект · развёртка
                             </span>
                           )}
                           {!isKitHeader && line.kitName && (
-                            <span className="mb-1 block w-fit rounded bg-[var(--accent)]/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[var(--accent)]">
+                            <span className="mb-1 block w-fit rounded bg-[var(--accent)]/10 px-1.5 py-0.5 text-caption font-medium uppercase tracking-wide text-[var(--accent)]">
                               из комплекта: {line.kitName}
                             </span>
                           )}
                           {canEdit ? (
                             <input
-                              className={`field ${isSection ? "font-medium" : ""}`}
+                              className={cn(
+                                "field min-h-7",
+                                isSection ? "text-sm font-bold" : "text-xs",
+                              )}
                               value={displayName(line)}
                               onChange={(e) => {
                                 if (isExtra) {
@@ -1180,7 +1273,7 @@ export function SpecEditor({
                         </div>
                       </div>
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-1.5 py-1">
                       {!isSection &&
                         (canEdit ? (
                           <input
@@ -1201,20 +1294,42 @@ export function SpecEditor({
                           <span className="tabular-nums">{line.qty}</span>
                         ))}
                     </td>
-                    {canEdit &&
-                      (isSection ? (
-                        <>
-                          <td className="stock-cell">—</td>
-                          <td className="stock-cell">—</td>
-                          <td className="stock-cell">—</td>
-                        </>
-                      ) : (
-                        <StockMarks needed={needed} info={stock} />
-                      ))}
-                    <td className="px-3 py-2 text-xs text-[var(--muted)]">
-                      {!isSection ? line.ownerLabel || "—" : ""}
+                    <td className="px-1.5 py-1">
+                      {!isSection &&
+                        (canEdit ? (
+                          <select
+                            className="field w-full"
+                            aria-label="Контора"
+                            title="Контора"
+                            value={ownerSelectValue(line.ownerLabel)}
+                            onChange={(e) => {
+                              const ownerLabel = e.target.value;
+                              if (isExtra) {
+                                updateExtra(line.key, { ownerLabel });
+                              } else {
+                                updateDerivedOwner(line, ownerLabel);
+                              }
+                            }}
+                          >
+                            <option value="">—</option>
+                            {CATALOG_OWNERS.map((owner) => (
+                              <option
+                                key={owner.value}
+                                value={owner.short}
+                                title={owner.label}
+                              >
+                                {owner.short}
+                              </option>
+                            ))}
+                            {ownerSelectExtraOption(line.ownerLabel)}
+                          </select>
+                        ) : (
+                          <span className="text-xs text-[var(--muted)]">
+                            {line.ownerLabel || "—"}
+                          </span>
+                        ))}
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-1.5 py-1">
                       {!isSection &&
                         (canEdit ? (
                           <input
@@ -1237,8 +1352,18 @@ export function SpecEditor({
                           </span>
                         ))}
                     </td>
+                    {canEdit &&
+                      (isSection ? (
+                        <>
+                          <td className="stock-cell">—</td>
+                          <td className="stock-cell">—</td>
+                          <td className="stock-cell">—</td>
+                        </>
+                      ) : (
+                        <StockMarks needed={needed} info={stock} />
+                      ))}
                     {canEdit && (
-                      <td className="px-2 py-2">
+                      <td className="px-1 py-1">
                         <div className="flex items-center justify-end gap-1">
                           {!isSection && !line.hidden && (
                             <button
@@ -1297,72 +1422,13 @@ export function SpecEditor({
               );
             })}
 
-            {assignments.length > 0 && (
-              <>
-                <tr className="border-t border-[var(--line)] bg-[var(--selected)]/50">
-                  <td className="px-3 py-2 font-medium" colSpan={tableColSpan}>
-                    Технический персонал
-                    {assignments.some((a) => a.vacant ?? isVacantStaff(a))
-                      ? " · есть незакрытые слоты"
-                      : ""}
-                  </td>
-                </tr>
-                {assignments.map((a) => {
-                  const vacant = a.vacant ?? isVacantStaff(a);
-                  const role = staffRoleLabel(a);
-                  return (
-                  <tr
-                    key={a.id}
-                    className={
-                      vacant
-                        ? "border-t border-amber-500/30 bg-amber-500/10"
-                        : "border-t border-[var(--line)]"
-                    }
-                  >
-                    <td className="px-3 py-2">
-                      {vacant ? (
-                        <span className="font-medium text-amber-800 dark:text-amber-200">
-                          Нужно назначить — {role}
-                        </span>
-                      ) : (
-                        <>
-                          <span>{a.name}</span>
-                          {a.kind !== "MOUNT" && (
-                            <span className="ml-2 text-[var(--muted)]">
-                              — {a.specialtyName}
-                            </span>
-                          )}
-                          {a.kind === "MOUNT" && (
-                            <span className="ml-2 text-[var(--muted)]">
-                              — монтаж
-                            </span>
-                          )}
-                        </>
-                      )}
-                    </td>
-                    <td className="px-3 py-2" />
-                    {canEdit && (
-                      <>
-                        <td className="stock-cell">—</td>
-                        <td className="stock-cell">—</td>
-                        <td className="stock-cell">—</td>
-                      </>
-                    )}
-                    <td className="px-3 py-2" />
-                    {canEdit && <td />}
-                  </tr>
-                  );
-                })}
-              </>
-            )}
-
-            {displayRows.length === 0 && assignments.length === 0 && (
+            {displayRows.length === 0 && (
               <tr>
                 <td
                   colSpan={tableColSpan}
                   className="px-4 py-8 text-center text-[var(--muted)]"
                 >
-                  В смете пока нет позиций для спецификации
+                  В этой зоне пока нет позиций для спецификации
                 </td>
               </tr>
             )}
@@ -1370,27 +1436,136 @@ export function SpecEditor({
         </table>
       </div>
 
+      {staffLines.length > 0 ? (
+        <div className="overflow-hidden rounded-lg border border-[var(--line)]">
+          <p className="border-b border-[var(--line)] bg-[var(--table-head)] px-3 py-1.5 text-caption font-semibold uppercase tracking-wide text-[var(--muted)]">
+            Технический персонал
+            {staffLines.some((l) => l.vacant)
+              ? " · есть незакрытые слоты"
+              : ""}
+          </p>
+          <ul className="divide-y divide-[var(--line)] text-sm">
+            {staffLines.map((line) => (
+              <li
+                key={line.id}
+                className={cn(
+                  "px-3 py-1.5",
+                  line.vacant && "bg-amber-500/10 text-amber-800 dark:text-amber-200",
+                )}
+              >
+                {line.text}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
       {canEdit && (
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-1.5">
           <button
             type="button"
             onClick={addSection}
-            className="rounded-md border border-[var(--line)] px-3 py-2 text-sm"
+            className="rounded-md border border-[var(--line)] px-2.5 py-1.5 text-xs"
           >
             + Раздел
           </button>
           <button
             type="button"
             onClick={addCustomItem}
-            className="rounded-md border border-[var(--line)] px-3 py-2 text-sm"
+            className="rounded-md border border-[var(--line)] px-2.5 py-1.5 text-xs"
           >
             + Позиция
+          </button>
+          <button
+            type="button"
+            title={
+              showHidden
+                ? "Убрать отображение скрытых строк и разделов"
+                : "Показать скрытые строки и разделы"
+            }
+            aria-label={
+              showHidden
+                ? "Убрать отображение скрытых строк и разделов"
+                : "Показать скрытые строки и разделы"
+            }
+            aria-pressed={!showHidden}
+            onClick={() => setShowHidden((v) => !v)}
+            className={`btn-icon inline-flex items-center gap-1.5 px-2 ${
+              !showHidden ? "text-[var(--accent)]" : "text-[var(--muted)]"
+            }`}
+          >
+            <EyeIcon crossed={!showHidden} />
+            <span className="text-xs font-normal normal-case tracking-normal">
+              {showHidden
+                ? hiddenCount > 0
+                  ? `Скрытые (${hiddenCount})`
+                  : "Скрытые"
+                : "Скрытые спрятаны"}
+            </span>
           </button>
         </div>
       )}
 
         </div>
       </div>
+
+      <footer className="flex flex-col gap-2 border-t border-[var(--line)] pt-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="min-w-0 text-xs text-[var(--muted)]">
+          <p className="font-medium text-[var(--ink)]">Спецификация на погрузку</p>
+          <p>
+            {canEdit
+              ? saving
+                ? "Сохранение…"
+                : savedAt
+                  ? `Сохранено в ${savedAt}`
+                  : "Автосохранение правок"
+              : "Только просмотр"}
+            {meta.hasSnapshot
+              ? " · снимок (смена статуса сметы не пересобирает)"
+              : " · следует за сметой, пока не сохраните правки или не импортируете"}
+            {error ? ` · ${error}` : ""}
+          </p>
+          <p className="mt-1">
+            Отдельные позиции из сметы + разворот комплектов по составляющим.
+            Цен нет. Технический персонал указан под таблицей.
+            {canEdit ? " Правки поверх сметы сохраняются отдельно." : ""}
+          </p>
+        </div>
+        <div className="flex shrink-0 flex-wrap gap-2">
+          {canEdit && (
+            <button
+              type="button"
+              disabled={importBusy}
+              onClick={() => void openImportPreview()}
+              className="rounded-md border border-[var(--line)] px-3 py-1.5 text-xs disabled:opacity-40"
+            >
+              {importBusy ? "Сравнение…" : "Импорт из сметы"}
+            </button>
+          )}
+          <button
+            type="button"
+            disabled={
+              exporting !== null ||
+              (allRows.length === 0 && assignments.length === 0)
+            }
+            onClick={() => void onExport("excel")}
+            className="rounded-md bg-[var(--solid)] px-3 py-1.5 text-xs text-[var(--on-solid)] disabled:opacity-40"
+          >
+            {exporting === "excel" ? "Excel…" : "Excel"}
+          </button>
+          <button
+            type="button"
+            disabled={
+              exporting !== null ||
+              (allRows.length === 0 && assignments.length === 0)
+            }
+            onClick={() => void onExport("pdf")}
+            className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-xs text-white disabled:opacity-40"
+          >
+            {exporting === "pdf" ? "PDF…" : "PDF"}
+          </button>
+        </div>
+      </footer>
 
       {importOpen && importPreview && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">

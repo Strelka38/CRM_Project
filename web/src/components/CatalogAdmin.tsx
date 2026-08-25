@@ -273,7 +273,7 @@ function FirmTag({
   if (!shorts || shorts === "—") return null;
   return (
     <span
-      className="ml-1.5 inline-block rounded border border-[var(--line)] bg-[var(--panel-muted)] px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[var(--ink)]"
+      className="ml-1.5 inline-block rounded border border-[var(--line)] bg-[var(--panel-muted)] px-1 py-0.5 text-caption font-medium uppercase tracking-wide text-[var(--ink)]"
       title={shorts}
     >
       {shorts}
@@ -1416,7 +1416,7 @@ export function CatalogAdmin() {
         >
           <button
             type="button"
-            className="flex h-6 w-5 shrink-0 items-center justify-center text-[10px] text-[var(--muted)]"
+            className="flex h-6 w-5 shrink-0 items-center justify-center text-caption text-[var(--muted)]"
             onClick={(e) => (canExpand ? toggleExpand(cat.path, e) : undefined)}
             aria-label={isOpen ? "Свернуть" : "Развернуть"}
           >
@@ -1519,7 +1519,7 @@ export function CatalogAdmin() {
             ((cat._count.items > 0 && catItems === undefined) ||
               ((cat._count.kits ?? 0) > 0 && catKits === undefined)) ? (
               <p
-                className="py-0.5 text-[10px] text-[var(--muted)]"
+                className="py-0.5 text-caption text-[var(--muted)]"
                 style={{ paddingLeft: (depth + 1) * TREE_INDENT }}
               >
                 Загрузка…
@@ -1648,7 +1648,7 @@ export function CatalogAdmin() {
     <div className="w-full px-4 py-6 md:px-6">
       <header className="mb-8 animate-fade-up">
         <p className="text-xs uppercase tracking-[0.15em] text-[var(--muted)]">CRM</p>
-        <h1 className="mt-1 text-3xl font-light tracking-tight">Каталог</h1>
+        <h1 className="mt-1 text-3xl font-medium tracking-tight">Каталог</h1>
         <p className="mt-1 text-sm text-[var(--muted)]">
           Структура разделов, позиции, комплекты и карточки оборудования.
           Комплектующие не попадают в каталог сметы.
@@ -1677,7 +1677,7 @@ export function CatalogAdmin() {
               className="field min-w-0 w-full py-1.5 text-sm"
               autoComplete="off"
             />
-            <p className="mt-1 text-[10px] text-[var(--muted)]">
+            <p className="mt-1 text-caption text-[var(--muted)]">
               {selectedLabel} · {tableRows.length} поз.
             </p>
           </div>
@@ -1822,8 +1822,8 @@ export function CatalogAdmin() {
             </p>
           ) : null}
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+          <div className="data-table-shell overflow-x-auto">
+            <table className="data-table w-full text-sm">
               <thead className="bg-[var(--table-head)] text-xs uppercase text-[var(--muted)]">
                 <tr>
                   <th className="w-10 px-2 py-2">
@@ -2136,7 +2136,7 @@ export function CatalogAdmin() {
                               {item.name}
                               <FirmTag owners={item.owners} owner={item.owner} />
                               {item.showInCatalog === false ? (
-                                <span className="ml-1.5 rounded border border-[var(--line)] px-1 py-0.5 text-[10px] font-normal uppercase tracking-wide text-[var(--muted)]">
+                                <span className="ml-1.5 rounded border border-[var(--line)] px-1 py-0.5 text-caption font-normal uppercase tracking-wide text-[var(--muted)]">
                                   не в смете
                                 </span>
                               ) : null}

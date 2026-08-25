@@ -1,12 +1,6 @@
 import type { Metadata, Viewport } from "next";
-import "@fontsource/roboto/300.css";
-import "@fontsource/roboto/400.css";
-import "@fontsource/roboto/500.css";
-import "@fontsource/roboto/700.css";
-import "@fontsource/roboto/cyrillic-300.css";
-import "@fontsource/roboto/cyrillic-400.css";
-import "@fontsource/roboto/cyrillic-500.css";
-import "@fontsource/roboto/cyrillic-700.css";
+// Вариативный Golos Text: ось веса 400–900, латиница и кириллица в одном импорте.
+import "@fontsource-variable/golos-text";
 import { Providers } from "@/components/Providers";
 import { LAYOUT_BOOT_SCRIPT } from "@/lib/layout-density";
 import { THEME_BOOT_SCRIPT } from "@/lib/theme";
@@ -34,7 +28,7 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }} />
         <script dangerouslySetInnerHTML={{ __html: LAYOUT_BOOT_SCRIPT }} />
       </head>
-      <body className="min-h-full font-light antialiased">
+      <body className="min-h-full antialiased">
         <Providers>{children}</Providers>
       </body>
     </html>

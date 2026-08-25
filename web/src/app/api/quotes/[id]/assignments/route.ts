@@ -10,7 +10,13 @@ import {
   requireSession,
 } from "@/lib/session";
 import { serializeAssignmentPay } from "@/lib/quote-assignments";
-import { ensureMountSpecialtyId } from "@/lib/quote-assignment-slots";
+import {
+  backfillAssignmentZones,
+  ensureMountSpecialtyId,
+  inferAssignmentZoneId,
+  quoteZoneIdOrNull,
+} from "@/lib/quote-assignment-slots";
+import { normDayIndex } from "@/lib/quote-assignment-days";
 
 async function getAccessibleQuote(id: string, userId: string, role: string) {
   const quote = await prisma.quote.findUnique({ where: { id } });
@@ -62,11 +68,14 @@ export async function GET(
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
+    await backfillAssignmentZones(prisma, id);
+
     const assignments = await prisma.quoteAssignment.findMany({
       where: { quoteId: id },
       include: {
         user: { select: userSelect },
         specialty: { select: { id: true, name: true } },
+        zone: { select: { id: true, name: true } },
       },
       orderBy: { createdAt: "asc" },
     });
@@ -128,6 +137,8 @@ const createSchema = z.object({
   userId: z.string().min(1).optional(),
   specialtyId: z.string().min(1).optional(),
   kind: z.enum(["EVENT", "MOUNT"]).optional().default("EVENT"),
+  zoneId: z.string().min(1).nullable().optional(),
+  dayIndex: z.number().int().min(1).nullable().optional(),
   freelancerName: z.string().optional().default(""),
   owners: z.array(companyEnum).optional().default([]),
   payMode: z.enum(["SHIFT", "HOURLY"]).default("SHIFT"),
@@ -164,14 +175,43 @@ export async function POST(
         { status: 400 },
       );
     }
+    const dayIndex =
+      kind === "MOUNT" ? null : normDayIndex(body.dayIndex);
+    const zoneId =
+      body.zoneId === undefined
+        ? await inferAssignmentZoneId(prisma, id, specialtyId, kind)
+        : await quoteZoneIdOrNull(prisma, id, body.zoneId);
+
+    const assignmentInclude = {
+      user: { select: userSelect },
+      specialty: { select: { id: true, name: true } },
+      zone: { select: { id: true, name: true } },
+    } as const;
 
     async function emptySlot() {
+      const dayWhere = { dayIndex };
+      const matchZone = zoneId
+        ? await prisma.quoteAssignment.findFirst({
+            where: {
+              quoteId: id,
+              kind,
+              userId: null,
+              isFreelancer: false,
+              zoneId,
+              ...dayWhere,
+              ...(kind === "MOUNT" ? {} : { specialtyId }),
+            },
+            orderBy: { createdAt: "asc" },
+          })
+        : null;
+      if (matchZone) return matchZone;
       return prisma.quoteAssignment.findFirst({
         where: {
           quoteId: id,
           kind,
           userId: null,
           isFreelancer: false,
+          ...dayWhere,
           ...(kind === "MOUNT" ? {} : { specialtyId }),
         },
         orderBy: { createdAt: "asc" },
@@ -204,10 +244,7 @@ export async function POST(
               owners: body.owners ?? [],
               kind,
             },
-            include: {
-              user: { select: userSelect },
-              specialty: { select: { id: true, name: true } },
-            },
+            include: assignmentInclude,
           })
         : await prisma.quoteAssignment.create({
             data: {
@@ -215,6 +252,8 @@ export async function POST(
               userId: null,
               specialtyId,
               kind,
+              zoneId,
+              dayIndex,
               payMode: "SHIFT",
               hours: null,
               rateOverride: showPay ? (body.rateOverride ?? null) : null,
@@ -222,10 +261,7 @@ export async function POST(
               freelancerName: (body.freelancerName || "").trim(),
               owners: body.owners ?? [],
             },
-            include: {
-              user: { select: userSelect },
-              specialty: { select: { id: true, name: true } },
-            },
+            include: assignmentInclude,
           });
 
       const full = serializeAssignmentPay({ ...created, user: null });
@@ -251,6 +287,8 @@ export async function POST(
           userId: null,
           specialtyId,
           kind,
+          zoneId,
+          dayIndex,
           payMode: "SHIFT",
           hours: null,
           rateOverride: null,
@@ -258,10 +296,7 @@ export async function POST(
           freelancerName: "",
           owners: [],
         },
-        include: {
-          user: { select: userSelect },
-          specialty: { select: { id: true, name: true } },
-        },
+        include: assignmentInclude,
       });
       const full = serializeAssignmentPay({ ...created, user: null });
       return NextResponse.json(showPay ? full : stripPay(full), {
@@ -320,10 +355,7 @@ export async function POST(
             owners: [],
             kind,
           },
-          include: {
-            user: { select: userSelect },
-            specialty: { select: { id: true, name: true } },
-          },
+          include: assignmentInclude,
         })
       : await prisma.quoteAssignment.create({
           data: {
@@ -331,6 +363,8 @@ export async function POST(
             userId: body.userId,
             specialtyId,
             kind,
+            zoneId,
+            dayIndex,
             payMode,
             hours,
             rateOverride,
@@ -338,10 +372,7 @@ export async function POST(
             freelancerName: "",
             owners: [],
           },
-          include: {
-            user: { select: userSelect },
-            specialty: { select: { id: true, name: true } },
-          },
+          include: assignmentInclude,
         });
 
     await notifyEmployeeOfAssignment(

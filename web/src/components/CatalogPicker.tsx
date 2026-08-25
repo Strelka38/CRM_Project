@@ -93,7 +93,7 @@ function QtyAddControl({
         </button>
       </div>
       {addedTotal > 0 && (
-        <span className="text-[10px] font-medium text-emerald-700 dark:text-emerald-400">
+        <span className="text-caption font-medium text-emerald-700 dark:text-emerald-400">
           добавлено: {addedTotal}
         </span>
       )}

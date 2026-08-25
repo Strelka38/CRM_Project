@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { FullBackupAdmin } from "@/components/FullBackupAdmin";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import {
@@ -131,19 +132,27 @@ export function DatabaseBackupAdmin() {
         <p className="text-xs uppercase tracking-[0.15em] text-[var(--muted)]">
           CRM
         </p>
-        <h1 className="mt-1 text-3xl font-light tracking-tight">
+        <h1 className="mt-1 text-3xl font-medium tracking-tight">
           Экспорт и импорт базы
         </h1>
         <p className="mt-1 text-sm text-[var(--muted)]">
-          Полный снимок справочников: специальности, пользователи, каталог,
-          комплекты, клиенты, площадки, транспорт и оборудование. Сметы,
-          календарь, ремонты и чаты не входят. Сами файлы фото и документов
-          не копируются — только записи в базе.
+          Полный снимок — Postgres и медиафайлы, для бэкапа и переезда. JSON —
+          только справочники, без смет, календаря и файлов.
         </p>
       </header>
 
-      <Card className="p-5">
-        <div className="flex flex-wrap items-center gap-2">
+      <FullBackupAdmin />
+
+      <Card className="mt-4 p-5">
+        <h2 className="text-sm font-medium text-[var(--ink)]">
+          Справочники (JSON)
+        </h2>
+        <p className="mt-1 text-xs text-[var(--muted)]">
+          Специальности, пользователи, каталог, комплекты, клиенты, площадки,
+          транспорт и оборудование. Сметы, календарь, ремонты и чаты не входят.
+          Фото и документы не копируются — только записи в базе.
+        </p>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
           <Button
             type="button"
             variant="primary"

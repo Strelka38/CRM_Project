@@ -6,6 +6,8 @@ import { clearInvoiceDueNotifications } from "@/lib/notifications";
 import { canAccessQuote } from "@/lib/quote-access";
 import { requireManager } from "@/lib/session";
 
+/** Invoice-sent flag: manager only. File upload/delete is POST/DELETE on /attachments. */
+
 const attachmentSelect = {
   id: true,
   filename: true,

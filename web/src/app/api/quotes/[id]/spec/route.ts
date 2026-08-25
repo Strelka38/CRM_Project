@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { ownerShorts, type CatalogOwnerValue } from "@/lib/catalog-owner";
 import { canAccessQuote } from "@/lib/quote-access";
 import {
+  applyOwnerLabels,
   applySpecLineOrder,
   applySpecOverrides,
   buildSpecLines,
@@ -35,17 +36,30 @@ const extraSchema = z.object({
   id: z.string().min(1),
   type: z.enum(["SECTION", "ITEM"]),
   sortOrder: z.number().int(),
+  zoneId: z.string().nullable().optional(),
+  zoneName: z.string().nullable().optional(),
+  zoneSortOrder: z.number().nullable().optional(),
+  zoneActive: z.boolean().optional(),
   title: z.string().nullable().optional(),
   name: z.string().nullable().optional(),
   qty: z.number().optional(),
   comment: z.string().optional(),
   catalogItemId: z.string().nullable().optional(),
+  ownerLabel: z.string().nullable().optional(),
 });
 
 const patchSchema = z.object({
   overrides: z.array(overrideSchema),
   extras: z.array(extraSchema),
   lineOrder: z.array(z.string()).optional(),
+  ownerLabels: z
+    .array(
+      z.object({
+        key: z.string().min(1),
+        ownerLabel: z.string(),
+      }),
+    )
+    .optional(),
 });
 
 async function loadAssignments(quoteId: string) {
@@ -58,6 +72,8 @@ async function loadAssignments(quoteId: string) {
       isFreelancer: true,
       freelancerName: true,
       kind: true,
+      dayIndex: true,
+      zoneId: true,
       user: {
         select: {
           id: true,
@@ -67,6 +83,7 @@ async function loadAssignments(quoteId: string) {
         },
       },
       specialty: { select: { id: true, name: true } },
+      zone: { select: { id: true, name: true } },
     },
   });
   return rows.map((a) => {
@@ -85,9 +102,15 @@ async function loadAssignments(quoteId: string) {
       isFreelancer,
       vacant,
       kind: a.kind || "EVENT",
+      dayIndex: a.dayIndex ?? null,
+      zoneId: a.zoneId ?? null,
       name: fullName,
       specialtyId: a.specialty.id,
       specialtyName: a.specialty.name,
+      specialty: a.specialty,
+      zone: a.zone,
+      user: a.user,
+      freelancerName: a.freelancerName,
     };
   });
 }
@@ -101,7 +124,10 @@ async function enrichOwnerLabels(lines: SpecLine[]): Promise<SpecLine[]> {
     ),
   ];
   if (ids.length === 0) {
-    return lines.map((l) => ({ ...l, ownerLabel: l.ownerLabel || "—" }));
+    return lines.map((l) => ({
+      ...l,
+      ownerLabel: l.ownerLabel ?? "—",
+    }));
   }
   const items = await prisma.catalogItem.findMany({
     where: { id: { in: ids } },
@@ -112,7 +138,12 @@ async function enrichOwnerLabels(lines: SpecLine[]): Promise<SpecLine[]> {
   );
   return lines.map((l) => ({
     ...l,
-    ownerLabel: l.catalogItemId ? map.get(l.catalogItemId) || "—" : "—",
+    ownerLabel:
+      typeof l.ownerLabel === "string"
+        ? l.ownerLabel
+        : l.catalogItemId
+          ? map.get(l.catalogItemId) || "—"
+          : "—",
   }));
 }
 
@@ -134,6 +165,10 @@ async function loadSpecPayload(id: string) {
       durationDays: true,
       specLineOrder: true,
       blocks: { orderBy: { sortOrder: "asc" as const } },
+      zones: {
+        orderBy: { sortOrder: "asc" as const },
+        select: { id: true, name: true, sortOrder: true, active: true },
+      },
     },
   });
   if (!quote) return null;
@@ -158,7 +193,12 @@ async function loadSpecPayload(id: string) {
     snapshotAt = revision.createdAt.toISOString();
     built = linesFromRevision(revision.lines);
   } else {
-    built = await buildSpecLines(quote.blocks, specOverrides, specExtras);
+    built = await buildSpecLines(
+      quote.blocks,
+      specOverrides,
+      specExtras,
+      quote.zones,
+    );
     const staleIds = pruneStaleOverrideKeys(built, specOverrides);
     if (staleIds.length > 0) {
       await prisma.specOverride.deleteMany({
@@ -186,7 +226,17 @@ async function loadSpecPayload(id: string) {
     lines: await enrichOwnerLabels(lines),
     lineOrder,
     overrides,
-    extras: specExtras,
+    extras: specExtras.map((extra) => {
+      const line = built.find((row) => row.extraId === extra.id);
+      return {
+        ...extra,
+        zoneId: line?.zoneId ?? null,
+        zoneName: line?.zoneName ?? null,
+        zoneSortOrder: line?.zoneSortOrder ?? null,
+        zoneActive: line?.zoneActive !== false,
+        ownerLabel: line?.ownerLabel ?? null,
+      };
+    }),
     assignments,
     hasSnapshot,
     snapshotAt,
@@ -322,25 +372,28 @@ export async function PATCH(
       where: { id },
       include: {
         blocks: { orderBy: { sortOrder: "asc" } },
+        zones: {
+          orderBy: { sortOrder: "asc" },
+          select: { id: true, name: true, sortOrder: true, active: true },
+        },
       },
     });
     if (quote) {
-      const extras = await prisma.specExtraBlock.findMany({
-        where: { quoteId: id },
-        orderBy: { sortOrder: "asc" },
-      });
       let snapshotLines: SpecLine[];
       if (revision) {
         const derived = applySpecOverrides(
           linesFromRevision(revision.lines).filter((l) => l.source === "derived"),
           body.overrides,
         );
-        snapshotLines = applySpecLineOrder(
-          [...derived, ...extrasToSpecLines(extras)],
-          body.lineOrder || quote.specLineOrder,
+        snapshotLines = applyOwnerLabels(
+          applySpecLineOrder(
+            [...derived, ...extrasToSpecLines(body.extras)],
+            body.lineOrder || quote.specLineOrder,
+          ),
+          body.ownerLabels,
         );
       } else {
-        snapshotLines = await buildSpecLines(
+        const derived = await buildSpecLines(
           quote.blocks,
           body.overrides.map((o) => ({
             id: "",
@@ -353,7 +406,15 @@ export async function PATCH(
             createdAt: new Date(),
             updatedAt: new Date(),
           })),
-          extras,
+          [],
+          quote.zones,
+        );
+        snapshotLines = applyOwnerLabels(
+          applySpecLineOrder(
+            [...derived, ...extrasToSpecLines(body.extras)],
+            body.lineOrder || quote.specLineOrder,
+          ),
+          body.ownerLabels,
         );
       }
       await writeSpecRevision(

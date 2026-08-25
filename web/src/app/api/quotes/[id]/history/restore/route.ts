@@ -120,6 +120,7 @@ export async function POST(
           venueId: patch.venueId,
           client: patch.client,
           clientId: patch.clientId,
+          requestContact: patch.requestContact,
           managerName: patch.managerName,
           cashless: patch.cashless,
           cashlessPercent: patch.cashlessPercent,

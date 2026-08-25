@@ -29,6 +29,10 @@ async function currentAndIncoming(quoteId: string) {
     where: { id: quoteId },
     include: {
       blocks: { orderBy: { sortOrder: "asc" } },
+      zones: {
+        orderBy: { sortOrder: "asc" },
+        select: { id: true, name: true, sortOrder: true, active: true },
+      },
     },
   });
   if (!quote) return null;
@@ -42,10 +46,10 @@ async function currentAndIncoming(quoteId: string) {
     latestSpecRevision(quoteId),
   ]);
 
-  const incoming = await buildSpecLines(quote.blocks, [], extras);
+  const incoming = await buildSpecLines(quote.blocks, [], extras, quote.zones);
   const current = revision
     ? linesFromRevision(revision.lines)
-    : await buildSpecLines(quote.blocks, overrides, extras);
+    : await buildSpecLines(quote.blocks, overrides, extras, quote.zones);
 
   return { quote, extras, incoming, current, hasSnapshot: Boolean(revision) };
 }

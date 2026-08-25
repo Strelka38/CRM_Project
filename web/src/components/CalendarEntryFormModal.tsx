@@ -22,7 +22,13 @@ type UserOption = {
   firstName: string;
   lastName: string;
   active: boolean;
+  specialties?: Array<{
+    specialtyId: string;
+    specialty: { id: string; name: string };
+  }>;
 };
+
+type SpecialtyOption = { id: string; name: string };
 
 type LineDraft = {
   catalogItemId: string;
@@ -69,6 +75,8 @@ export function CalendarEntryFormModal({
   onSaved,
 }: Props) {
   const [users, setUsers] = useState<UserOption[]>([]);
+  const [specialties, setSpecialties] = useState<SpecialtyOption[]>([]);
+  const [taskSpecialtyId, setTaskSpecialtyId] = useState("");
   const [title, setTitle] = useState("");
   const [note, setNote] = useState("");
   const [responsibleUserId, setResponsibleUserId] = useState("");
@@ -96,13 +104,22 @@ export function CalendarEntryFormModal({
   useEffect(() => {
     if (!open) return;
     setError("");
-    void fetch("/api/users")
-      .then(async (r) => {
+    void Promise.all([
+      fetch("/api/users").then(async (r) => {
         const data: unknown = await r.json().catch(() => []);
         setUsers(Array.isArray(data) ? (data as UserOption[]) : []);
-      })
-      .catch(() => setUsers([]));
-  }, [open]);
+      }),
+      kind === "TASK"
+        ? fetch("/api/specialties").then(async (r) => {
+            const data: unknown = await r.json().catch(() => []);
+            setSpecialties(Array.isArray(data) ? (data as SpecialtyOption[]) : []);
+          })
+        : Promise.resolve(),
+    ]).catch(() => {
+      setUsers([]);
+      setSpecialties([]);
+    });
+  }, [open, kind]);
 
   useEffect(() => {
     if (!open) return;
@@ -117,6 +134,7 @@ export function CalendarEntryFormModal({
       setNewContact("");
       setNewPhone("");
       setAssigneeIds([]);
+      setTaskSpecialtyId("");
       setStartTime("09:00");
       setEndTime("18:00");
       setLines([]);
@@ -152,6 +170,20 @@ export function CalendarEntryFormModal({
   }, [open, entryId]);
 
   const activeUsers = users.filter((u) => u.active);
+  const taskCandidates = taskSpecialtyId
+    ? activeUsers.filter(
+        (u) =>
+          u.specialties?.some((s) => s.specialtyId === taskSpecialtyId) ||
+          assigneeIds.includes(u.id),
+      )
+    : [];
+
+  useEffect(() => {
+    if (kind !== "TASK" || taskSpecialtyId || assigneeIds.length === 0) return;
+    const first = users.find((u) => assigneeIds.includes(u.id));
+    const spec = first?.specialties?.[0]?.specialtyId;
+    if (spec) setTaskSpecialtyId(spec);
+  }, [kind, taskSpecialtyId, assigneeIds, users]);
 
   function toggleAssignee(id: string) {
     setAssigneeIds((prev) =>
@@ -381,7 +413,7 @@ export function CalendarEntryFormModal({
                     onPick={pickClient}
                   />
                   {clientId ? (
-                    <p className="flex items-center justify-between gap-2 text-[11px] text-[var(--muted)]">
+                    <p className="flex items-center justify-between gap-2 text-caption text-[var(--muted)]">
                       <span>Привязан к профилю клиента</span>
                       <button
                         type="button"
@@ -392,7 +424,7 @@ export function CalendarEntryFormModal({
                       </button>
                     </p>
                   ) : (
-                    <p className="text-[11px] text-[var(--muted)]">
+                    <p className="text-caption text-[var(--muted)]">
                       Найдите существующего или создайте нового
                     </p>
                   )}
@@ -554,14 +586,47 @@ export function CalendarEntryFormModal({
 
             {kind === "TASK" && (
               <div className="space-y-1.5">
+                <label className="block space-y-1">
+                  <span className="text-xs text-[var(--muted)]">Должность</span>
+                  <select
+                    className="field w-full"
+                    value={taskSpecialtyId}
+                    onChange={(e) => {
+                      const next = e.target.value;
+                      setTaskSpecialtyId(next);
+                      setAssigneeIds((prev) =>
+                        prev.filter((id) =>
+                          users.some(
+                            (u) =>
+                              u.id === id &&
+                              u.specialties?.some((s) => s.specialtyId === next),
+                          ),
+                        ),
+                      );
+                    }}
+                  >
+                    <option value="">Сначала выберите должность</option>
+                    {specialties.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
                 <span className="text-xs text-[var(--muted)]">
                   Кто назначен
                 </span>
                 <div className="max-h-40 space-y-1 overflow-y-auto rounded-md border border-[var(--line)] p-2">
-                  {activeUsers.length === 0 ? (
-                    <p className="text-sm text-[var(--muted)]">Нет сотрудников</p>
+                  {!taskSpecialtyId ? (
+                    <p className="text-sm text-[var(--muted)]">
+                      Сначала выберите должность — покажем подходящих сотрудников
+                    </p>
+                  ) : taskCandidates.length === 0 ? (
+                    <p className="text-sm text-[var(--muted)]">
+                      Нет сотрудников с этой должностью
+                    </p>
                   ) : (
-                    activeUsers.map((u) => (
+                    taskCandidates.map((u) => (
                       <label
                         key={u.id}
                         className="flex cursor-pointer items-center gap-2 text-sm"

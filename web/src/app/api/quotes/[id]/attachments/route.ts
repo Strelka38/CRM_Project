@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { ensureQuoteSchemaColumns } from "@/lib/ensure-schema";
 import { canAccessQuote } from "@/lib/quote-access";
-import { requireManager, requireSession } from "@/lib/session";
+import { requireEventAttachmentEditor, requireSession } from "@/lib/session";
 import {
   deleteUploadFile,
   isAllowedMime,
@@ -63,7 +63,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const session = await requireManager();
+    const session = await requireEventAttachmentEditor();
     await ensureSchemaOnce();
     const { id } = await params;
     const ok = await canAccessQuote(id, session.user.id, session.user.role);
@@ -116,7 +116,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const session = await requireManager();
+    const session = await requireEventAttachmentEditor();
     const { id } = await params;
     const ok = await canAccessQuote(id, session.user.id, session.user.role);
     if (!ok) {

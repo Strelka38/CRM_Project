@@ -14,7 +14,7 @@ const ICON_BTN =
 
 function PlusBadge() {
   return (
-    <span className="absolute -bottom-0.5 -right-0.5 flex size-3.5 items-center justify-center rounded-full bg-[var(--panel)] text-[10px] font-bold leading-none text-[var(--accent)] ring-1 ring-[var(--line)]">
+    <span className="absolute -bottom-0.5 -right-0.5 flex size-3.5 items-center justify-center rounded-full bg-[var(--panel)] text-caption font-bold leading-none text-[var(--accent)] ring-1 ring-[var(--line)]">
       +
     </span>
   );
@@ -226,7 +226,8 @@ export function DirectorySelectionActions({
 }) {
   if (count <= 0) return null;
   return (
-    <div className="flex items-center gap-0.5 rounded-md border border-[var(--accent)]/30 bg-[var(--selected)] px-0.5 py-0.5 animate-fade-up">
+    <div className="flex flex-wrap items-center gap-0.5 rounded-md border border-[var(--accent)]/30 bg-[var(--selected)] px-0.5 py-0.5 animate-fade-up">
+      {extra}
       {onDelete ? (
         <DirectoryIconButton
           title="Отключить выбранные"
@@ -247,7 +248,6 @@ export function DirectorySelectionActions({
           <IconCopy />
         </DirectoryIconButton>
       ) : null}
-      {extra}
     </div>
   );
 }
@@ -396,6 +396,7 @@ export async function uploadCsvImport(
     skipped?: number;
     errors?: string[];
     errorCount?: number;
+    note?: string;
   };
   if (!res.ok) {
     throw new Error(data.error || data.errors?.[0] || "Не удалось импортировать");
@@ -405,23 +406,28 @@ export async function uploadCsvImport(
     data.updated ? `обновлено ${data.updated}` : "",
     data.skipped ? `пропущено ${data.skipped}` : "",
   ].filter(Boolean);
-  const extra =
+  const extra = [
+    data.note,
     data.errorCount && data.errors?.length
-      ? ` · ${data.errors.slice(0, 3).join("; ")}`
-      : "";
-  return (parts.join(", ") || "Импорт выполнен") + extra;
+      ? data.errors.slice(0, 3).join("; ")
+      : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return (parts.join(", ") || "Импорт выполнен") + (extra ? ` · ${extra}` : "");
 }
 
 export async function postBulkAction(
   url: string,
-  action: "delete" | "copy" | "paid" | "invoice",
+  action: "delete" | "copy" | "paid" | "invoice" | "activate" | "deactivate" | "role" | "addSpecialty",
   ids: string[],
+  extra?: Record<string, unknown>,
 ): Promise<{ count?: number; skipped?: number }> {
   const res = await fetch(url, {
     method: "POST",
     credentials: "same-origin",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action, ids }),
+    body: JSON.stringify({ action, ids, ...extra }),
   });
   const data = (await res.json().catch(() => ({}))) as {
     error?: string;

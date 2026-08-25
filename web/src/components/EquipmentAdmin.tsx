@@ -335,7 +335,7 @@ export function EquipmentAdmin() {
         >
           <button
             type="button"
-            className="flex h-6 w-5 shrink-0 items-center justify-center text-[10px] text-[var(--muted)]"
+            className="flex h-6 w-5 shrink-0 items-center justify-center text-caption text-[var(--muted)]"
             onClick={(e) => (hasKids ? toggleExpand(cat.path, e) : undefined)}
             aria-label={isOpen ? "Свернуть" : "Развернуть"}
           >
@@ -388,7 +388,7 @@ export function EquipmentAdmin() {
         <p className="text-xs uppercase tracking-[0.15em] text-[var(--muted)]">
           CRM
         </p>
-        <h1 className="mt-1 text-3xl font-light tracking-tight">Склад</h1>
+        <h1 className="mt-1 text-3xl font-medium tracking-tight">Склад</h1>
         <p className="mt-1 text-sm text-[var(--muted)]">
           Типы оборудования, единицы, QR и списание. Каталог берёт остатки отсюда.
         </p>
@@ -480,8 +480,8 @@ export function EquipmentAdmin() {
           ) : items.length === 0 ? (
             <p className="text-sm text-[var(--muted)]">Ничего не найдено</p>
           ) : (
-            <div className="overflow-x-auto rounded-lg border border-[var(--line)] bg-[var(--panel)]">
-              <table className="w-full text-left text-sm">
+            <div className="data-table-shell overflow-x-auto">
+              <table className="data-table w-full text-left text-sm">
                 <thead className="bg-[var(--panel-muted)] text-xs uppercase text-[var(--muted)]">
                   <tr>
                     <th className="px-3 py-2 font-medium">ID</th>

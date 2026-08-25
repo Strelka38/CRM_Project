@@ -11,7 +11,7 @@ export default async function BackupPage() {
           <p className="text-xs uppercase tracking-[0.15em] text-[var(--muted)]">
             CRM
           </p>
-          <h1 className="mt-1 text-3xl font-light tracking-tight">Нет доступа</h1>
+          <h1 className="mt-1 text-3xl font-medium tracking-tight">Нет доступа</h1>
           <p className="mt-1 text-sm text-[var(--muted)]">
             Экспорт и импорт базы доступны только администратору.
           </p>

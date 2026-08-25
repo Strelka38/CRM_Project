@@ -32,8 +32,24 @@ export type AssignmentLike = {
   freelancerName?: string | null;
   owners?: CatalogOwnerValue[] | string[] | null;
   specialty?: { id: string; name: string } | null;
+  zoneId?: string | null;
+  zone?: { id: string; name: string } | null;
+  dayIndex?: number | null;
+  onMount?: boolean | null;
+  onDemount?: boolean | null;
   user?: AssignmentUserLike;
 };
+
+/** Монтажник по умолчанию и на монтаже, и на демонтаже. */
+export function mountDutyFlags(a: {
+  onMount?: boolean | null;
+  onDemount?: boolean | null;
+}): { onMount: boolean; onDemount: boolean } {
+  const onMount = a.onMount !== false;
+  const onDemount = a.onDemount !== false;
+  if (!onMount && !onDemount) return { onMount: true, onDemount: true };
+  return { onMount, onDemount };
+}
 
 export function assignmentKind(
   a: { kind?: AssignmentKindValue | string | null },
@@ -148,5 +164,9 @@ export function serializeAssignmentPay(a: AssignmentLike) {
             owners,
           },
     specialty: a.specialty || { id: a.specialtyId, name: "" },
+    zoneId: a.zoneId ?? a.zone?.id ?? null,
+    zone: a.zone ?? null,
+    dayIndex: a.dayIndex ?? null,
+    ...mountDutyFlags(a),
   };
 }

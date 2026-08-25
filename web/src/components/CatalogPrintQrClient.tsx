@@ -128,14 +128,14 @@ export function CatalogPrintQrClient() {
               <p className="mt-2 text-xs font-semibold leading-snug text-[var(--ink)]">
                 {u.catalogItem.name}
               </p>
-              <p className="text-[10px] text-[var(--muted)]">
+              <p className="text-caption text-[var(--muted)]">
                 {u.catalogItem.equipmentCode != null
                   ? `ID ${u.catalogItem.equipmentCode}-`
                   : "#"}
                 {u.unitNumber}
                 {u.label ? ` · ${u.label}` : ""}
               </p>
-              <p className="mt-1 break-all text-[9px] text-[var(--muted)]">
+              <p className="mt-1 break-all text-caption text-[var(--muted)]">
                 {url}
               </p>
             </div>

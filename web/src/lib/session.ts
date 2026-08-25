@@ -13,6 +13,7 @@ import {
   canEditCalendarEntry,
   canEditSpec,
   canManageAssignments,
+  canManageEventAttachments,
   canOpenCalendarCreateMenu,
   isAdmin,
   isManager,
@@ -30,10 +31,14 @@ export {
   canCreateCalendarTask,
   canEditBrief,
   canEditCalendarEntry,
+  canEditQuoteSchedule,
   canEditSpec,
   canEditUserRole,
   canManageAssignments,
+  canManageEventAttachments,
   canManageQuotes,
+  canViewQuote,
+  forbiddenBrigadierQuotePatchKeys,
   canOpenCalendarCreateMenu,
   canResetUserPassword,
   canSendEquipmentToRepair,
@@ -122,6 +127,15 @@ export async function requireAssignmentManager() {
 export async function requireBriefEditor() {
   const session = await requireSession();
   if (!canEditBrief(session.user.role)) {
+    throw jsonError("Forbidden", 403);
+  }
+  return session;
+}
+
+/** Event card files: manager or brigadier. Invoice-sent PATCH stays requireManager. */
+export async function requireEventAttachmentEditor() {
+  const session = await requireSession();
+  if (!canManageEventAttachments(session.user.role)) {
     throw jsonError("Forbidden", 403);
   }
   return session;

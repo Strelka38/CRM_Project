@@ -9,6 +9,11 @@ import {
 import { formatMoney } from "@/lib/format";
 import { canSeeAssignmentPay } from "@/lib/roles";
 import { Button, Modal } from "@/components/ui";
+import {
+  effectiveEventAssignments,
+  workingDayCount,
+} from "@/lib/quote-assignment-days";
+import { mountDutyFlags } from "@/lib/quote-assignments";
 
 type Specialty = { id: string; name: string; shiftRate?: number };
 type UserOption = {
@@ -23,11 +28,23 @@ type UserOption = {
   }>;
 };
 
+type QuoteZoneOption = {
+  id: string;
+  name: string;
+  sortOrder?: number;
+  active?: boolean;
+};
+
 type Assignment = {
   id: string;
   userId: string | null;
   specialtyId: string;
   kind?: "EVENT" | "MOUNT";
+  zoneId?: string | null;
+  zone?: { id: string; name: string } | null;
+  dayIndex?: number | null;
+  onMount?: boolean;
+  onDemount?: boolean;
   payMode: "SHIFT" | "HOURLY";
   hours: number | null;
   rateOverride: number | null;
@@ -77,7 +94,7 @@ function FirmBadges({ owners }: { owners?: CatalogOwnerValue[] | null }) {
     ? CATALOG_OWNERS.filter((o) => owners.includes(o.value))
     : [];
   if (list.length === 0) {
-    return <span className="text-[10px] text-[var(--muted)]">—</span>;
+    return <span className="text-caption text-[var(--muted)]">—</span>;
   }
   return (
     <span className="inline-flex flex-wrap gap-0.5">
@@ -85,7 +102,7 @@ function FirmBadges({ owners }: { owners?: CatalogOwnerValue[] | null }) {
         <span
           key={o.value}
           title={o.label}
-          className="rounded border border-[var(--solid)] bg-[var(--solid)] px-1 py-0.5 text-[9px] font-medium uppercase text-[var(--on-solid)]"
+          className="rounded border border-[var(--solid)] bg-[var(--solid)] px-1 py-0.5 text-caption font-medium uppercase text-[var(--on-solid)]"
         >
           {o.short}
         </span>
@@ -125,6 +142,8 @@ export function QuoteAssignments({
   hidePay = false,
   kind = "EVENT",
   recommendedQty,
+  zones,
+  durationDays,
   onChanged,
 }: {
   quoteId: string;
@@ -134,16 +153,19 @@ export function QuoteAssignments({
   hidePay?: boolean;
   kind?: "EVENT" | "MOUNT";
   recommendedQty?: number;
+  zones?: QuoteZoneOption[];
+  /** Длительность мероприятия (для вкладок дней у специалистов). */
+  durationDays?: number;
   onChanged?: () => void;
 }) {
   const { data: session } = useSession();
-  const isBrigadier = session?.user?.role === "BRIGADIER";
   const noPay =
     hidePay || !canSeeAssignmentPay(session?.user?.role);
 
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [users, setUsers] = useState<UserOption[]>([]);
   const [allSpecialties, setAllSpecialties] = useState<Specialty[]>([]);
+  const [zoneList, setZoneList] = useState<QuoteZoneOption[]>(zones ?? []);
   const [mode, setMode] = useState<"staff" | "freelancer">("staff");
   const [userId, setUserId] = useState("");
   const [specialtyId, setSpecialtyId] = useState("");
@@ -159,11 +181,18 @@ export function QuoteAssignments({
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [checkingBusy, setCheckingBusy] = useState(false);
+  const eventDays = kind === "EVENT" ? workingDayCount(durationDays) : 1;
+  const showDayTabs = kind === "EVENT" && eventDays >= 2;
+  const [dayTab, setDayTab] = useState(1);
   const [conflictWarn, setConflictWarn] = useState<{
     userName: string;
     conflicts: ScheduleConflict[];
     dayOffs: DayOffConflict[];
     calendarBusy: CalendarBusyConflict[];
+  } | null>(null);
+  const [pendingReplace, setPendingReplace] = useState<{
+    assignmentId: string;
+    userId: string;
   } | null>(null);
   const onChangedRef = useRef(onChanged);
   onChangedRef.current = onChanged;
@@ -173,10 +202,13 @@ export function QuoteAssignments({
   }
 
   const load = useCallback(async () => {
-    const [aRes, uRes, sRes] = await Promise.all([
+    const [aRes, uRes, sRes, qRes] = await Promise.all([
       fetch(`/api/quotes/${quoteId}/assignments`),
       canEdit ? fetch("/api/users") : Promise.resolve(null),
       canEdit ? fetch("/api/specialties") : Promise.resolve(null),
+      zones?.length
+        ? Promise.resolve(null)
+        : fetch(`/api/quotes/${quoteId}`),
     ]);
     if (aRes.ok) {
       setAssignments(await aRes.json());
@@ -196,28 +228,61 @@ export function QuoteAssignments({
         setFreelancerSpecialtyId((prev) => prev || list[0].id);
       }
     }
+    if (qRes?.ok) {
+      const data = (await qRes.json()) as { zones?: QuoteZoneOption[] };
+      if (Array.isArray(data.zones)) setZoneList(data.zones);
+    } else if (zones) {
+      setZoneList(zones);
+    }
     setLoading(false);
-  }, [quoteId, canEdit]);
+  }, [quoteId, canEdit, zones?.length]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  const selectedUser = users.find((u) => u.id === userId);
-  const userSpecialties = selectedUser?.specialties || [];
-  const staffOptions =
-    kind === "MOUNT"
-      ? users
-      : users.filter((u) => (u.specialties?.length ?? 0) > 0);
+  useEffect(() => {
+    if (zones) setZoneList(zones);
+  }, [zones]);
 
   useEffect(() => {
+    if (dayTab > eventDays) setDayTab(1);
+  }, [eventDays, dayTab]);
+
+  const selectedUser = users.find((u) => u.id === userId);
+  const userSpecialties = selectedUser?.specialties || [];
+  function staffForSpec(specId: string) {
+    if (kind === "MOUNT") return users;
+    if (!specId) return [];
+    return users.filter((u) =>
+      u.specialties?.some((s) => s.specialtyId === specId),
+    );
+  }
+  function staffOptionsForRow(a: Assignment): UserOption[] {
+    const list = staffForSpec(a.specialtyId);
+    if (a.userId && a.user?.id && !list.some((u) => u.id === a.userId)) {
+      return [
+        {
+          id: a.user.id,
+          name: a.user.name,
+          email: a.user.email,
+          specialties: [],
+        },
+        ...list,
+      ];
+    }
+    return list;
+  }
+  const staffOptions = staffForSpec(specialtyId);
+
+  useEffect(() => {
+    if (kind === "MOUNT" || !userId || !specialtyId) return;
     if (
-      userSpecialties.length > 0 &&
       !userSpecialties.some((s) => s.specialtyId === specialtyId)
     ) {
-      setSpecialtyId(userSpecialties[0].specialtyId);
+      setUserId("");
     }
-  }, [userId, userSpecialties, specialtyId]);
+  }, [kind, userId, specialtyId, userSpecialties]);
 
   const selectedSpec = userSpecialties.find(
     (s) => s.specialtyId === specialtyId,
@@ -229,11 +294,13 @@ export function QuoteAssignments({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         isFreelancer: false,
-        userId,
+        ...(userId ? { userId } : {}),
         ...(kind === "MOUNT" ? {} : { specialtyId }),
         kind,
-        payMode: noPay ? "SHIFT" : payMode,
-        hours: noPay ? null : payMode === "HOURLY" ? hours : null,
+        ...(showDayTabs ? { dayIndex: dayTab } : {}),
+        payMode: noPay || kind === "MOUNT" ? "SHIFT" : payMode,
+        hours:
+          noPay || kind === "MOUNT" || payMode !== "HOURLY" ? null : hours,
         rateOverride: noPay
           ? null
           : rateOverride === ""
@@ -255,12 +322,12 @@ export function QuoteAssignments({
 
   async function addStaff() {
     setError("");
-    if (!userId) {
-      setError("Выберите сотрудника");
+    if (kind !== "MOUNT" && !specialtyId) {
+      setError("Сначала выберите должность");
       return;
     }
-    if (kind !== "MOUNT" && !specialtyId) {
-      setError("Выберите сотрудника и должность");
+    if (!userId) {
+      await createStaffAssignment();
       return;
     }
 
@@ -283,6 +350,7 @@ export function QuoteAssignments({
           dayOffs.length > 0 ||
           calendarBusy.length > 0
         ) {
+          setPendingReplace(null);
           setConflictWarn({
             userName: selectedUser?.name || "Сотрудник",
             conflicts,
@@ -311,6 +379,7 @@ export function QuoteAssignments({
         isFreelancer: true,
         ...(kind === "MOUNT" ? {} : { specialtyId: freelancerSpecialtyId }),
         kind,
+        ...(showDayTabs ? { dayIndex: dayTab } : {}),
         freelancerName: freelancerName.trim(),
         owners: freelancerOwner ? [freelancerOwner] : [],
         rateOverride: noPay
@@ -359,66 +428,83 @@ export function QuoteAssignments({
     notifyChanged();
   }
 
-  const rows = assignments.filter((a) => (a.kind || "EVENT") === kind);
-  const staffingNeeds = [
-    ...rows.reduce(
-      (groups, assignment) => {
-        const label =
-          kind === "MOUNT"
-            ? "Монтажник"
-            : assignment.specialty?.name || "Должность";
-        const current = groups.get(label) || {
-          label,
-          total: 0,
-          vacant: 0,
-        };
-        current.total += 1;
-        if (!assignment.userId && !assignment.isFreelancer) {
-          current.vacant += 1;
-        }
-        groups.set(label, current);
-        return groups;
-      },
-      new Map<
-        string,
-        { label: string; total: number; vacant: number }
-      >(),
-    ).values(),
-  ];
-
-  async function addEmptySlot() {
-    setError("");
-    const sid =
-      kind === "MOUNT"
-        ? undefined
-        : rows[0]?.specialtyId ||
-          freelancerSpecialtyId ||
-          allSpecialties[0]?.id;
-    if (kind !== "MOUNT" && !sid) {
-      setError("Нет справочника должностей");
-      return;
-    }
-    const res = await fetch(`/api/quotes/${quoteId}/assignments`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ...(sid ? { specialtyId: sid } : {}),
-        kind,
-      }),
-    });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setError(data.error || "Не удалось добавить слот");
-      return;
-    }
-    void load();
-    notifyChanged();
+  function dismissConflict() {
+    setConflictWarn(null);
+    setPendingReplace(null);
   }
+
+  async function changeSlotUser(
+    assignmentId: string,
+    nextUserId: string,
+    currentUserId: string | null,
+  ) {
+    if (nextUserId === (currentUserId || "")) return;
+    setError("");
+    if (!nextUserId) {
+      await patchAssignment(assignmentId, { userId: null });
+      return;
+    }
+
+    setCheckingBusy(true);
+    try {
+      const checkRes = await fetch(
+        `/api/quotes/${quoteId}/assignments/conflicts?userId=${encodeURIComponent(nextUserId)}`,
+      );
+      if (checkRes.ok) {
+        const data = (await checkRes.json()) as {
+          conflicts?: ScheduleConflict[];
+          dayOffs?: DayOffConflict[];
+          calendarBusy?: CalendarBusyConflict[];
+        };
+        const conflicts = data.conflicts || [];
+        const dayOffs = data.dayOffs || [];
+        const calendarBusy = data.calendarBusy || [];
+        if (
+          conflicts.length > 0 ||
+          dayOffs.length > 0 ||
+          calendarBusy.length > 0
+        ) {
+          setPendingReplace({ assignmentId, userId: nextUserId });
+          setConflictWarn({
+            userName:
+              users.find((u) => u.id === nextUserId)?.name || "Сотрудник",
+            conflicts,
+            dayOffs,
+            calendarBusy,
+          });
+          return;
+        }
+      }
+      await patchAssignment(assignmentId, { userId: nextUserId });
+    } finally {
+      setCheckingBusy(false);
+    }
+  }
+
+  const kindRows = assignments.filter((a) => (a.kind || "EVENT") === kind);
+  const rows =
+    kind === "MOUNT" || !showDayTabs
+      ? kindRows
+      : effectiveEventAssignments(kindRows, dayTab);
 
   const mountHideJob = kind === "MOUNT";
   const total = rows.reduce((s, a) => s + a.pay, 0);
   const colCount =
-    (noPay ? (canEdit ? 4 : 3) : canEdit ? 7 : 6) - (mountHideJob ? 1 : 0);
+    1 +
+    (mountHideJob ? 0 : 1) +
+    1 +
+    (mountHideJob ? 0 : 1) +
+    (mountHideJob ? 1 : 0) +
+    (noPay ? 0 : mountHideJob ? 2 : 3) +
+    (canEdit ? 1 : 0);
+
+  function zoneLabel(a: Assignment) {
+    return (
+      zoneList.find((z) => z.id === a.zoneId)?.name ||
+      a.zone?.name ||
+      ""
+    );
+  }
 
   if (loading && assignments.length === 0) {
     return (
@@ -441,10 +527,12 @@ export function QuoteAssignments({
             {kind === "MOUNT"
               ? recommendedQty != null
                 ? `Рекомендуется по смете: ${recommendedQty}. Можно поставить больше.`
-                : "Монтажники отдельно от участников шоу. Можно добавить слоты сверх сметы."
-              : noPay
-                ? "Пустые строки — должности из сметы; ФИО можно назначить позже."
-                : "Штатные и фрилансеры; у фрилансера — ставка смены и фирма для расходки."}
+                : "Монтажники отдельно от участников шоу. М — монтаж, Д — демонтаж; по умолчанию оба."
+              : showDayTabs
+                ? "Назначение по дням. Если на всех днях одни и те же люди, в карточке список будет общим."
+                : noPay
+                  ? "Пустые строки — должности из сметы; ФИО можно назначить позже."
+                  : "Штатные и фрилансеры; у фрилансера — ставка смены и фирма для расходки."}
           </p>
         </div>
         {!noPay && (
@@ -455,40 +543,22 @@ export function QuoteAssignments({
         )}
       </div>
 
-      {isBrigadier && (
-        <div className="mb-3 rounded-lg border border-[var(--line)] bg-[var(--selected)]/35 px-3 py-2.5">
-          <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-            Требуется на мероприятии
-          </p>
-          {staffingNeeds.length > 0 ? (
-            <div className="mt-2 flex flex-wrap gap-2">
-              {staffingNeeds.map((need) => (
-                <span
-                  key={need.label}
-                  className="rounded-md border border-[var(--line)] bg-[var(--panel)] px-2.5 py-1.5 text-sm"
-                >
-                  <span className="font-medium">{need.label}</span>
-                  {" × "}
-                  <span className="tabular-nums">{need.total}</span>
-                  <span
-                    className={
-                      need.vacant > 0
-                        ? "ml-2 text-amber-500"
-                        : "ml-2 text-emerald-500"
-                    }
-                  >
-                    {need.vacant > 0
-                      ? `не назначено ${need.vacant}`
-                      : "все назначены"}
-                  </span>
-                </span>
-              ))}
-            </div>
-          ) : (
-            <p className="mt-1.5 text-sm text-[var(--muted)]">
-              В смете потребность не указана.
-            </p>
-          )}
+      {showDayTabs && (
+        <div className="mb-3 flex flex-wrap gap-1">
+          {Array.from({ length: eventDays }, (_, i) => i + 1).map((d) => (
+            <button
+              key={d}
+              type="button"
+              className={
+                dayTab === d
+                  ? "rounded-md bg-[var(--accent)] px-3 py-1 text-sm text-white"
+                  : "rounded-md border border-[var(--line)] px-3 py-1 text-sm text-[var(--muted)]"
+              }
+              onClick={() => setDayTab(d)}
+            >
+              День {d}
+            </button>
+          ))}
         </div>
       )}
 
@@ -523,15 +593,6 @@ export function QuoteAssignments({
             >
               Фрилансер
             </button>
-            {kind === "MOUNT" && (
-              <button
-                type="button"
-                className="rounded-md border border-[var(--line)] px-3 py-1 text-[var(--muted)]"
-                onClick={() => void addEmptySlot()}
-              >
-                + Слот
-              </button>
-            )}
           </div>
 
           {mode === "staff" ? (
@@ -544,23 +605,6 @@ export function QuoteAssignments({
                     : "mb-4 grid gap-2 rounded-lg border border-[var(--line)] bg-[var(--panel-muted)] p-3 md:grid-cols-6"
               }
             >
-              <label
-                className={compact || noPay ? "text-sm" : "text-sm md:col-span-2"}
-              >
-                <span className="text-[var(--muted)]">Сотрудник</span>
-                <select
-                  className="field mt-1"
-                  value={userId}
-                  onChange={(e) => setUserId(e.target.value)}
-                >
-                  <option value="">—</option>
-                  {staffOptions.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
               {kind !== "MOUNT" && (
               <label
                 className={compact || noPay ? "text-sm" : "text-sm md:col-span-2"}
@@ -570,19 +614,41 @@ export function QuoteAssignments({
                   className="field mt-1"
                   value={specialtyId}
                   onChange={(e) => setSpecialtyId(e.target.value)}
-                  disabled={!userId}
                 >
-                  {userSpecialties.map((s) => (
-                    <option key={s.specialtyId} value={s.specialtyId}>
+                  <option value="">Сначала выберите должность</option>
+                  {allSpecialties.map((s) => (
+                    <option key={s.id} value={s.id}>
                       {noPay
-                        ? s.specialty.name
-                        : `${s.specialty.name} (смена ${s.shiftRate})`}
+                        ? s.name
+                        : `${s.name}${s.shiftRate != null ? ` (смена ${s.shiftRate})` : ""}`}
                     </option>
                   ))}
                 </select>
               </label>
               )}
-              {!noPay && (
+              <label
+                className={compact || noPay ? "text-sm" : "text-sm md:col-span-2"}
+              >
+                <span className="text-[var(--muted)]">Сотрудник</span>
+                <select
+                  className="field mt-1"
+                  value={userId}
+                  disabled={kind !== "MOUNT" && !specialtyId}
+                  onChange={(e) => setUserId(e.target.value)}
+                >
+                  <option value="">
+                    {kind !== "MOUNT" && !specialtyId
+                      ? "Сначала должность"
+                      : "—"}
+                  </option>
+                  {staffOptions.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {!noPay && kind !== "MOUNT" && (
                 <>
                   <label className="text-sm">
                     <span className="text-[var(--muted)]">Режим</span>
@@ -625,6 +691,19 @@ export function QuoteAssignments({
                   )}
                 </>
               )}
+              {!noPay && kind === "MOUNT" && (
+                <label className="text-sm">
+                  <span className="text-[var(--muted)]">Override ставки</span>
+                  <input
+                    type="number"
+                    min={0}
+                    className="field mt-1"
+                    placeholder="база"
+                    value={rateOverride}
+                    onChange={(e) => setRateOverride(e.target.value)}
+                  />
+                </label>
+              )}
               <div
                 className={
                   compact
@@ -659,15 +738,6 @@ export function QuoteAssignments({
                     : "mb-4 grid gap-2 rounded-lg border border-[var(--line)] bg-[var(--panel-muted)] p-3 md:grid-cols-5"
               }
             >
-              <label className="text-sm">
-                <span className="text-[var(--muted)]">ФИО</span>
-                <input
-                  className="field mt-1"
-                  placeholder="Можно заполнить позже"
-                  value={freelancerName}
-                  onChange={(e) => setFreelancerName(e.target.value)}
-                />
-              </label>
               {kind !== "MOUNT" && (
               <label className="text-sm">
                 <span className="text-[var(--muted)]">Должность</span>
@@ -684,6 +754,15 @@ export function QuoteAssignments({
                 </select>
               </label>
               )}
+              <label className="text-sm">
+                <span className="text-[var(--muted)]">ФИО</span>
+                <input
+                  className="field mt-1"
+                  placeholder="Можно заполнить позже"
+                  value={freelancerName}
+                  onChange={(e) => setFreelancerName(e.target.value)}
+                />
+              </label>
               <label className="text-sm">
                 <span className="text-[var(--muted)]">Фирма</span>
                 <select
@@ -741,24 +820,32 @@ export function QuoteAssignments({
         </>
       )}
 
-      <div className="min-h-0 flex-1 overflow-x-auto">
+      <div className="data-table-shell min-h-0 flex-1">
         <table
-          className={
+          className={`data-table ${canEdit ? "data-table--editable " : ""}${
             compact
               ? "w-full min-w-[320px] text-sm"
-              : "w-full min-w-[640px] text-sm"
-          }
+              : "w-full min-w-[600px] text-sm"
+          }`}
         >
           <thead className="bg-[var(--table-head)] text-xs uppercase text-[var(--muted)]">
             <tr>
               <th className="px-2 py-2 text-left">Сотрудник</th>
+              {kind !== "MOUNT" && (
+                <th className="px-2 py-2 text-left">Зона</th>
+              )}
               <th className="px-2 py-2 text-left">Фирма</th>
               {kind !== "MOUNT" && (
                 <th className="px-2 py-2 text-left">Должность</th>
               )}
+              {kind === "MOUNT" && (
+                <th className="px-2 py-2 text-left">М / Д</th>
+              )}
               {!noPay && (
                 <>
-                  <th className="px-2 py-2 text-left">Режим</th>
+                  {kind !== "MOUNT" && (
+                    <th className="px-2 py-2 text-left">Режим</th>
+                  )}
                   <th className="px-2 py-2 text-right">Ставка / override</th>
                   <th className="px-2 py-2 text-right">К выплате</th>
                 </>
@@ -774,29 +861,26 @@ export function QuoteAssignments({
               return (
                 <tr key={a.id} className="border-t border-[var(--line)]">
                   <td className="px-2 py-2">
-                    {vacant && canEdit ? (
-                      <div className="flex flex-col gap-0.5">
-                        <select
-                          className="field max-w-[220px]"
-                          defaultValue=""
-                          onChange={(e) => {
-                            const next = e.target.value;
-                            if (next) {
-                              void patchAssignment(a.id, { userId: next });
-                            }
-                          }}
-                        >
-                          <option value="">не назначен</option>
-                          {staffOptions.map((u) => (
-                            <option key={u.id} value={u.id}>
-                              {u.name}
-                            </option>
-                          ))}
-                        </select>
-                        <span className="text-[10px] text-[var(--muted)]">
-                          слот из сметы
-                        </span>
-                      </div>
+                    {canEdit && !fl ? (
+                      <select
+                        className="field max-w-[220px]"
+                        value={a.userId || ""}
+                        disabled={checkingBusy}
+                        onChange={(e) => {
+                          void changeSlotUser(
+                            a.id,
+                            e.target.value,
+                            a.userId,
+                          );
+                        }}
+                      >
+                        <option value="">не назначен</option>
+                        {staffOptionsForRow(a).map((u) => (
+                          <option key={u.id} value={u.id}>
+                            {u.name}
+                          </option>
+                        ))}
+                      </select>
                     ) : vacant ? (
                       <span className="text-[var(--muted)]">не назначен</span>
                     ) : fl && canEdit ? (
@@ -813,7 +897,7 @@ export function QuoteAssignments({
                             }
                           }}
                         />
-                        <span className="text-[10px] text-[var(--muted)]">
+                        <span className="text-caption text-[var(--muted)]">
                           Фрилансер
                         </span>
                       </div>
@@ -823,13 +907,45 @@ export function QuoteAssignments({
                           ? a.freelancerName.trim() || "Фрилансер"
                           : a.user?.name || "Сотрудник"}
                         {fl && (
-                          <span className="ml-1 text-[10px] text-[var(--muted)]">
+                          <span className="ml-1 text-caption text-[var(--muted)]">
                             (фр.)
                           </span>
                         )}
                       </span>
                     )}
                   </td>
+                  {kind !== "MOUNT" && (
+                  <td className="px-2 py-2">
+                    {canEdit && zoneList.length > 0 ? (
+                      <select
+                        className="field max-w-[160px]"
+                        value={a.zoneId || ""}
+                        onChange={(e) =>
+                          void patchAssignment(a.id, {
+                            zoneId: e.target.value || null,
+                          })
+                        }
+                      >
+                        <option value="">—</option>
+                        {zoneList.map((z) => (
+                          <option key={z.id} value={z.id}>
+                            {z.name}
+                          </option>
+                        ))}
+                        {a.zoneId &&
+                          !zoneList.some((z) => z.id === a.zoneId) && (
+                            <option value={a.zoneId}>
+                              {a.zone?.name || "зона"}
+                            </option>
+                          )}
+                      </select>
+                    ) : (
+                      <span className="text-[var(--muted)]">
+                        {zoneLabel(a) || "—"}
+                      </span>
+                    )}
+                  </td>
+                  )}
                   <td className="px-2 py-2">
                     {fl && canEdit ? (
                       <select
@@ -883,8 +999,20 @@ export function QuoteAssignments({
                     )}
                   </td>
                   )}
+                  {kind === "MOUNT" && (
+                    <td className="px-2 py-2">
+                      <MountDutyToggles
+                        assignment={a}
+                        disabled={!canEdit}
+                        onChange={(next) =>
+                          void patchAssignment(a.id, next)
+                        }
+                      />
+                    </td>
+                  )}
                   {!noPay && (
                     <>
+                      {kind !== "MOUNT" && (
                       <td className="px-2 py-2">
                         {fl
                           ? "Смена"
@@ -892,6 +1020,7 @@ export function QuoteAssignments({
                             ? `${a.hours ?? 0} ч × ${formatMoney(a.hourlyRate)}`
                             : "Смена"}
                       </td>
+                      )}
                       <td className="px-2 py-2 text-right">
                         {canEdit ? (
                           <input
@@ -935,7 +1064,18 @@ export function QuoteAssignments({
                       <button
                         type="button"
                         className="btn-icon text-[var(--danger)]"
-                        onClick={() => void removeAssignment(a.id)}
+                        onClick={() => {
+                          const vacant = !a.userId && !a.isFreelancer;
+                          const who = vacant
+                            ? `пустой слот «${a.specialty.name}»`
+                            : `${
+                                a.isFreelancer
+                                  ? a.freelancerName.trim() || "фрилансера"
+                                  : a.user?.name || "сотрудника"
+                              } (${a.specialty.name})`;
+                          if (!confirm(`Удалить ${who}?`)) return;
+                          void removeAssignment(a.id);
+                        }}
                       >
                         ×
                       </button>
@@ -962,7 +1102,7 @@ export function QuoteAssignments({
 
       <Modal
         open={Boolean(conflictWarn)}
-        onClose={() => setConflictWarn(null)}
+        onClose={dismissConflict}
         title={
           conflictWarn?.dayOffs.length
             ? "У сотрудника выходной"
@@ -1032,9 +1172,11 @@ export function QuoteAssignments({
                 variant="outline"
                 size="sm"
                 onClick={() => {
-                  setConflictWarn(null);
-                  setUserId("");
-                  setSpecialtyId("");
+                  if (!pendingReplace) {
+                    setUserId("");
+                    setSpecialtyId("");
+                  }
+                  dismissConflict();
                 }}
               >
                 Выбрать другого
@@ -1045,9 +1187,14 @@ export function QuoteAssignments({
                   disabled={checkingBusy}
                   onClick={() => {
                     setCheckingBusy(true);
-                    void createStaffAssignment().finally(() =>
-                      setCheckingBusy(false),
-                    );
+                    const finish = pendingReplace
+                      ? patchAssignment(pendingReplace.assignmentId, {
+                          userId: pendingReplace.userId,
+                        }).then(() => {
+                          dismissConflict();
+                        })
+                      : createStaffAssignment();
+                    void finish.finally(() => setCheckingBusy(false));
                   }}
                 >
                   Назначить всё равно
@@ -1058,5 +1205,55 @@ export function QuoteAssignments({
         )}
       </Modal>
     </section>
+  );
+}
+
+function MountDutyToggles({
+  assignment,
+  disabled,
+  onChange,
+}: {
+  assignment: Assignment;
+  disabled: boolean;
+  onChange: (next: { onMount: boolean; onDemount: boolean }) => void;
+}) {
+  const { onMount, onDemount } = mountDutyFlags(assignment);
+  function toggle(field: "onMount" | "onDemount") {
+    const next = {
+      onMount: field === "onMount" ? !onMount : onMount,
+      onDemount: field === "onDemount" ? !onDemount : onDemount,
+    };
+    if (!next.onMount && !next.onDemount) return;
+    onChange(next);
+  }
+  return (
+    <div className="inline-flex gap-0.5">
+      <button
+        type="button"
+        title="Был на монтаже"
+        disabled={disabled}
+        onClick={() => toggle("onMount")}
+        className={
+          onMount
+            ? "inline-flex size-7 items-center justify-center rounded-md bg-[var(--accent)] text-xs font-semibold text-white disabled:opacity-60"
+            : "inline-flex size-7 items-center justify-center rounded-md border border-[var(--line)] text-xs font-semibold text-[var(--muted)] disabled:opacity-60"
+        }
+      >
+        М
+      </button>
+      <button
+        type="button"
+        title="Был на демонтаже"
+        disabled={disabled}
+        onClick={() => toggle("onDemount")}
+        className={
+          onDemount
+            ? "inline-flex size-7 items-center justify-center rounded-md bg-[var(--accent)] text-xs font-semibold text-white disabled:opacity-60"
+            : "inline-flex size-7 items-center justify-center rounded-md border border-[var(--line)] text-xs font-semibold text-[var(--muted)] disabled:opacity-60"
+        }
+      >
+        Д
+      </button>
+    </div>
   );
 }

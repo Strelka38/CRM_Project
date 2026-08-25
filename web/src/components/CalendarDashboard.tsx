@@ -144,16 +144,16 @@ export function CalendarDashboard({
           <p className="font-display text-xl leading-tight text-[var(--ink)]">
             {hello}
           </p>
-          <p className="mt-1 text-[13px] tabular-nums text-[var(--muted)]">
+          <p className="mt-1 text-sm tabular-nums text-[var(--muted)]">
             {clock}
-            <span className="ml-1.5 text-[11px]">{offset}</span>
+            <span className="ml-1.5 text-caption">{offset}</span>
           </p>
           {temp && w ? (
-            <p className="mt-0.5 text-[13px] text-[var(--ink)]">
+            <p className="mt-0.5 text-sm text-[var(--ink)]">
               {temp} · {w.description} · {w.placeLabel}
             </p>
           ) : (
-            <p className="mt-0.5 text-[12px] text-[var(--muted)]">
+            <p className="mt-0.5 text-xs text-[var(--muted)]">
               Погода недоступна
             </p>
           )}
@@ -234,10 +234,10 @@ export function CalendarDashboard({
                       className="min-w-0 flex-1 text-left"
                       onClick={() => onOpenEntry(t.id)}
                     >
-                      <span className="block truncate text-[13px] font-medium text-[var(--ink)]">
+                      <span className="block truncate text-sm font-medium text-[var(--ink)]">
                         {t.title || "Задача"}
                       </span>
-                      <span className="mt-0.5 block truncate text-[11px] text-[var(--muted)]">
+                      <span className="mt-0.5 block truncate text-caption text-[var(--muted)]">
                         {[dateLabel(t.date), t.assignees].filter(Boolean).join(" · ")}
                       </span>
                     </button>
@@ -348,7 +348,7 @@ function Section({
   return (
     <section>
       <div className="mb-1.5 flex items-center justify-between gap-2 px-1">
-        <h2 className="text-[11px] font-medium uppercase tracking-wider text-[var(--muted)]">
+        <h2 className="text-caption font-medium uppercase tracking-wider text-[var(--muted)]">
           {title}
           {count ? (
             <span className="ml-1.5 tabular-nums text-[var(--ink)]">{count}</span>
@@ -361,7 +361,7 @@ function Section({
 }
 
 function Empty({ children }: { children: ReactNode }) {
-  return <p className="px-1 py-2 text-[13px] text-[var(--muted)]">{children}</p>;
+  return <p className="px-1 py-2 text-sm text-[var(--muted)]">{children}</p>;
 }
 
 function Row({
@@ -379,11 +379,11 @@ function Row({
       onClick={onClick}
       className="w-full rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-[var(--bg)]"
     >
-      <span className="block truncate text-[13px] font-medium text-[var(--ink)]">
+      <span className="block truncate text-sm font-medium text-[var(--ink)]">
         {title}
       </span>
       {meta ? (
-        <span className="mt-0.5 block truncate text-[11px] text-[var(--muted)]">
+        <span className="mt-0.5 block truncate text-caption text-[var(--muted)]">
           {meta}
         </span>
       ) : null}

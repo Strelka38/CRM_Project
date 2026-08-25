@@ -191,9 +191,9 @@ export default function UnpaidPage() {
             description="Неоплаченных проектов сейчас нет"
           />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-[var(--table-head)] text-[11px] uppercase tracking-wider text-[var(--muted)]">
+          <div className="data-table-shell overflow-x-auto">
+            <table className="data-table w-full text-left text-sm">
+              <thead className="bg-[var(--table-head)] text-caption uppercase tracking-wider text-[var(--muted)]">
                 <tr>
                   <th className="w-10 px-3 py-2 text-left">
                     <input

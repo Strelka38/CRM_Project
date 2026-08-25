@@ -90,7 +90,7 @@ export function StockMarks({
       >
         {needed}
         {tight ? (
-          <span className="mt-0.5 block text-[10px] font-normal leading-none">
+          <span className="mt-0.5 block text-caption font-normal leading-none">
             не хватает {shortfall}
           </span>
         ) : null}
@@ -109,7 +109,7 @@ export function StockMarks({
         </button>
         {open && (
           <div className="absolute left-1/2 top-full z-30 mt-1 w-72 -translate-x-1/2 rounded-lg border border-[var(--line)] bg-[var(--panel)] p-2 text-left shadow-lg">
-            <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-[var(--muted)]">
+            <p className="mb-1.5 text-caption font-medium uppercase tracking-wider text-[var(--muted)]">
               {info.name}
             </p>
             <p className="mb-2 text-xs text-[var(--muted)]">

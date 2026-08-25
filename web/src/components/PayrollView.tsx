@@ -317,7 +317,7 @@ function PayrollDashboard({
             <p className="text-xs uppercase tracking-[0.15em] text-[var(--muted)]">
               Итого
             </p>
-            <p className="mt-0.5 text-4xl font-light tracking-tight text-[var(--accent-deep)] tabular-nums sm:text-5xl">
+            <p className="mt-0.5 text-4xl font-medium tracking-tight text-[var(--accent-deep)] tabular-nums sm:text-5xl">
               {formatMoney(grandTotal)}
             </p>
             {composition.length > 0 && (
@@ -501,7 +501,7 @@ function CompositionBar({
           />
         ))}
       </div>
-      <p className="mt-1.5 text-[11px] leading-snug text-[var(--muted)]">
+      <p className="mt-1.5 text-caption leading-snug text-[var(--muted)]">
         {parts.map((p) => `${p.name} ${formatMoney(p.value)}`).join(" · ")}
       </p>
     </div>
@@ -528,7 +528,7 @@ function KpiCard({
       <p className="text-xs uppercase tracking-[0.15em] text-[var(--muted)]">
         {label}
       </p>
-      <p className="mt-1 text-3xl font-light tracking-tight tabular-nums">
+      <p className="mt-1 text-3xl font-medium tracking-tight tabular-nums">
         {formatMoney(value)}
       </p>
       {pct != null && (
@@ -540,7 +540,7 @@ function KpiCard({
         </div>
       )}
       {hint && (
-        <p className="mt-1.5 text-[11px] text-[var(--muted)]">{hint}</p>
+        <p className="mt-1.5 text-caption text-[var(--muted)]">{hint}</p>
       )}
     </Card>
   );
@@ -575,8 +575,8 @@ function Section({
           description="За этот период смены не начислялись."
         />
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[640px] text-sm">
+        <div className="data-table-shell overflow-x-auto">
+          <table className="data-table w-full min-w-[600px] text-sm">
             <thead className="bg-[var(--table-head)] text-xs uppercase text-[var(--muted)]">
               <tr>
                 <th className="px-4 py-2 text-left">Мероприятие</th>
@@ -670,8 +670,8 @@ function AgencySection({
           description="Комиссия появится по вашим подтверждённым проектам."
         />
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[640px] text-sm">
+        <div className="data-table-shell overflow-x-auto">
+          <table className="data-table w-full min-w-[560px] text-sm">
             <thead className="bg-[var(--table-head)] text-xs uppercase text-[var(--muted)]">
               <tr>
                 <th className="px-4 py-2 text-left">Мероприятие</th>

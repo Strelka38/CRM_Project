@@ -88,7 +88,7 @@ const ACTIONS: Array<{
 
 function PlusBadge() {
   return (
-    <span className="absolute -bottom-0.5 -right-0.5 flex size-3.5 items-center justify-center rounded-full bg-[var(--panel)] text-[10px] font-bold leading-none text-[var(--accent)] ring-1 ring-[var(--line)]">
+    <span className="absolute -bottom-0.5 -right-0.5 flex size-3.5 items-center justify-center rounded-full bg-[var(--panel)] text-caption font-bold leading-none text-[var(--accent)] ring-1 ring-[var(--line)]">
       +
     </span>
   );

@@ -148,12 +148,12 @@ export function VenueQuickSearch({
       />
       {compact ? (
         !selectedId && value.trim() ? (
-          <p className="mt-0.5 text-[10px] leading-tight text-[var(--danger)]">
+          <p className="mt-0.5 text-caption leading-tight text-[var(--danger)]">
             Выберите площадку из списка
           </p>
         ) : null
       ) : (
-        <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[10px] leading-tight">
+        <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-caption leading-tight">
           {selectedId ? (
             <>
               <span className="text-[var(--muted)]">Из справочника</span>
@@ -200,7 +200,7 @@ export function VenueQuickSearch({
               onClick={() => pick(item)}
             >
               <span className="block truncate text-sm">{item.name}</span>
-              <span className="block truncate text-[10px] text-[var(--muted)]">
+              <span className="block truncate text-caption text-[var(--muted)]">
                 {item.address || "Без адреса"}
               </span>
             </button>

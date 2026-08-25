@@ -10,6 +10,7 @@ export async function ensureQuoteSchemaColumns() {
     `ALTER TABLE "Quote" ADD COLUMN IF NOT EXISTS "mountDurationDays" INTEGER NOT NULL DEFAULT 1`,
     `ALTER TABLE "Quote" ADD COLUMN IF NOT EXISTS "demountDate" TEXT NOT NULL DEFAULT ''`,
     `ALTER TABLE "Quote" ADD COLUMN IF NOT EXISTS "demountDurationDays" INTEGER NOT NULL DEFAULT 1`,
+    `ALTER TABLE "Quote" ADD COLUMN IF NOT EXISTS "requestContact" TEXT NOT NULL DEFAULT ''`,
     `ALTER TABLE "QuoteComment" ALTER COLUMN "body" SET DEFAULT ''`,
     `ALTER TABLE "QuoteComment" ADD COLUMN IF NOT EXISTS "imagePath" TEXT`,
     `ALTER TABLE "QuoteComment" ADD COLUMN IF NOT EXISTS "imageMime" TEXT`,
@@ -154,8 +155,22 @@ export async function ensureQuoteSchemaColumns() {
     `ALTER TABLE "QuoteAssignment" ADD COLUMN IF NOT EXISTS "kind" "AssignmentKind" NOT NULL DEFAULT 'EVENT'`,
     `DROP INDEX IF EXISTS "QuoteAssignment_quoteId_userId_specialtyId_key"`,
     `CREATE INDEX IF NOT EXISTS "QuoteAssignment_quoteId_kind_idx" ON "QuoteAssignment"("quoteId", "kind")`,
-    `CREATE UNIQUE INDEX IF NOT EXISTS "QuoteAssignment_filled_quote_user_spec_kind_key" ON "QuoteAssignment" ("quoteId", "userId", "specialtyId", "kind") WHERE "userId" IS NOT NULL`,
+    `ALTER TABLE "QuoteAssignment" ADD COLUMN IF NOT EXISTS "dayIndex" INTEGER`,
+    `CREATE INDEX IF NOT EXISTS "QuoteAssignment_quoteId_kind_dayIndex_idx" ON "QuoteAssignment"("quoteId", "kind", "dayIndex")`,
+    `DROP INDEX IF EXISTS "QuoteAssignment_filled_quote_user_spec_kind_key"`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS "QuoteAssignment_filled_quote_user_spec_kind_day_key" ON "QuoteAssignment" ("quoteId", "userId", "specialtyId", "kind", "dayIndex") WHERE "userId" IS NOT NULL AND "dayIndex" IS NOT NULL`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS "QuoteAssignment_filled_quote_user_spec_kind_alldays_key" ON "QuoteAssignment" ("quoteId", "userId", "specialtyId", "kind") WHERE "userId" IS NOT NULL AND "dayIndex" IS NULL`,
     `ALTER TABLE "Quote" ADD COLUMN IF NOT EXISTS "assignmentImportWatermark" JSONB NOT NULL DEFAULT '{}'::jsonb`,
+    `ALTER TABLE "QuoteAssignment" ADD COLUMN IF NOT EXISTS "onMount" BOOLEAN NOT NULL DEFAULT true`,
+    `ALTER TABLE "QuoteAssignment" ADD COLUMN IF NOT EXISTS "onDemount" BOOLEAN NOT NULL DEFAULT true`,
+    `ALTER TABLE "QuoteAssignment" ADD COLUMN IF NOT EXISTS "zoneId" TEXT`,
+    `CREATE INDEX IF NOT EXISTS "QuoteAssignment_zoneId_idx" ON "QuoteAssignment"("zoneId")`,
+    `DO $$ BEGIN
+      ALTER TABLE "QuoteAssignment"
+        ADD CONSTRAINT "QuoteAssignment_zoneId_fkey"
+        FOREIGN KEY ("zoneId") REFERENCES "QuoteZone"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END $$`,
     `ALTER TYPE "NotificationType" ADD VALUE IF NOT EXISTS 'MOUNT_CONFIRMED'`,
     `CREATE TABLE IF NOT EXISTS "LegalEntity" (
       "id" TEXT NOT NULL,

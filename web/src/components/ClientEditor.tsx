@@ -314,8 +314,8 @@ export function ClientEditor({ clientId }: { clientId: string }) {
             К этому клиенту ещё не привязаны сметы.
           </p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+          <div className="data-table-shell overflow-x-auto">
+            <table className="data-table w-full min-w-[720px] text-sm">
               <thead className="bg-[var(--table-head)] text-xs uppercase text-[var(--muted)]">
                 <tr>
                   <th className="px-2 py-2 text-left">КП</th>

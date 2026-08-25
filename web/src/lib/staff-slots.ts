@@ -36,9 +36,24 @@ export function vacantStaffLabels(
     userId?: string | null;
     isFreelancer?: boolean;
     kind?: string | null;
+    dayIndex?: number | null;
     specialtyName?: string | null;
     specialty?: { name?: string | null } | null;
   }>,
 ): string[] {
-  return assignments.filter(isVacantStaff).map(staffRoleLabel);
+  const vacant = assignments.filter(isVacantStaff);
+  const mount = vacant.filter(
+    (a) => String(a.kind || "").toUpperCase() === "MOUNT",
+  );
+  const event = vacant.filter(
+    (a) => String(a.kind || "").toUpperCase() !== "MOUNT",
+  );
+  const perDay = event
+    .map((a) => Number(a.dayIndex))
+    .filter((n) => Number.isFinite(n) && n >= 1);
+  const eventForLabels =
+    perDay.length > 0
+      ? event.filter((a) => Number(a.dayIndex) === Math.min(...perDay))
+      : event;
+  return [...eventForLabels, ...mount].map(staffRoleLabel);
 }

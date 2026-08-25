@@ -1,7 +1,14 @@
 import { redirect } from "next/navigation";
 import { QuoteEditor } from "@/components/QuoteEditor";
 import { auth } from "@/lib/auth";
-import { canEditSpec, isManager } from "@/lib/roles";
+import {
+  canEditBrief,
+  canEditQuoteSchedule,
+  canEditSpec,
+  canManageEventAttachments,
+  canViewQuote,
+  isManager,
+} from "@/lib/roles";
 
 export default async function QuotePage({
   params,
@@ -15,14 +22,18 @@ export default async function QuotePage({
   const session = await auth();
   const role = session?.user?.role;
   const manager = isManager(role);
-  if (!canEditSpec(role)) {
+  if (!canEditSpec(role) && !canEditBrief(role) && !canEditQuoteSchedule(role)) {
     redirect(`/quotes/${id}/spec`);
   }
   return (
     <QuoteEditor
       quoteId={id}
       isManager={manager}
-      canEditSpec
+      canEditSpec={canEditSpec(role)}
+      canEditBrief={canEditBrief(role)}
+      canEditSchedule={canEditQuoteSchedule(role)}
+      canViewQuote={canViewQuote(role)}
+      canManageAttachments={canManageEventAttachments(role)}
       initialZone={zone || null}
       initialPane={tab || null}
     />

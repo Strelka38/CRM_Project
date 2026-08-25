@@ -1,3 +1,4 @@
+import { randomBytes } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/db";
@@ -69,17 +70,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const specialties = await prisma.specialty.findMany({
-      select: { id: true, name: true },
-    });
-    const specByName = new Map(
-      specialties.map((s) => [s.name.trim().toLowerCase(), s.id]),
+    const specByName = await ensureSpecialtyIds(
+      rows.flatMap((r) => r.specialties),
     );
     const timezone = await getMasterTimezone();
 
     let created = 0;
     let updated = 0;
     let skipped = 0;
+    let createdWithoutPassword = 0;
     const rowErrors = [...errors];
 
     for (let i = 0; i < rows.length; i++) {
@@ -141,13 +140,11 @@ export async function POST(req: NextRequest) {
           continue;
         }
 
-        if (!r.password || r.password.length < 6) {
-          rowErrors.push(
-            `Строка ${lineNo}: для нового пользователя нужен пароль ≥ 6 символов (колонка «Пароль»)`,
-          );
-          skipped += 1;
-          continue;
-        }
+        const password =
+          r.password && r.password.length >= 6
+            ? r.password
+            : randomImportPassword();
+        const generatedPassword = password !== r.password;
 
         const user = await prisma.user.create({
           data: {
@@ -163,7 +160,7 @@ export async function POST(req: NextRequest) {
             agencyPercent: r.agencyPercent,
             owners: r.owners,
             active: r.active,
-            passwordHash: await bcrypt.hash(r.password, 10),
+            passwordHash: await bcrypt.hash(password, 10),
             timezone,
           },
         });
@@ -176,7 +173,9 @@ export async function POST(req: NextRequest) {
           });
         }
         created += 1;
+        if (generatedPassword) createdWithoutPassword += 1;
       } catch (err) {
+        skipped += 1;
         rowErrors.push(
           `Строка ${lineNo}: ${err instanceof Error ? err.message : "ошибка"}`,
         );
@@ -190,10 +189,40 @@ export async function POST(req: NextRequest) {
       total: rows.length,
       errors: rowErrors.slice(0, 50),
       errorCount: rowErrors.length,
+      note:
+        createdWithoutPassword > 0
+          ? "Новым без колонки «Пароль» задан служебный пароль — чтобы войти, сбросьте в карточке"
+          : undefined,
     });
   } catch (e) {
     if (e instanceof Response) return e;
     console.error("[POST /api/users/csv]", e);
     return NextResponse.json({ error: "Не удалось импортировать" }, { status: 500 });
   }
+}
+
+function randomImportPassword() {
+  return randomBytes(18).toString("base64url");
+}
+
+async function ensureSpecialtyIds(names: string[]) {
+  const specialties = await prisma.specialty.findMany({
+    select: { id: true, name: true },
+  });
+  const specByName = new Map(
+    specialties.map((s) => [s.name.trim().toLowerCase(), s.id]),
+  );
+  let maxSort =
+    (await prisma.specialty.aggregate({ _max: { sortOrder: true } }))._max
+      .sortOrder ?? -1;
+  const unique = [...new Set(names.map((n) => n.trim()).filter(Boolean))];
+  for (const name of unique) {
+    const key = name.toLowerCase();
+    if (specByName.has(key)) continue;
+    const created = await prisma.specialty.create({
+      data: { name, sortOrder: ++maxSort, active: true },
+    });
+    specByName.set(key, created.id);
+  }
+  return specByName;
 }

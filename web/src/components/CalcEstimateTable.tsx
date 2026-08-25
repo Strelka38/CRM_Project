@@ -14,6 +14,7 @@ import {
   IconSave,
 } from "@/components/DirectoryToolbar";
 import { Button } from "@/components/ui";
+import { cn } from "@/lib/cn";
 
 export type CalcEstimateBlock = {
   id: string;
@@ -114,9 +115,9 @@ export function CalcEstimateTable({
   });
 
   return (
-    <div className="overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--panel)]">
-      <div className="flex flex-wrap items-center gap-2 border-b border-[var(--line)] px-3 py-2">
-        <p className="text-xs uppercase tracking-wide text-[var(--muted)]">
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="text-caption uppercase tracking-wide text-[var(--muted)]">
           Смета · закуп и владельцы справа
         </p>
         <div className="ml-auto flex items-center gap-1">
@@ -136,41 +137,37 @@ export function CalcEstimateTable({
         </div>
       </div>
       {csvMessage ? (
-        <p className="border-b border-[var(--line)] px-4 py-2 text-xs text-[var(--muted)]">
-          {csvMessage}
-        </p>
+        <p className="text-xs text-[var(--muted)]">{csvMessage}</p>
       ) : null}
       {blocks.length === 0 ? (
-        <p className="px-4 py-8 text-center text-sm text-[var(--muted)]">
+        <p className="rounded-lg border border-[var(--line)] px-4 py-8 text-center text-sm text-[var(--muted)]">
           В смете нет позиций
         </p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[1080px] table-fixed text-sm">
+        <div className="data-table-shell">
+          <table className="data-table data-table--editable quote-estimate-table w-full min-w-[1020px] table-fixed text-xs">
             <colgroup>
               <col />
-              <col className="w-16" />
+              <col className="w-14" />
+              <col className="w-20" />
               <col className="w-24" />
-              <col className="w-28" />
-              <col className="w-16" />
-              <col className="w-28" />
-              <col className="w-2" />
-              <col className="w-[220px]" />
-              <col className="w-28" />
-              <col className="w-28" />
+              <col className="w-14" />
+              <col className="w-24" />
+              <col className="w-56" />
+              <col className="w-24" />
+              <col className="w-24" />
             </colgroup>
-            <thead className="bg-[var(--table-head)] text-xs uppercase text-[var(--muted)]">
+            <thead>
               <tr>
-                <th className="px-2 py-2 text-left">Тип / название</th>
-                <th className="px-2 py-2">Кол-во</th>
-                <th className="px-2 py-2">Цена</th>
-                <th className="px-2 py-2">Режим дня</th>
-                <th className="px-2 py-2">Коэф</th>
-                <th className="px-2 py-2 text-right">Сумма</th>
-                <th className="bg-[var(--bg)] p-0" />
-                <th className="px-2 py-2 text-left">Владельцы / суммы</th>
-                <th className="px-2 py-2 text-right">Клиенту</th>
-                <th className="px-2 py-2 text-right">Закуп</th>
+                <th className="px-1.5 py-1.5 text-left">Тип / название</th>
+                <th className="px-1.5 py-1.5">Кол-во</th>
+                <th className="px-1.5 py-1.5">Цена</th>
+                <th className="px-1.5 py-1.5">День</th>
+                <th className="px-1.5 py-1.5">Коэф</th>
+                <th className="px-1.5 py-1.5 text-right">Сумма</th>
+                <th className="calc-split px-1.5 py-1.5 text-left">Владельцы</th>
+                <th className="px-1.5 py-1.5 text-right">Клиенту</th>
+                <th className="px-1.5 py-1.5 text-right">Закуп</th>
               </tr>
             </thead>
             <tbody>
@@ -183,15 +180,15 @@ export function CalcEstimateTable({
                     >
                       <td
                         colSpan={6}
-                        className={`px-3 py-2 text-xs font-medium uppercase tracking-wide ${
-                          row.active ? "" : "opacity-50"
-                        }`}
+                        className={cn(
+                          "px-1.5 py-1 text-xs font-medium uppercase tracking-wide",
+                          !row.active && "opacity-50",
+                        )}
                       >
                         {row.name}
                         {row.active ? "" : " (выкл.)"}
                       </td>
-                      <td className="bg-[var(--bg)] p-0" />
-                      <td colSpan={3} />
+                      <td className="calc-split" colSpan={3} />
                     </tr>
                   );
                 }
@@ -208,19 +205,20 @@ export function CalcEstimateTable({
                           : "bg-[var(--selected)]/35"
                       }
                     >
-                      <td className="px-2 py-2" colSpan={5}>
+                      <td className="px-1.5 py-1" colSpan={5}>
                         <div
                           className={
-                            block.type === "KIT_HEADER" ? "pl-5 font-semibold" : "font-bold"
+                            block.type === "KIT_HEADER"
+                              ? "pl-4 font-semibold"
+                              : "font-bold"
                           }
                         >
                           {block.title || block.name || "Раздел"}
                         </div>
                       </td>
-                      <td className="px-2 py-2 text-right font-medium tabular-nums">
+                      <td className="px-1.5 py-1 text-right font-semibold tabular-nums">
                         {block.type === "SECTION" ? formatMoney(total) : ""}
                       </td>
-                      <td className="bg-[var(--bg)] p-0" />
                       {line ? (
                         <LineCalcCells
                           line={line}
@@ -231,7 +229,7 @@ export function CalcEstimateTable({
                           onResetLine={onResetLine}
                         />
                       ) : (
-                        <td colSpan={3} />
+                        <td className="calc-split" colSpan={3} />
                       )}
                     </tr>
                   );
@@ -239,41 +237,40 @@ export function CalcEstimateTable({
                 return (
                   <tr
                     key={block.id}
-                    className={`border-t border-[var(--line)] align-top ${
-                      block.zoneActive ? "" : "opacity-50"
-                    } ${block.isKit ? "bg-[var(--selected)]/40" : ""}`}
+                    className={cn(
+                      !block.zoneActive && "opacity-50",
+                      block.isKit && "bg-[var(--selected)]/40",
+                    )}
                   >
-                    <td className="py-2 pl-6 pr-2">
-                      <div className="flex min-w-0 flex-col gap-1">
+                    <td className="min-w-0 overflow-hidden py-1 pl-3 pr-1.5">
+                      <div className="flex min-w-0 flex-col gap-0.5">
                         {block.isKit ? (
-                          <span className="w-fit rounded bg-[var(--accent)]/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[var(--accent)]">
+                          <span className="w-fit rounded bg-[var(--accent)]/10 px-1.5 py-0.5 text-caption font-medium uppercase tracking-wide text-[var(--accent)]">
                             Комплект
                           </span>
                         ) : null}
-                        <div className="leading-5">{block.name || "Позиция"}</div>
+                        <div className="break-words leading-4">
+                          {block.name || "Позиция"}
+                        </div>
                       </div>
                     </td>
-                    <td className="px-2 py-2 text-center tabular-nums">
+                    <td className="px-1.5 py-1 text-center tabular-nums">
                       {block.qty ?? "—"}
                     </td>
-                    <td className="px-2 py-2 text-right tabular-nums">
+                    <td className="px-1.5 py-1 text-right tabular-nums whitespace-nowrap">
                       {block.unitPrice != null
                         ? formatMoney(block.unitPrice)
                         : "—"}
                     </td>
-                    <td className="px-2 py-2 text-center text-xs text-[var(--muted)]">
+                    <td className="px-1.5 py-1 text-center whitespace-nowrap">
                       {dayModeLabel(block.dayMode)}
                     </td>
-                    <td className="px-2 py-2 text-center tabular-nums">
+                    <td className="px-1.5 py-1 text-center tabular-nums">
                       {formatNumber(block.dayCoef || 0)}
                     </td>
-                    <td className="px-2 py-2 text-right font-medium tabular-nums">
+                    <td className="px-1.5 py-1 text-right font-medium tabular-nums whitespace-nowrap">
                       {formatMoney(block.lineTotal)}
-                      <p className="text-[10px] font-normal text-[var(--muted)]">
-                        коэф {formatNumber(block.dayCoef || 0)}
-                      </p>
                     </td>
-                    <td className="bg-[var(--bg)] p-0" />
                     {line ? (
                       <LineCalcCells
                         line={line}
@@ -285,11 +282,13 @@ export function CalcEstimateTable({
                       />
                     ) : (
                       <>
-                        <td className="px-2 py-2 text-[var(--muted)]">—</td>
-                        <td className="px-2 py-2 text-right tabular-nums text-[var(--muted)]">
+                        <td className="calc-split px-1.5 py-1 text-[var(--muted)]">
+                          —
+                        </td>
+                        <td className="px-1.5 py-1 text-right tabular-nums whitespace-nowrap text-[var(--muted)]">
                           {formatMoney(block.lineTotal)}
                         </td>
-                        <td className="px-2 py-2 text-right text-[var(--muted)]">
+                        <td className="px-1.5 py-1 text-right text-[var(--muted)]">
                           —
                         </td>
                       </>
@@ -301,7 +300,7 @@ export function CalcEstimateTable({
           </table>
         </div>
       )}
-      <div className="flex justify-end border-t border-[var(--line)] px-3 py-2">
+      <div className="flex justify-end">
         <Button
           type="button"
           size="sm"
@@ -340,99 +339,104 @@ function LineCalcCells({
   const amountDiff = Math.round(line.lineTotal - amountSum);
   const cost =
     line.costOverride != null ? line.costOverride : line.costTotal;
+  const passthrough =
+    line.costSource === "passthrough" && line.costOverride == null;
 
   return (
     <>
-      <td className="px-2 py-2">
-        <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
-          <div className="inline-flex rounded-md border border-[var(--line)] p-0.5 text-[11px]">
+      <td className="calc-split px-1.5 py-1">
+        <div className="flex min-w-0 flex-wrap items-center gap-1">
+          <div className="inline-flex shrink-0 rounded border border-[var(--line)] p-px text-caption leading-none">
             <button
               type="button"
-              className={`rounded px-2 py-0.5 ${
+              className={cn(
+                "rounded px-1.5 py-0.5",
                 line.mode === "SHARE"
                   ? "bg-[var(--solid)] text-[var(--on-solid)]"
-                  : "text-[var(--muted)] hover:text-[var(--ink)]"
-              }`}
+                  : "text-[var(--muted)] hover:text-[var(--ink)]",
+              )}
               onClick={() => onSetLineMode(line.id, "SHARE")}
             >
               Доли
             </button>
             <button
               type="button"
-              className={`rounded px-2 py-0.5 ${
+              className={cn(
+                "rounded px-1.5 py-0.5",
                 line.mode === "AMOUNT"
                   ? "bg-[var(--solid)] text-[var(--on-solid)]"
-                  : "text-[var(--muted)] hover:text-[var(--ink)]"
-              }`}
+                  : "text-[var(--muted)] hover:text-[var(--ink)]",
+              )}
               onClick={() => onSetLineMode(line.id, "AMOUNT")}
             >
               Суммы
             </button>
           </div>
+          {line.mode === "SHARE" ? (
+            <OwnerTagsPicker
+              label=""
+              compact
+              value={line.owners}
+              onChange={(owners) => onSetLineOwners(line.id, owners)}
+            />
+          ) : (
+            <div className="grid min-w-0 flex-1 grid-cols-3 gap-1">
+              {CATALOG_OWNERS.map((c) => (
+                <label key={c.value} className="block min-w-0 text-caption">
+                  <span className="text-[var(--muted)]">{c.short}</span>
+                  <input
+                    type="number"
+                    min={0}
+                    className="field mt-0.5 w-full min-w-0 py-0.5 text-xs"
+                    value={line.amounts[c.value]}
+                    onChange={(e) =>
+                      onSetLineAmount(line.id, c.value, Number(e.target.value) || 0)
+                    }
+                  />
+                </label>
+              ))}
+              <p
+                className={cn(
+                  "col-span-3 text-caption leading-none",
+                  amountDiff === 0 ? "text-[var(--muted)]" : "text-amber-500",
+                )}
+              >
+                {formatMoney(amountSum)} из {formatMoney(line.lineTotal)}
+              </p>
+            </div>
+          )}
           {(line.ownersCustom || line.mode === "AMOUNT") && (
             <button
               type="button"
-              className="text-[10px] text-[var(--muted)] hover:underline"
+              className="shrink-0 text-caption text-[var(--muted)] hover:underline"
               onClick={() => onResetLine(line.id)}
             >
               Сброс
             </button>
           )}
         </div>
-        {line.mode === "SHARE" ? (
-          <OwnerTagsPicker
-            label=""
-            compact
-            value={line.owners}
-            onChange={(owners) => onSetLineOwners(line.id, owners)}
-          />
-        ) : (
-          <div className="grid grid-cols-3 gap-1">
-            {CATALOG_OWNERS.map((c) => (
-              <label key={c.value} className="block text-[10px]">
-                <span className="text-[var(--muted)]">{c.short}</span>
-                <input
-                  type="number"
-                  min={0}
-                  className="field mt-0.5 py-1 text-xs"
-                  value={line.amounts[c.value]}
-                  onChange={(e) =>
-                    onSetLineAmount(line.id, c.value, Number(e.target.value) || 0)
-                  }
-                />
-              </label>
-            ))}
-            <p
-              className={`col-span-3 text-[10px] ${
-                amountDiff === 0 ? "text-[var(--muted)]" : "text-amber-500"
-              }`}
-            >
-              {formatMoney(amountSum)} из {formatMoney(line.lineTotal)}
-            </p>
-          </div>
-        )}
       </td>
-      <td className="px-2 py-2 text-right tabular-nums whitespace-nowrap">
+      <td className="px-1.5 py-1 text-right tabular-nums whitespace-nowrap">
         {formatMoney(line.lineTotal)}
       </td>
-      <td className="px-2 py-2 text-right whitespace-nowrap">
+      <td className="px-1.5 py-1 text-right">
         <input
           type="number"
           min={0}
-          className="field w-24 py-1 text-right"
+          title={passthrough ? "Без закупа вся сумма в расход" : undefined}
+          className="field w-full min-w-0 py-0.5 text-right tabular-nums"
           value={cost}
           onChange={(e) => {
             const raw = e.target.value;
             onSetLineCost(line.id, raw === "" ? 0 : Number(raw) || 0);
           }}
         />
-        {line.costSource === "passthrough" && line.costOverride == null ? (
-          <div className="mt-0.5 text-[10px] text-[var(--muted)]">
-            без закупа вся сумма в расход
+        {passthrough ? (
+          <div className="mt-0.5 truncate text-caption leading-none text-[var(--muted)]">
+            весь в расход
           </div>
         ) : null}
       </td>
     </>
   );
 }
-

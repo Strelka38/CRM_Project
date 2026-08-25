@@ -7,6 +7,7 @@ import { recommendedMountQty } from "@/lib/quote-assignment-slots";
 import {
   canEditBrief,
   canManageAssignments,
+  canManageEventAttachments,
   isManager,
   requireBriefEditor,
   requireSession,
@@ -54,6 +55,7 @@ type ProjectPayload = {
     isFreelancer?: boolean;
     freelancerName?: string;
     kind?: string;
+    dayIndex?: number | null;
     user: {
       id: string;
       name: string;
@@ -182,6 +184,7 @@ async function loadProjectQuote(id: string): Promise<ProjectPayload | null> {
         isFreelancer: boolean;
         freelancerName: string;
         kind: string;
+        dayIndex: number | null;
         userName: string | null;
         userFirst: string | null;
         userLast: string | null;
@@ -195,6 +198,7 @@ async function loadProjectQuote(id: string): Promise<ProjectPayload | null> {
         COALESCE(a."isFreelancer", false) AS "isFreelancer",
         COALESCE(a."freelancerName", '') AS "freelancerName",
         COALESCE(a.kind::text, 'EVENT') AS kind,
+        a."dayIndex" AS "dayIndex",
         u.name AS "userName",
         u."firstName" AS "userFirst",
         u."lastName" AS "userLast",
@@ -214,6 +218,7 @@ async function loadProjectQuote(id: string): Promise<ProjectPayload | null> {
           isFreelancer: boolean;
           freelancerName: string;
           kind: string;
+          dayIndex: number | null;
           userName: string | null;
           userFirst: string | null;
           userLast: string | null;
@@ -227,6 +232,7 @@ async function loadProjectQuote(id: string): Promise<ProjectPayload | null> {
           false AS "isFreelancer",
           '' AS "freelancerName",
           'EVENT' AS kind,
+          NULL::integer AS "dayIndex",
           u.name AS "userName",
           u."firstName" AS "userFirst",
           u."lastName" AS "userLast",
@@ -245,6 +251,7 @@ async function loadProjectQuote(id: string): Promise<ProjectPayload | null> {
       isFreelancer: a.isFreelancer,
       freelancerName: a.freelancerName,
       kind: a.kind || "EVENT",
+      dayIndex: a.dayIndex ?? null,
       user: a.userId
         ? {
             id: a.userId,
@@ -363,6 +370,7 @@ export async function GET(
       isManager: isManager(session.user.role),
       canManageAssignments: canManageAssignments(session.user.role),
       canEditBrief: canEditBrief(session.user.role),
+      canManageAttachments: canManageEventAttachments(session.user.role),
     });
   } catch (e) {
     if (e instanceof Response) return e;
@@ -376,7 +384,14 @@ export async function GET(
 }
 
 const patchSchema = z.object({
-  brief: z.string().max(8000),
+  brief: z.string().max(8000).optional(),
+  date: z.string().optional(),
+  durationDays: z.number().int().positive().optional(),
+  time: z.string().optional(),
+  mountDate: z.string().optional(),
+  mountDurationDays: z.number().int().positive().optional(),
+  demountDate: z.string().optional(),
+  demountDurationDays: z.number().int().positive().optional(),
 });
 
 export async function PATCH(
@@ -394,8 +409,35 @@ export async function PATCH(
     const body = patchSchema.parse(await req.json());
     const quote = await prisma.quote.update({
       where: { id },
-      data: { brief: body.brief },
-      select: { id: true, brief: true },
+      data: {
+        ...(body.brief !== undefined ? { brief: body.brief } : {}),
+        ...(body.date !== undefined ? { date: body.date } : {}),
+        ...(body.durationDays !== undefined
+          ? { durationDays: body.durationDays }
+          : {}),
+        ...(body.time !== undefined ? { time: body.time } : {}),
+        ...(body.mountDate !== undefined ? { mountDate: body.mountDate } : {}),
+        ...(body.mountDurationDays !== undefined
+          ? { mountDurationDays: body.mountDurationDays }
+          : {}),
+        ...(body.demountDate !== undefined
+          ? { demountDate: body.demountDate }
+          : {}),
+        ...(body.demountDurationDays !== undefined
+          ? { demountDurationDays: body.demountDurationDays }
+          : {}),
+      },
+      select: {
+        id: true,
+        brief: true,
+        date: true,
+        durationDays: true,
+        time: true,
+        mountDate: true,
+        mountDurationDays: true,
+        demountDate: true,
+        demountDurationDays: true,
+      },
     });
     return NextResponse.json(quote);
   } catch (e) {

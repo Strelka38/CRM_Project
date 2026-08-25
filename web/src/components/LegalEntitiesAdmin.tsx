@@ -156,7 +156,7 @@ export function LegalEntitiesAdmin() {
         <p className="text-xs uppercase tracking-[0.15em] text-[var(--muted)]">
           База данных
         </p>
-        <h1 className="mt-1 text-3xl font-light tracking-tight">Юрлица</h1>
+        <h1 className="mt-1 text-3xl font-medium tracking-tight">Юрлица</h1>
         <p className="mt-1 text-sm text-[var(--muted)]">
           Реквизиты исполнителей для договора, счёта и акта. Рядом с тегами склада
           ШМ / ДК / NE, не вместо них.
@@ -234,8 +234,8 @@ export function LegalEntitiesAdmin() {
           </div>
         ) : null}
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
+        <div className="data-table-shell overflow-x-auto">
+          <table className="data-table w-full text-left text-sm">
             <thead className="bg-[var(--table-head)] text-xs uppercase text-[var(--muted)]">
               <tr>
                 <th className="w-10 px-3 py-2 text-left">

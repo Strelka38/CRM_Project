@@ -46,7 +46,17 @@ RUN --mount=type=cache,target=/app/.next/cache \
 
 FROM node:22-bookworm-slim AS runner
 WORKDIR /app
-RUN apt-get update -y && apt-get install -y openssl ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN apt-get update -y && apt-get install -y --no-install-recommends \
+      openssl ca-certificates gnupg wget \
+ && wget -qO- https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+      | gpg --dearmor -o /usr/share/keyrings/pgdg.gpg \
+ && echo "deb [signed-by=/usr/share/keyrings/pgdg.gpg] http://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" \
+      > /etc/apt/sources.list.d/pgdg.list \
+ && apt-get update -y \
+ && apt-get install -y --no-install-recommends postgresql-client-16 \
+ && apt-get purge -y gnupg wget \
+ && apt-get autoremove -y \
+ && rm -rf /var/lib/apt/lists/*
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
@@ -63,7 +73,7 @@ COPY --from=builder /app/src/lib/catalog-owner.ts ./src/lib/catalog-owner.ts
 COPY --from=builder /app/src/lib/ensure-schema.ts ./src/lib/ensure-schema.ts
 COPY --from=builder /app/tsconfig.json ./tsconfig.json
 COPY docker/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh && mkdir -p /app/uploads && test -f prisma/ensure-schema.ts && test -f prisma/ensure-columns.sql
+RUN chmod +x /entrypoint.sh && mkdir -p /app/uploads /app/backups && test -f prisma/ensure-schema.ts && test -f prisma/ensure-columns.sql
 
 
 EXPOSE 3000

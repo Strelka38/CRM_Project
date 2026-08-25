@@ -2,6 +2,7 @@ node_modules/
 .next/
 out/
 dist/
+crm-app.tar.gz
 .DS_Store
 *.log
 .env
@@ -9,6 +10,9 @@ dist/
 .env*.local
 web/.env
 web/uploads/
+web/backups/
+/data/
+/backups/
 web/legal-source/
 _extracted_catalog.json
 .vercel

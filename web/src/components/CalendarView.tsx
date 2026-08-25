@@ -238,7 +238,7 @@ function FilterChip({
       aria-pressed={active}
       onClick={onToggle}
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full px-1 py-0.5 text-[11px] transition-opacity hover:text-[var(--ink)]",
+        "inline-flex items-center gap-1.5 rounded-full px-1 py-0.5 text-caption transition-opacity hover:text-[var(--ink)]",
         active ? "text-[var(--muted)]" : "text-[var(--muted)]/40 opacity-50",
       )}
     >
@@ -454,18 +454,18 @@ function DayAgenda({
                   className="w-1 shrink-0 self-stretch rounded-full"
                   style={{ background: item.color }}
                 />
-                <span className="w-16 shrink-0 pt-0.5 text-[11px] leading-tight text-[var(--muted)]">
+                <span className="w-16 shrink-0 pt-0.5 text-caption leading-tight text-[var(--muted)]">
                   {itemTimeLabel(item)}
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-medium text-[var(--ink)]">
                     {item.label}
                   </span>
-                  <span className="text-[11px] text-[var(--muted)]">
+                  <span className="text-caption text-[var(--muted)]">
                     {item.subtitle}
                   </span>
                   {item.type === "quote" && item.quote.staffVacantCount ? (
-                    <span className="mt-0.5 block text-[11px] font-medium text-amber-700 dark:text-amber-300">
+                    <span className="mt-0.5 block text-caption font-medium text-amber-700 dark:text-amber-300">
                       {quoteStaffHint(item.quote)}
                     </span>
                   ) : null}
@@ -839,7 +839,7 @@ export function CalendarView() {
           showingDesktop ? "px-1" : "px-4",
         )}
       >
-        <h1 className="font-display capitalize text-2xl font-light tracking-tight text-[var(--ink)]">
+          <h1 className="font-display capitalize text-2xl tracking-tight text-[var(--ink)]">
           {monthLabel}
         </h1>
         {monthNav}
@@ -915,7 +915,7 @@ export function CalendarView() {
             <div
               key={d}
               className={cn(
-                "py-1.5 text-center text-[10px] font-medium uppercase tracking-wider",
+                "py-1.5 text-center text-caption font-medium uppercase tracking-wider",
                 i >= 5 ? "text-rose-400" : "text-[var(--muted)]",
               )}
             >
@@ -956,8 +956,8 @@ export function CalendarView() {
                       className={cn(
                         "relative z-10 flex items-center justify-center rounded-full tabular-nums",
                         showingDesktop
-                          ? "size-[1.85rem] text-[13px]"
-                          : "size-[1.55rem] text-[12px]",
+                          ? "size-[1.85rem] text-sm"
+                          : "size-[1.55rem] text-xs",
                         isSelected &&
                           "bg-[var(--ink)] font-semibold text-[var(--panel)]",
                         !isSelected &&
@@ -982,7 +982,7 @@ export function CalendarView() {
                       {day.getDate()}
                     </span>
                     {hiddenOnDay > 0 ? (
-                      <span className="absolute bottom-0.5 text-[9px] font-medium text-[var(--muted)]">
+                      <span className="absolute bottom-0.5 text-caption font-medium text-[var(--muted)]">
                         +{hiddenOnDay}
                       </span>
                     ) : null}

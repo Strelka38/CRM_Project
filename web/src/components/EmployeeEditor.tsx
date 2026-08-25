@@ -332,7 +332,7 @@ export function EmployeeEditor({
                   value={user.owners}
                   onChange={(owners) => setUser({ ...user, owners })}
                 />
-                <p className="text-[11px] text-[var(--muted)]">
+                <p className="text-caption text-[var(--muted)]">
                   ЗП и монтажные списываются с этих фирм. У менеджера проекта
                   агентские с его фирм минусуются в калькуляции; с чужих —
                   только в его ЗП.
@@ -360,7 +360,7 @@ export function EmployeeEditor({
                           })
                         }
                       />
-                      <p className="mt-1 text-[11px] text-[var(--muted)]">
+                      <p className="mt-1 text-caption text-[var(--muted)]">
                         База 5%. Считается от (выручка − расходы − ЗП −
                         монтажные) по каждой фирме.
                       </p>
@@ -478,7 +478,7 @@ export function EmployeeEditor({
                       </option>
                     ))}
                   </select>
-                  <p className="mt-1 text-[11px] text-[var(--muted)]">
+                  <p className="mt-1 text-caption text-[var(--muted)]">
                     Для новых сотрудников и если в профиле не выбран свой пояс.
                     По умолчанию Иркутск, UTC+8.
                   </p>
@@ -563,8 +563,8 @@ export function EmployeeEditor({
           <h2 className="border-b border-[var(--line)] bg-[var(--table-head)] px-4 py-2 text-sm font-medium">
             Специальности
           </h2>
-          <div className="overflow-x-auto p-2">
-            <table className="w-full text-sm">
+          <div className="data-table-shell overflow-x-auto p-2">
+            <table className="data-table data-table--editable w-full min-w-[560px] text-sm">
               <thead className="text-xs uppercase text-[var(--muted)]">
                 <tr>
                   <th className="px-2 py-1 text-left">Специальность</th>
@@ -678,30 +678,32 @@ export function EmployeeEditor({
       {(user.payrollRows?.length ?? 0) > 0 && (
         <section className="mt-4 rounded-xl border border-[var(--line)] bg-[var(--panel)] p-4">
           <h2 className="mb-2 font-display text-lg">Назначения</h2>
-          <table className="w-full text-sm">
-            <thead className="bg-[var(--table-head)] text-xs uppercase text-[var(--muted)]">
-              <tr>
-                <th className="px-2 py-2 text-left">Мероприятие</th>
-                <th className="px-2 py-2 text-left">Дата</th>
-                <th className="px-2 py-2 text-left">Должность</th>
-                <th className="px-2 py-2 text-left">Статус</th>
-                <th className="px-2 py-2 text-right">Сумма</th>
-              </tr>
-            </thead>
-            <tbody>
-              {user.payrollRows!.map((r) => (
-                <tr key={r.id} className="border-t border-[var(--line)]">
-                  <td className="px-2 py-2">{r.quote.eventName || "—"}</td>
-                  <td className="px-2 py-2">{r.quote.date || "—"}</td>
-                  <td className="px-2 py-2">{r.specialty.name}</td>
-                  <td className="px-2 py-2">{r.quote.lifecycle}</td>
-                  <td className="px-2 py-2 text-right tabular-nums">
-                    {formatMoney(r.pay)}
-                  </td>
+          <div className="data-table-shell overflow-x-auto">
+            <table className="data-table w-full min-w-[600px] text-sm">
+              <thead className="bg-[var(--table-head)] text-xs uppercase text-[var(--muted)]">
+                <tr>
+                  <th className="px-2 py-2 text-left">Мероприятие</th>
+                  <th className="px-2 py-2 text-left">Дата</th>
+                  <th className="px-2 py-2 text-left">Должность</th>
+                  <th className="px-2 py-2 text-left">Статус</th>
+                  <th className="px-2 py-2 text-right">Сумма</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {user.payrollRows!.map((r) => (
+                  <tr key={r.id} className="border-t border-[var(--line)]">
+                    <td className="px-2 py-2">{r.quote.eventName || "—"}</td>
+                    <td className="px-2 py-2">{r.quote.date || "—"}</td>
+                    <td className="px-2 py-2">{r.specialty.name}</td>
+                    <td className="px-2 py-2">{r.quote.lifecycle}</td>
+                    <td className="px-2 py-2 text-right tabular-nums">
+                      {formatMoney(r.pay)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </section>
       )}
 

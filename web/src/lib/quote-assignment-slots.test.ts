@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import {
+  allocateZonesToSlots,
   classifyPersonnelBlock,
   findBestSpecialty,
   groupDesiredQty,
   isFilledSlot,
   montageBudgetFromBlocks,
   normalizeSpecialtyName,
+  pickZoneForNewSlot,
   planSlotSync,
   recommendedMountQty,
   type SlotExisting,
@@ -218,5 +220,188 @@ const blocks = [
 ];
 assert.equal(recommendedMountQty(blocks), 2);
 assert.equal(montageBudgetFromBlocks(blocks, 1), 10000);
+
+const zonedDesired = groupDesiredQty([
+  { specialtyId: specSound, kind: "EVENT", qty: 1, zoneId: "z1" },
+  { specialtyId: specSound, kind: "EVENT", qty: 1, zoneId: "z2" },
+]);
+assert.equal(zonedDesired.length, 2);
+assert.equal(zonedDesired.find((d) => d.zoneId === "z2")?.qty, 1);
+
+const stamped = allocateZonesToSlots(
+  [
+    {
+      id: "a",
+      specialtyId: specSound,
+      kind: "EVENT",
+      userId: null,
+      isFreelancer: false,
+      freelancerName: "",
+      zoneId: null,
+    },
+    {
+      id: "b",
+      specialtyId: specSound,
+      kind: "EVENT",
+      userId: null,
+      isFreelancer: false,
+      freelancerName: "",
+      zoneId: null,
+    },
+  ],
+  zonedDesired,
+);
+assert.equal(stamped[0].zoneId, "z1");
+assert.equal(stamped[1].zoneId, "z2");
+
+const zonedPlan = planSlotSync([], zonedDesired);
+assert.deepEqual(
+  zonedPlan.create.map((c) => c.zoneId).sort(),
+  ["z1", "z2"],
+);
+
+assert.equal(
+  pickZoneForNewSlot({
+    specialtyId: specSound,
+    kind: "EVENT",
+    desired: zonedDesired,
+    existing: [],
+  }),
+  "z1",
+);
+assert.equal(
+  pickZoneForNewSlot({
+    specialtyId: specSound,
+    kind: "EVENT",
+    desired: zonedDesired,
+    existing: [{ specialtyId: specSound, kind: "EVENT", zoneId: "z1" }],
+  }),
+  "z2",
+);
+
+const multiEmpty = planSlotSync(
+  [],
+  [{ specialtyId: specSound, kind: "EVENT", qty: 1 }],
+  {},
+  3,
+);
+assert.equal(multiEmpty.create.length, 1);
+assert.equal(multiEmpty.create[0]?.dayIndex, null);
+
+const multiMount = planSlotSync(
+  [],
+  [
+    { specialtyId: specSound, kind: "EVENT", qty: 1 },
+    { specialtyId: "mount", kind: "MOUNT", qty: 2 },
+  ],
+  {},
+  3,
+);
+assert.equal(multiMount.create.filter((c) => c.kind === "EVENT").length, 1);
+assert.equal(multiMount.create.filter((c) => c.kind === "MOUNT").length, 2);
+assert.ok(
+  multiMount.create
+    .filter((c) => c.kind === "MOUNT")
+    .every((c) => c.dayIndex == null),
+);
+
+const filledAllDays: SlotExisting[] = [
+  {
+    id: "all",
+    specialtyId: specSound,
+    kind: "EVENT",
+    userId: "u1",
+    isFreelancer: false,
+    freelancerName: "",
+    dayIndex: null,
+  },
+];
+const keepAllDays = planSlotSync(
+  filledAllDays,
+  [{ specialtyId: specSound, kind: "EVENT", qty: 1 }],
+  {},
+  3,
+);
+assert.equal(keepAllDays.create.length, 0);
+assert.equal(keepAllDays.deleteIds.length, 0);
+
+const vacantAllDays: SlotExisting[] = [
+  {
+    id: "vac",
+    specialtyId: specSound,
+    kind: "EVENT",
+    userId: null,
+    isFreelancer: false,
+    freelancerName: "",
+    dayIndex: null,
+  },
+];
+const expandVacant = planSlotSync(
+  vacantAllDays,
+  [{ specialtyId: specSound, kind: "EVENT", qty: 1 }],
+  {},
+  3,
+);
+assert.deepEqual(expandVacant.deleteIds, []);
+assert.equal(expandVacant.create.length, 0);
+
+const perDayExisting: SlotExisting[] = [1, 2, 3].map((d) => ({
+  id: `d${d}`,
+  specialtyId: specSound,
+  kind: "EVENT",
+  userId: null,
+  isFreelancer: false,
+  freelancerName: "",
+  dayIndex: d,
+}));
+const collapsePerDay = planSlotSync(
+  perDayExisting,
+  [{ specialtyId: specSound, kind: "EVENT", qty: 1 }],
+  {},
+  3,
+);
+assert.equal(collapsePerDay.create.length, 1);
+assert.equal(collapsePerDay.create[0]?.dayIndex, null);
+assert.deepEqual(collapsePerDay.deleteIds.sort(), ["d1", "d2", "d3"]);
+
+const shrinkDays = planSlotSync(
+  perDayExisting,
+  [{ specialtyId: specSound, kind: "EVENT", qty: 1 }],
+  {},
+  2,
+);
+assert.ok(shrinkDays.deleteIds.includes("d3"));
+assert.ok(shrinkDays.deleteIds.includes("d1"));
+assert.ok(shrinkDays.deleteIds.includes("d2"));
+assert.equal(shrinkDays.create.length, 1);
+
+const filledDay1Only: SlotExisting[] = [
+  {
+    id: "d1f",
+    specialtyId: specSound,
+    kind: "EVENT",
+    userId: "u1",
+    isFreelancer: false,
+    freelancerName: "",
+    dayIndex: 1,
+  },
+  {
+    id: "d2v",
+    specialtyId: specSound,
+    kind: "EVENT",
+    userId: null,
+    isFreelancer: false,
+    freelancerName: "",
+    dayIndex: 2,
+  },
+];
+const keepFilledDay = planSlotSync(
+  filledDay1Only,
+  [{ specialtyId: specSound, kind: "EVENT", qty: 1 }],
+  {},
+  3,
+);
+assert.equal(keepFilledDay.create.length, 0);
+assert.deepEqual(keepFilledDay.deleteIds, ["d2v"]);
 
 console.log("quote-assignment-slots.test.ts: ok");

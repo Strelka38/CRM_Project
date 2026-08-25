@@ -143,7 +143,7 @@ export function KitsAdmin() {
         <p className="text-xs uppercase tracking-[0.15em] text-[var(--muted)]">
           Склад
         </p>
-        <h1 className="mt-1 text-3xl font-light tracking-tight">Комплекты</h1>
+        <h1 className="mt-1 text-3xl font-medium tracking-tight">Комплекты</h1>
         <p className="mt-1 text-sm text-[var(--muted)]">
           Набор из существующих позиций каталога. В смету добавляется целиком
           и разворачивается в строки.
@@ -216,8 +216,8 @@ export function KitsAdmin() {
           </p>
         ) : null}
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
+        <div className="data-table-shell overflow-x-auto">
+          <table className="data-table w-full text-left text-sm">
             <thead className="bg-[var(--table-head)] text-xs uppercase text-[var(--muted)]">
               <tr>
                 <th className="w-10 px-3 py-2 text-left">

@@ -32,7 +32,7 @@ export function CategorySelect({
   return (
     <label className={`block ${className}`}>
       {label && (
-        <span className="mb-1 block text-[10px] uppercase text-[var(--muted)]">
+        <span className="mb-1 block text-caption uppercase text-[var(--muted)]">
           {label}
         </span>
       )}

@@ -741,7 +741,7 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
   }
 
   return (
-    <div className="w-full px-4 py-6 md:px-6">
+    <div className="mx-auto w-full max-w-[1920px] px-2 py-3 md:px-3">
       <PageHeader
         title={`Калькуляция №${data.proposalNumber}`}
         subtitle={`${data.eventName || "Без названия"} · ${data.client || "—"} · ${data.date || "без даты"}`}
@@ -878,7 +878,7 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
             data?.calculation.montageOverage) ? (
             <div className="grid gap-2 border-b border-[var(--line)] px-4 py-3 sm:grid-cols-3">
               <div>
-                <p className="text-[11px] uppercase tracking-wider text-[var(--muted)]">
+                <p className="text-caption uppercase tracking-wider text-[var(--muted)]">
                   Бюджет монтажа (смета)
                 </p>
                 <p className="font-medium tabular-nums">
@@ -886,7 +886,7 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
                 </p>
               </div>
               <div>
-                <p className="text-[11px] uppercase tracking-wider text-[var(--muted)]">
+                <p className="text-caption uppercase tracking-wider text-[var(--muted)]">
                   Факт (монтажники)
                 </p>
                 <p className="font-medium tabular-nums">
@@ -896,7 +896,7 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
                 </p>
               </div>
               <div>
-                <p className="text-[11px] uppercase tracking-wider text-[var(--muted)]">
+                <p className="text-caption uppercase tracking-wider text-[var(--muted)]">
                   Перерасход
                 </p>
                 <p
@@ -916,9 +916,9 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
               На смете никто не назначен — добавьте сотрудников в редакторе КП
             </p>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-[var(--table-head)] text-[11px] uppercase tracking-wider text-[var(--muted)]">
+            <div className="data-table-shell">
+              <table className="data-table data-table--editable w-full min-w-[760px] text-left text-sm">
+                <thead className="bg-[var(--table-head)] text-caption uppercase tracking-wider text-[var(--muted)]">
                   <tr>
                     <th className="px-4 py-3">Сотрудник</th>
                     <th className="px-4 py-3">Тип</th>
@@ -940,7 +940,7 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
                       <td className="px-4 py-3 font-medium">
                         {a.userName}
                         {a.isFreelancer ? (
-                          <span className="ml-2 text-[11px] text-[var(--muted)]">
+                          <span className="ml-2 text-caption text-[var(--muted)]">
                             фриланс
                           </span>
                         ) : null}
@@ -959,7 +959,7 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
                               <span
                                 key={o.value}
                                 title={o.label}
-                                className="rounded border border-[var(--solid)] bg-[var(--solid)] px-1.5 py-0.5 text-[10px] font-medium uppercase text-[var(--on-solid)]"
+                                className="rounded border border-[var(--solid)] bg-[var(--solid)] px-1.5 py-0.5 text-caption font-medium uppercase text-[var(--on-solid)]"
                               >
                                 {o.short}
                               </span>
@@ -1073,7 +1073,7 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
                     менеджера.
                   </p>
                 </div>
-                <p className="text-2xl font-light tabular-nums text-[var(--accent-deep)]">
+                <p className="text-2xl font-medium tabular-nums text-[var(--accent-deep)]">
                   {formatMoney(agencyInfo.total)}
                 </p>
               </div>
@@ -1086,10 +1086,10 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
                     <p className="text-xs uppercase tracking-[0.15em] text-[var(--muted)]">
                       Аг. {a.short} · {a.label}
                     </p>
-                    <p className="mt-1 text-xl font-light tabular-nums">
+                    <p className="mt-1 text-xl font-medium tabular-nums">
                       {formatMoney(a.agency)}
                     </p>
-                    <p className="mt-1 text-[11px] text-[var(--muted)]">
+                    <p className="mt-1 text-caption text-[var(--muted)]">
                       {a.agency <= 0
                         ? "нет базы"
                         : a.deductedFromFirm
@@ -1116,9 +1116,9 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
                   Нет назначений
                 </p>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm">
-                    <thead className="bg-[var(--table-head)] text-[11px] uppercase tracking-wider text-[var(--muted)]">
+                <div className="data-table-shell">
+                  <table className="data-table w-full min-w-[720px] text-left text-sm">
+                    <thead className="bg-[var(--table-head)] text-caption uppercase tracking-wider text-[var(--muted)]">
                       <tr>
                         <th className="px-4 py-3">Сотрудник</th>
                         <th className="px-4 py-3">Тип</th>
@@ -1146,7 +1146,7 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
                             <td className="px-4 py-3 font-medium">
                               {a.userName}
                               {a.isFreelancer ? (
-                                <span className="ml-2 text-[11px] text-[var(--muted)]">
+                                <span className="ml-2 text-caption text-[var(--muted)]">
                                   фриланс
                                 </span>
                               ) : null}
@@ -1340,11 +1340,11 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
                         {formatMoney(breakdown?.agency ?? 0)}
                       </span>
                       {breakdown?.agencyCost ? (
-                        <span className="ml-1 text-[11px] text-[var(--muted)]">
+                        <span className="ml-1 text-caption text-[var(--muted)]">
                           (−{formatMoney(breakdown.agencyCost)} с фирмы)
                         </span>
                       ) : breakdown?.agencyToManagerOnly ? (
-                        <span className="ml-1 text-[11px] text-[var(--muted)]">
+                        <span className="ml-1 text-caption text-[var(--muted)]">
                           (только ЗП менеджера)
                         </span>
                       ) : null}
@@ -1446,9 +1446,9 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
               Доп. расходов пока нет
             </p>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-[var(--table-head)] text-[11px] uppercase tracking-wider text-[var(--muted)]">
+            <div className="data-table-shell">
+              <table className="data-table data-table--editable w-full min-w-[600px] text-left text-sm">
+                <thead className="bg-[var(--table-head)] text-caption uppercase tracking-wider text-[var(--muted)]">
                   <tr>
                     <th className="px-4 py-3">Название</th>
                     <th className="px-4 py-3 w-28">Сумма</th>
@@ -1510,7 +1510,7 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
                           )}
                         </td>
                         <td className="px-4 py-2">
-                          <div className="mb-2 inline-flex rounded-md border border-[var(--line)] p-0.5 text-[11px]">
+                          <div className="mb-2 inline-flex rounded-md border border-[var(--line)] p-0.5 text-caption">
                             <button
                               type="button"
                               className={`rounded px-2 py-0.5 ${
@@ -1584,7 +1584,7 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
                                   )
                                 }
                               />
-                              <p className="mt-1 text-[11px] text-[var(--muted)]">
+                              <p className="mt-1 text-caption text-[var(--muted)]">
                                 {e.owners.length === 0
                                   ? "Без тегов — по долям выручки сметы"
                                   : `Поровну между ${e.owners.length}`}
@@ -1709,7 +1709,7 @@ function Stat({
         {label}
       </p>
       <p
-        className={`mt-1 text-xl font-light tracking-tight ${
+        className={`mt-1 text-xl font-medium tracking-tight ${
             danger
             ? "text-[var(--danger)]"
             : accent

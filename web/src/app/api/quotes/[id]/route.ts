@@ -8,7 +8,14 @@ import {
   changedQuoteMetaKeys,
   summarizeQuotePatch,
 } from "@/lib/quote-history";
-import { requireManager, requireSession } from "@/lib/session";
+import {
+  canEditBrief,
+  canEditQuoteSchedule,
+  forbiddenBrigadierQuotePatchKeys,
+  isManager,
+  requireManager,
+  requireSession,
+} from "@/lib/session";
 import { validateQuoteStock } from "@/lib/stock";
 import { syncQuoteAssignmentSlots } from "@/lib/quote-assignment-slots";
 import {
@@ -36,6 +43,7 @@ export async function GET(
   try {
     const session = await requireSession();
     const { id } = await params;
+    await ensureSchemaOnce();
     await ensureDefaultZone(id);
     const quote = await getAccessibleQuote(
       id,
@@ -88,6 +96,7 @@ const patchSchema = z.object({
   venueId: z.string().nullable().optional(),
   client: z.string().optional(),
   clientId: z.string().nullable().optional(),
+  requestContact: z.string().max(1000).optional(),
   managerName: z.string().optional(),
   ownerId: z.string().min(1).optional(),
   cashless: z.boolean().optional(),
@@ -113,7 +122,15 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const session = await requireManager();
+    const session = await requireSession();
+    const manager = isManager(session.user.role);
+    if (
+      !manager &&
+      !canEditBrief(session.user.role) &&
+      !canEditQuoteSchedule(session.user.role)
+    ) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
     await ensureSchemaOnce();
     const { id } = await params;
     const existing = await getAccessibleQuote(
@@ -127,6 +144,22 @@ export async function PATCH(
 
     const body = patchSchema.parse(await req.json());
     const { blocks, zones, forceStock: _forceStock, ...meta } = body;
+
+    if (!manager) {
+      if (blocks !== undefined || zones !== undefined) {
+        return NextResponse.json(
+          { error: "Недостаточно прав для изменения сметы" },
+          { status: 403 },
+        );
+      }
+      const forbidden = forbiddenBrigadierQuotePatchKeys(Object.keys(meta));
+      if (forbidden.length > 0) {
+        return NextResponse.json(
+          { error: "Недостаточно прав для изменения этих полей" },
+          { status: 403 },
+        );
+      }
+    }
 
     if (meta.clientId) {
       const clientExists = await prisma.client.findUnique({

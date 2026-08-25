@@ -34,7 +34,7 @@ function SidebarBrand() {
         <span className="truncate text-sm font-medium text-[var(--header-ink)]">
           BaikalStageGroup
         </span>
-        <span className="mt-0.5 text-[10px] uppercase tracking-[0.2em] text-[var(--header-muted)]">
+        <span className="mt-0.5 text-caption uppercase tracking-[0.2em] text-[var(--header-muted)]">
           CRM
         </span>
       </span>
@@ -77,6 +77,11 @@ function AppNav({
           <NavLink href="/payroll" className={horizontal ? "whitespace-nowrap" : undefined}>
             Моя ЗП
           </NavLink>
+          {workloadStats && (
+            <NavLink href="/roster" className={horizontal ? "whitespace-nowrap" : undefined}>
+              Срост
+            </NavLink>
+          )}
           {workloadStats && (
             <NavLink
               href="/statistics"
@@ -166,7 +171,7 @@ function DrawerChromeTools({
           title="Мой профиль"
         >
           <span className="block truncate">{userName}</span>
-          <span className="text-[10px] uppercase tracking-wide opacity-70">
+          <span className="text-caption uppercase tracking-wide opacity-70">
             {roleLabel}
           </span>
         </Link>

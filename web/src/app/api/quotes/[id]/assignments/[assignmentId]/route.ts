@@ -5,7 +5,12 @@ import {
   canSeeAssignmentPay,
   requireAssignmentManager,
 } from "@/lib/session";
-import { serializeAssignmentPay } from "@/lib/quote-assignments";
+import {
+  mountDutyFlags,
+  serializeAssignmentPay,
+} from "@/lib/quote-assignments";
+import { quoteZoneIdOrNull } from "@/lib/quote-assignment-slots";
+import { normDayIndex } from "@/lib/quote-assignment-days";
 
 const companyEnum = z.enum(["SHOW_MASTER", "DIAKOM", "NE_EVENT"]);
 
@@ -19,6 +24,10 @@ const patchSchema = z.object({
   kind: z.enum(["EVENT", "MOUNT"]).optional(),
   userId: z.string().min(1).nullable().optional(),
   isFreelancer: z.boolean().optional(),
+  zoneId: z.string().min(1).nullable().optional(),
+  dayIndex: z.number().int().min(1).nullable().optional(),
+  onMount: z.boolean().optional(),
+  onDemount: z.boolean().optional(),
 });
 
 const userSelect = {
@@ -59,6 +68,16 @@ export async function PATCH(
 
     const specialtyId = body.specialtyId ?? existing.specialtyId;
     const kind = body.kind ?? existing.kind;
+    const zoneId =
+      body.zoneId === undefined
+        ? existing.zoneId
+        : await quoteZoneIdOrNull(prisma, id, body.zoneId);
+    const dayIndex =
+      kind === "MOUNT"
+        ? null
+        : body.dayIndex !== undefined
+          ? normDayIndex(body.dayIndex)
+          : existing.dayIndex;
     let nextUserId =
       body.userId !== undefined ? body.userId : existing.userId;
     let nextIsFreelancer =
@@ -115,14 +134,26 @@ export async function PATCH(
       ? "SHIFT"
       : (body.payMode ?? existing.payMode);
 
+    const duty =
+      kind === "MOUNT"
+        ? mountDutyFlags({
+            onMount: body.onMount ?? existing.onMount,
+            onDemount: body.onDemount ?? existing.onDemount,
+          })
+        : { onMount: existing.onMount, onDemount: existing.onDemount };
+
     const updated = await prisma.quoteAssignment.update({
       where: { id: assignmentId },
       data: {
         specialtyId,
         kind,
+        zoneId,
+        dayIndex,
         userId: nextUserId,
         isFreelancer: nextIsFreelancer,
         payMode,
+        onMount: duty.onMount,
+        onDemount: duty.onDemount,
         hours:
           nextIsFreelancer || !nextUserId
             ? null
@@ -146,6 +177,7 @@ export async function PATCH(
       include: {
         user: { select: userSelect },
         specialty: { select: { id: true, name: true } },
+        zone: { select: { id: true, name: true } },
       },
     });
 

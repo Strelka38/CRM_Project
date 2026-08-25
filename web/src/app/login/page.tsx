@@ -26,7 +26,7 @@ function BrandMark({ compact = false }: { compact?: boolean }) {
         >
           BaikalStageGroup
         </span>
-        <span className="mt-1 block text-[10px] uppercase tracking-[0.22em] text-[var(--muted-on-dark)]">
+        <span className="mt-1 block text-caption uppercase tracking-[0.22em] text-[var(--muted-on-dark)]">
           Event CRM
         </span>
       </span>
@@ -122,12 +122,12 @@ function LoginForm() {
               <p className="text-xs uppercase tracking-[0.2em] text-[var(--accent-glow)]">
                 Технический продакшен
               </p>
-              <h1 className="mt-3 text-4xl font-light leading-[1.15] tracking-tight text-white xl:text-5xl">
+              <h1 className="mt-3 text-4xl leading-[1.15] tracking-tight text-white xl:text-5xl">
                 Полное техническое
                 <br />
                 сопровождение мероприятий
               </h1>
-              <p className="mt-5 max-w-md text-base font-light leading-relaxed text-[var(--muted-on-dark)]">
+              <p className="mt-5 max-w-md text-base leading-relaxed text-[var(--muted-on-dark)]">
                 Сметы, каталог, календарь и склад — в одной панели для команды
                 продакшена.
               </p>
@@ -154,10 +154,10 @@ function LoginForm() {
           <div className="relative z-10 px-5 pb-2 pt-[max(1.25rem,env(safe-area-inset-top))] lg:hidden">
             <BrandMark compact />
             <div className="animate-fade-up mt-6 max-w-sm">
-              <h1 className="text-[1.65rem] font-light leading-snug tracking-tight text-white">
+              <h1 className="text-2xl leading-snug tracking-tight text-white">
                 Вход в панель продакшена
               </h1>
-              <p className="mt-2 text-sm font-light leading-relaxed text-[var(--muted-on-dark)]">
+              <p className="mt-2 text-sm leading-relaxed text-[var(--muted-on-dark)]">
                 Сметы, каталог и календарь — в одном месте.
               </p>
             </div>
@@ -172,7 +172,7 @@ function LoginForm() {
                 <p className="text-xs uppercase tracking-[0.15em] text-[var(--muted)]">
                   BaikalStageGroup
                 </p>
-                <h2 className="mt-1 text-3xl font-light tracking-tight text-[var(--ink)]">
+                <h2 className="mt-1 text-3xl font-medium tracking-tight text-[var(--ink)]">
                   Вход
                 </h2>
                 <p className="mt-2 text-sm text-[var(--muted)]">
@@ -261,7 +261,7 @@ function LoginForm() {
                       <span className="block text-xs font-medium text-[var(--ink)]">
                         Менеджер
                       </span>
-                      <span className="mt-0.5 block truncate text-[11px] text-[var(--muted)]">
+                      <span className="mt-0.5 block truncate text-caption text-[var(--muted)]">
                         manager@local.test
                       </span>
                     </button>
@@ -273,7 +273,7 @@ function LoginForm() {
                       <span className="block text-xs font-medium text-[var(--ink)]">
                         Сотрудник
                       </span>
-                      <span className="mt-0.5 block truncate text-[11px] text-[var(--muted)]">
+                      <span className="mt-0.5 block truncate text-caption text-[var(--muted)]">
                         employee@local.test
                       </span>
                     </button>
@@ -282,7 +282,7 @@ function LoginForm() {
               </div>
             </form>
 
-            <p className="mt-4 text-center text-[11px] text-white/55 lg:mt-6 lg:text-[var(--muted)]">
+            <p className="mt-4 text-center text-caption text-white/55 lg:mt-6 lg:text-[var(--muted)]">
               Иркутск · Байкал · Бурятия
             </p>
           </div>

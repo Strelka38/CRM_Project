@@ -5,6 +5,11 @@ export type SpecLine = {
   key: string;
   deriveKey: string | null;
   source: "derived" | "extra";
+  /** Zone metadata is copied into the specification snapshot. */
+  zoneId?: string | null;
+  zoneName?: string | null;
+  zoneSortOrder?: number | null;
+  zoneActive?: boolean;
   type: "SECTION" | "ITEM";
   title: string | null;
   name: string | null;
@@ -68,6 +73,12 @@ export async function buildSpecLines(
   blocks: QuoteBlock[],
   overrides: SpecOverride[],
   extras: SpecExtraBlock[],
+  zones: Array<{
+    id: string;
+    name: string;
+    sortOrder: number;
+    active?: boolean;
+  }> = [],
 ): Promise<SpecLine[]> {
   const kitIds = [
     ...new Set(
@@ -347,7 +358,29 @@ export async function buildSpecLines(
     });
   }
 
-  return lines;
+  const blockById = new Map(blocks.map((block) => [block.id, block]));
+  const zoneById = new Map(zones.map((zone) => [zone.id, zone]));
+  return lines.map((line) => {
+    if (line.source !== "derived" || !line.deriveKey) {
+      return {
+        ...line,
+        zoneId: line.zoneId ?? null,
+        zoneName: line.zoneName ?? null,
+        zoneSortOrder: line.zoneSortOrder ?? null,
+        zoneActive: line.zoneActive ?? true,
+      };
+    }
+    const blockId = line.deriveKey.split(":")[1] || "";
+    const block = blockById.get(blockId);
+    const zone = block?.zoneId ? zoneById.get(block.zoneId) : null;
+    return {
+      ...line,
+      zoneId: block?.zoneId ?? null,
+      zoneName: zone?.name ?? null,
+      zoneSortOrder: zone?.sortOrder ?? null,
+      zoneActive: zone?.active !== false,
+    };
+  });
 }
 
 /** Soft-prune overrides whose deriveKey no longer exists in the base expansion. */
@@ -363,12 +396,31 @@ export function pruneStaleOverrideKeys(
     .map((o) => o.id);
 }
 
+/**
+ * Drop derived section/kit headers that have no items after them.
+ * Typical case: quote section that only had PERSONNEL/SERVICE lines.
+ * Manual extra sections stay so the user can fill them.
+ */
+export function omitEmptyDerivedSections(lines: SpecLine[]): SpecLine[] {
+  return lines.filter((line, index) => {
+    if (line.type !== "SECTION" || line.source === "extra") return true;
+    for (let j = index + 1; j < lines.length; j++) {
+      const next = lines[j];
+      if (next.type === "SECTION") break;
+      if (next.type === "ITEM") return true;
+    }
+    return false;
+  });
+}
+
 /** Apply saved packing-list order; unknown keys ignored, new keys appended. */
 export function applySpecLineOrder(
   lines: SpecLine[],
   order: string[] | null | undefined,
 ): SpecLine[] {
-  if (!order || order.length === 0) return lines;
+  if (!order || order.length === 0) {
+    return omitEmptyDerivedSections(lines);
+  }
   const byKey = new Map(lines.map((l) => [l.key, l]));
   const result: SpecLine[] = [];
   for (const key of order) {
@@ -381,7 +433,7 @@ export function applySpecLineOrder(
   for (const line of lines) {
     if (byKey.has(line.key)) result.push(line);
   }
-  return result;
+  return omitEmptyDerivedSections(result);
 }
 
 /** Drop keys that no longer exist in the built line set. */
@@ -465,21 +517,41 @@ export function applySpecOverrides(
   });
 }
 
+export function applyOwnerLabels(
+  lines: SpecLine[],
+  labels?: Array<{ key: string; ownerLabel: string }> | null,
+): SpecLine[] {
+  if (!labels || labels.length === 0) return lines;
+  const map = new Map(labels.map((row) => [row.key, row.ownerLabel]));
+  return lines.map((line) =>
+    map.has(line.key) ? { ...line, ownerLabel: map.get(line.key)! } : line,
+  );
+}
+
 export function extrasToSpecLines(
   extras: Array<{
     id: string;
     type: string;
+    zoneId?: string | null;
+    zoneName?: string | null;
+    zoneSortOrder?: number | null;
+    zoneActive?: boolean;
     title?: string | null;
     name?: string | null;
     qty?: number | null;
     comment?: string | null;
     catalogItemId?: string | null;
+    ownerLabel?: string | null;
   }>,
 ): SpecLine[] {
   return extras.map((e) => ({
     key: `extra:${e.id}`,
     deriveKey: null,
     source: "extra" as const,
+    zoneId: e.zoneId ?? null,
+    zoneName: e.zoneName ?? null,
+    zoneSortOrder: e.zoneSortOrder ?? null,
+    zoneActive: e.zoneActive !== false,
     type: e.type === "SECTION" ? "SECTION" : "ITEM",
     title: e.title ?? null,
     name: e.name ?? null,
@@ -489,5 +561,6 @@ export function extrasToSpecLines(
     catalogItemId: e.catalogItemId ?? null,
     extraId: e.id,
     hidden: false,
+    ownerLabel: e.ownerLabel ?? undefined,
   }));
 }

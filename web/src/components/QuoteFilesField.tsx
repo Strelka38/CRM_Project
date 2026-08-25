@@ -2,6 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
+import {
+  FILE_ACCEPT,
+  IconAttachPlus,
+  useFileDrop,
+} from "@/components/FileDrop";
 
 type Attachment = {
   id: string;
@@ -10,9 +15,6 @@ type Attachment = {
   size: number;
   createdAt: string;
 };
-
-const ACCEPT =
-  ".pdf,.xlsx,.xls,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel";
 
 function formatBytes(n: number) {
   if (n < 1024) return `${n} Б`;
@@ -35,7 +37,6 @@ export function QuoteFilesField({
   const [files, setFiles] = useState<Attachment[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
-  const [dragOver, setDragOver] = useState(false);
   const [error, setError] = useState("");
 
   const load = useCallback(async () => {
@@ -80,6 +81,10 @@ export function QuoteFilesField({
     }
   }
 
+  const { dragOver, dropProps } = useFileDrop(canEdit && !uploading, (list) => {
+    void uploadAll(list);
+  });
+
   async function removeFile(id: string) {
     if (!confirm("Удалить файл?")) return;
     const res = await fetch(
@@ -96,26 +101,15 @@ export function QuoteFilesField({
   return (
     <div
       className={cn(
-        "rounded-lg border border-dashed px-2.5 py-2",
+        "rounded-lg border border-dashed px-2.5 py-2 transition-colors",
         dragOver
           ? "border-[var(--accent)] bg-[var(--accent)]/10"
           : "border-[var(--line)]",
       )}
-      onDragOver={(e) => {
-        if (!canEdit) return;
-        e.preventDefault();
-        setDragOver(true);
-      }}
-      onDragLeave={() => setDragOver(false)}
-      onDrop={(e) => {
-        if (!canEdit) return;
-        e.preventDefault();
-        setDragOver(false);
-        void uploadAll(Array.from(e.dataTransfer.files));
-      }}
+      {...dropProps}
     >
       <div className="flex items-center justify-between gap-2">
-        <p className="text-[11px] text-[var(--muted)]">
+        <p className="text-caption text-[var(--muted)]">
           Файлы
           {files.length > 0 ? ` · ${files.length}` : ""}
         </p>
@@ -125,7 +119,7 @@ export function QuoteFilesField({
               ref={inputRef}
               type="file"
               multiple
-              accept={ACCEPT}
+              accept={FILE_ACCEPT}
               className="hidden"
               onChange={(e) => {
                 void uploadAll(Array.from(e.target.files ?? []));
@@ -135,54 +129,67 @@ export function QuoteFilesField({
             <button
               type="button"
               disabled={uploading}
+              title="Прикрепить файл"
+              aria-label="Прикрепить файл"
               onClick={() => inputRef.current?.click()}
-              className="text-[11px] text-[var(--accent)] disabled:opacity-40"
+              className="inline-flex size-7 items-center justify-center rounded-md text-[var(--accent)] hover:bg-[var(--accent)]/10 disabled:opacity-40"
             >
-              {uploading ? "Загрузка…" : "+ Прикрепить"}
+              <IconAttachPlus />
             </button>
           </>
         ) : null}
       </div>
       {error ? (
-        <p className="mt-1 text-[11px] text-[var(--danger)]">{error}</p>
+        <p className="mt-1 text-caption text-[var(--danger)]">{error}</p>
       ) : null}
       {loading ? (
-        <p className="mt-1 text-[11px] text-[var(--muted)]">Загрузка…</p>
-      ) : files.length === 0 ? (
-        <p className="mt-1 text-[11px] text-[var(--muted)]">
-          PDF, Excel или фото — появятся в мини-окне календаря
-        </p>
+        <p className="mt-1 text-caption text-[var(--muted)]">Загрузка…</p>
       ) : (
-        <ul className="mt-1.5 space-y-1">
-          {files.map((a) => (
-            <li
-              key={a.id}
-              className="flex items-center justify-between gap-2 text-[13px]"
-            >
-              <a
-                href={fileUrl(quoteId, a.id)}
-                target="_blank"
-                rel="noreferrer"
-                className="min-w-0 truncate hover:text-[var(--accent)]"
-                title={a.filename}
-              >
-                {a.filename}
-                <span className="ml-1.5 text-[10px] text-[var(--muted)]">
-                  {formatBytes(a.size)}
-                </span>
-              </a>
-              {canEdit ? (
-                <button
-                  type="button"
-                  className="shrink-0 text-[11px] text-[var(--danger)]"
-                  onClick={() => void removeFile(a.id)}
+        <>
+          {files.length === 0 ? (
+            <p className="mt-1 text-caption text-[var(--muted)]">
+              {dragOver
+                ? "Отпустите, чтобы прикрепить"
+                : "PDF, Excel или фото — перетащите сюда"}
+            </p>
+          ) : dragOver ? (
+            <p className="mt-1 text-caption text-[var(--accent)]">
+              Отпустите, чтобы прикрепить
+            </p>
+          ) : null}
+          {files.length > 0 ? (
+            <ul className="mt-1.5 space-y-1">
+              {files.map((a) => (
+                <li
+                  key={a.id}
+                  className="flex items-center justify-between gap-2 text-sm"
                 >
-                  Удалить
-                </button>
-              ) : null}
-            </li>
-          ))}
-        </ul>
+                  <a
+                    href={fileUrl(quoteId, a.id)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="min-w-0 truncate hover:text-[var(--accent)]"
+                    title={a.filename}
+                  >
+                    {a.filename}
+                    <span className="ml-1.5 text-caption text-[var(--muted)]">
+                      {formatBytes(a.size)}
+                    </span>
+                  </a>
+                  {canEdit ? (
+                    <button
+                      type="button"
+                      className="shrink-0 text-caption text-[var(--danger)]"
+                      onClick={() => void removeFile(a.id)}
+                    >
+                      Удалить
+                    </button>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </>
       )}
     </div>
   );
