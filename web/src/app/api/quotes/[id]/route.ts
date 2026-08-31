@@ -17,7 +17,10 @@ import {
   requireSession,
 } from "@/lib/session";
 import { validateQuoteStock } from "@/lib/stock";
-import { syncQuoteAssignmentSlots } from "@/lib/quote-assignment-slots";
+import {
+  storedWorkingDayIndexes,
+  workingDayCount,
+} from "@/lib/quote-assignment-days";
 import {
   clearInvoiceDueNotifications,
   notifyBrigadiersOfConfirmedMount,
@@ -65,6 +68,7 @@ const zoneSchema = z.object({
   name: z.string().min(1),
   sortOrder: z.number().int(),
   active: z.boolean().optional(),
+  workingDayIndexes: z.array(z.number().int().min(1).max(366)).optional(),
 });
 
 const blockSchema = z.object({
@@ -301,7 +305,12 @@ export async function PATCH(
       (nextLifecycle === "CONFIRMED" || existing.lifecycle === "CONFIRMED") &&
       nextLifecycle !== "CANCELLED"
     ) {
-      stockIssues = await validateQuoteStock(id, blocksForCheck, stockSchedule);
+      stockIssues = await validateQuoteStock(
+        id,
+        blocksForCheck,
+        stockSchedule,
+        zoneList,
+      );
     }
 
     await prisma.$transaction(async (tx) => {
@@ -323,8 +332,15 @@ export async function PATCH(
         await tx.quoteZone.deleteMany({
           where: { quoteId: id, id: { notIn: keepIds } },
         });
+        const eventDays = workingDayCount(
+          meta.durationDays ?? existing.durationDays,
+        );
 
         for (const z of zones) {
+          const workingDayIndexes =
+            z.workingDayIndexes !== undefined
+              ? storedWorkingDayIndexes(z.workingDayIndexes, eventDays)
+              : undefined;
           await tx.quoteZone.upsert({
             where: { id: z.id },
             create: {
@@ -333,11 +349,15 @@ export async function PATCH(
               name: z.name,
               sortOrder: z.sortOrder,
               active: z.active ?? true,
+              workingDayIndexes: workingDayIndexes ?? [],
             },
             update: {
               name: z.name,
               sortOrder: z.sortOrder,
               ...(z.active !== undefined ? { active: z.active } : {}),
+              ...(workingDayIndexes !== undefined
+                ? { workingDayIndexes }
+                : {}),
             },
           });
         }
@@ -401,7 +421,6 @@ export async function PATCH(
         });
       }
 
-      await syncQuoteAssignmentSlots(tx, id);
     });
 
     if (meta.paid === true || meta.invoiceSent === true) {

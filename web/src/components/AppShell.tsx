@@ -17,12 +17,16 @@ async function logout() {
 export async function AppShell({ children }: { children: React.ReactNode }) {
   const session = await auth();
   let role = session?.user?.role;
+  let payoutsAccess = false;
   if (session?.user?.id) {
     const dbUser = await prisma.user.findUnique({
       where: { id: session.user.id },
-      select: { role: true },
+      select: { role: true, canAccessPayments: true },
     });
-    if (dbUser) role = dbUser.role;
+    if (dbUser) {
+      role = dbUser.role;
+      payoutsAccess = dbUser.canAccessPayments;
+    }
   }
   const manager = isManager(role);
   const database = canAccessDatabase(role);
@@ -37,6 +41,7 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
       database={database}
       workloadStats={workloadStats}
       showBackup={showBackup}
+      payoutsAccess={payoutsAccess}
       logoutAction={logout}
     >
       {children}

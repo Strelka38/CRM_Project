@@ -5,6 +5,19 @@ export function isVacantStaff(a: {
   return !a.userId && !a.isFreelancer;
 }
 
+/** Монтажники (слот MOUNT или должность «монтажник») не подсвечивают мероприятие. */
+export function isInstallerStaff(a: {
+  kind?: string | null;
+  specialtyName?: string | null;
+  specialty?: { name?: string | null } | null;
+}): boolean {
+  if (String(a.kind || "").toUpperCase() === "MOUNT") return true;
+  const name =
+    String(a.specialtyName || "").trim() ||
+    String(a.specialty?.name || "").trim();
+  return /монтажн/i.test(name);
+}
+
 export function staffRoleLabel(a: {
   kind?: string | null;
   specialtyName?: string | null;
@@ -41,13 +54,9 @@ export function vacantStaffLabels(
     specialty?: { name?: string | null } | null;
   }>,
 ): string[] {
-  const vacant = assignments.filter(isVacantStaff);
-  const mount = vacant.filter(
-    (a) => String(a.kind || "").toUpperCase() === "MOUNT",
-  );
-  const event = vacant.filter(
-    (a) => String(a.kind || "").toUpperCase() !== "MOUNT",
-  );
+  const event = assignments
+    .filter(isVacantStaff)
+    .filter((a) => !isInstallerStaff(a));
   const perDay = event
     .map((a) => Number(a.dayIndex))
     .filter((n) => Number.isFinite(n) && n >= 1);
@@ -55,5 +64,5 @@ export function vacantStaffLabels(
     perDay.length > 0
       ? event.filter((a) => Number(a.dayIndex) === Math.min(...perDay))
       : event;
-  return [...eventForLabels, ...mount].map(staffRoleLabel);
+  return eventForLabels.map(staffRoleLabel);
 }

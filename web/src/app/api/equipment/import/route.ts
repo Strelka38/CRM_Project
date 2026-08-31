@@ -226,6 +226,7 @@ async function importUnits(text: string) {
         catalogItemId,
         unitNumber: r.unitNumber,
         label: r.label,
+        owner: r.owner,
         qrToken,
         active: r.writeOffReason ? false : r.active,
         inRepair: r.writeOffReason ? false : r.inRepair,

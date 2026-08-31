@@ -6,6 +6,10 @@ import {
 } from "@/lib/catalog-owner";
 import { resolveLineEconomics } from "@/lib/calc-line-cost";
 import { calcBlock, type QuoteBlockInput } from "@/lib/quote-calc";
+import {
+  zoneDurationDays,
+  type ZoneWorkingDays,
+} from "@/lib/quote-assignment-days";
 
 export type LineAmountSplit = {
   SHOW_MASTER: number;
@@ -148,6 +152,8 @@ export function computeQuoteCalculation(input: {
   expenses: CalcExpenseInput[];
   sharesCustom: boolean;
   customShares?: CalcShareInput[];
+  /** Если зона с отдельными датами — коэффициент дней берётся от неё. */
+  zones?: ZoneWorkingDays[] | null;
 }): QuoteCalculationResult {
   const discountRate = Math.max(0, Number(input.discountPercent) || 0) / 100;
 
@@ -175,7 +181,7 @@ export function computeQuoteCalculation(input: {
     const calc = calcBlock(
       { ...block, type: block.type === "KIT_HEADER" ? "ITEM" : block.type },
       false,
-      input.durationDays,
+      zoneDurationDays(block.zoneId, input.durationDays, input.zones),
     );
     const lineTotal = calc.lineTotalCash;
     if (lineTotal <= 0) continue;

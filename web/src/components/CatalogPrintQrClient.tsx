@@ -119,6 +119,13 @@ export function CatalogPrintQrClient() {
               key={u.id}
               className="break-inside-avoid rounded-lg border border-[var(--line)] p-3 text-center"
             >
+              <p className="mb-1 text-sm font-bold tabular-nums text-[var(--ink)]">
+                ID{" "}
+                {u.catalogItem.equipmentCode != null
+                  ? `${u.catalogItem.equipmentCode}-`
+                  : ""}
+                {u.unitNumber}
+              </p>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={qrSrc}
@@ -128,13 +135,9 @@ export function CatalogPrintQrClient() {
               <p className="mt-2 text-xs font-semibold leading-snug text-[var(--ink)]">
                 {u.catalogItem.name}
               </p>
-              <p className="text-caption text-[var(--muted)]">
-                {u.catalogItem.equipmentCode != null
-                  ? `ID ${u.catalogItem.equipmentCode}-`
-                  : "#"}
-                {u.unitNumber}
-                {u.label ? ` · ${u.label}` : ""}
-              </p>
+              {u.label ? (
+                <p className="text-caption text-[var(--muted)]">{u.label}</p>
+              ) : null}
               <p className="mt-1 break-all text-caption text-[var(--muted)]">
                 {url}
               </p>

@@ -1,5 +1,10 @@
+import type { CatalogOwner } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { newQrToken } from "@/lib/uploads";
+
+function soleOwner(owners: CatalogOwner[]): CatalogOwner | null {
+  return owners.length === 1 ? owners[0] : null;
+}
 
 export { formatUnitId } from "@/lib/equipment-id";
 
@@ -51,6 +56,12 @@ export async function syncEquipmentUnits(
     return existing;
   }
 
+  const item = await prisma.catalogItem.findUnique({
+    where: { id: catalogItemId },
+    select: { owners: true },
+  });
+  const owner = soleOwner(item?.owners ?? []);
+
   const maxAgg = await prisma.equipmentUnit.aggregate({
     where: { catalogItemId },
     _max: { unitNumber: true },
@@ -61,6 +72,7 @@ export async function syncEquipmentUnits(
     catalogItemId,
     unitNumber: maxNum + i + 1,
     qrToken: newQrToken(),
+    owner,
   }));
 
   await prisma.equipmentUnit.createMany({ data });
@@ -71,11 +83,14 @@ export async function syncEquipmentUnits(
   });
 }
 
-export async function addEquipmentUnit(catalogItemId: string) {
+export async function addEquipmentUnit(
+  catalogItemId: string,
+  opts?: { owner?: CatalogOwner | null },
+) {
   return prisma.$transaction(async (tx) => {
     const item = await tx.catalogItem.findUnique({
       where: { id: catalogItemId },
-      select: { id: true, active: true, stockQty: true },
+      select: { id: true, active: true, stockQty: true, owners: true },
     });
     if (!item || !item.active) throw new Error("NOT_FOUND");
 
@@ -84,11 +99,15 @@ export async function addEquipmentUnit(catalogItemId: string) {
       _max: { unitNumber: true },
     });
 
+    const owner =
+      opts && "owner" in opts ? (opts.owner ?? null) : soleOwner(item.owners);
+
     const unit = await tx.equipmentUnit.create({
       data: {
         catalogItemId,
         unitNumber: (maxAgg._max.unitNumber ?? 0) + 1,
         qrToken: newQrToken(),
+        owner,
       },
     });
 
@@ -146,6 +165,49 @@ export async function writeOffEquipmentUnit(opts: {
         data: { stockQty: Math.max(0, unit.catalogItem.stockQty - 1) },
       });
     }
+  });
+}
+
+/** Возвращает ошибочно списанную единицу в доступный складской остаток. */
+export async function restoreWrittenOffEquipmentUnit(unitId: string) {
+  return prisma.$transaction(async (tx) => {
+    const unit = await tx.equipmentUnit.findUnique({
+      where: { id: unitId },
+      select: {
+        id: true,
+        active: true,
+        catalogItemId: true,
+        catalogItem: { select: { active: true } },
+      },
+    });
+    if (!unit) throw new Error("NOT_FOUND");
+    if (unit.active) throw new Error("NOT_WRITTEN_OFF");
+    if (!unit.catalogItem.active) throw new Error("ITEM_INACTIVE");
+
+    const restored = await tx.equipmentUnit.update({
+      where: { id: unit.id },
+      data: {
+        active: true,
+        inRepair: false,
+        writeOffReason: null,
+        writeOffComment: "",
+        writeOffAt: null,
+      },
+    });
+
+    const available = await tx.equipmentUnit.count({
+      where: {
+        catalogItemId: unit.catalogItemId,
+        active: true,
+        inRepair: false,
+      },
+    });
+    await tx.catalogItem.update({
+      where: { id: unit.catalogItemId },
+      data: { stockQty: available },
+    });
+
+    return restored;
   });
 }
 

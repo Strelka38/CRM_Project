@@ -43,6 +43,15 @@ function bothDuties(flags: MountDutyFlags): boolean {
   return flags.onMount && flags.onDemount;
 }
 
+export function rowHasMountDuty(
+  row: MountDutyRow | null | undefined,
+  duty: MountDuty,
+): boolean {
+  if (!row) return false;
+  const flags = flagsOf(row);
+  return duty === "mount" ? flags.onMount : flags.onDemount;
+}
+
 /**
  * Назначение из сроста: только тот день, куда бросили.
  * Если этот человек уже стоит на другой части — сливаем в одну строку с двумя маркерами.

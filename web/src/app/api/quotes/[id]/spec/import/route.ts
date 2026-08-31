@@ -18,6 +18,7 @@ import {
   linesFromRevision,
   writeSpecRevision,
 } from "@/lib/spec-revision";
+import { syncQuoteAssignmentSlots } from "@/lib/quote-assignment-slots";
 import { requireSpecEditor } from "@/lib/session";
 
 const bodySchema = z.object({
@@ -113,6 +114,7 @@ export async function POST(
         where: { id },
         data: { specLineOrder: lineOrder },
       });
+      await syncQuoteAssignmentSlots(tx, id);
     });
 
     await writeSpecRevision(id, ordered, session.user.id, "import");

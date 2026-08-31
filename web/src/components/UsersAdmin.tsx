@@ -55,6 +55,7 @@ export function UsersAdmin({ actorRole }: { actorRole: string }) {
   const [csvBusy, setCsvBusy] = useState(false);
   const [csvMessage, setCsvMessage] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmDeactivate, setConfirmDeactivate] = useState(false);
   const csvImportRef = useRef<HTMLInputElement>(null);
   const [resetUser, setResetUser] = useState<{
     id: string;
@@ -156,6 +157,7 @@ export function UsersAdmin({ actorRole }: { actorRole: string }) {
         extra,
       );
       setConfirmDelete(false);
+      setConfirmDeactivate(false);
       void load();
       if (result.skipped) {
         setCsvMessage(
@@ -227,6 +229,7 @@ export function UsersAdmin({ actorRole }: { actorRole: string }) {
             <DirectorySelectionActions
               count={selected.size}
               disabled={busy}
+              deleteTitle="Удалить выбранные"
               onDelete={() => setConfirmDelete(true)}
               extra={
                 <>
@@ -280,7 +283,7 @@ export function UsersAdmin({ actorRole }: { actorRole: string }) {
                       const value = e.target.value;
                       e.target.value = "";
                       if (value === "on") void bulk("activate");
-                      if (value === "off") setConfirmDelete(true);
+                      if (value === "off") setConfirmDeactivate(true);
                     }}
                   >
                     <option value="">Статус…</option>
@@ -477,12 +480,21 @@ export function UsersAdmin({ actorRole }: { actorRole: string }) {
 
       <ConfirmDialog
         open={confirmDelete}
+        title="Удалить пользователей"
+        message={`Удалить выбранные учётки (${selected.size})? Последний админ не удаляется. Сметы и назначения в сметах сохранятся.`}
+        confirmLabel="Удалить"
+        busy={busy}
+        onConfirm={() => void bulk("delete")}
+        onCancel={() => setConfirmDelete(false)}
+      />
+      <ConfirmDialog
+        open={confirmDeactivate}
         title="Отключить пользователей"
         message={`Отключить выбранные учётки (${selected.size})? Последний админ не отключается.`}
         confirmLabel="Отключить"
         busy={busy}
         onConfirm={() => void bulk("deactivate")}
-        onCancel={() => setConfirmDelete(false)}
+        onCancel={() => setConfirmDeactivate(false)}
       />
 
       {resetUser && (

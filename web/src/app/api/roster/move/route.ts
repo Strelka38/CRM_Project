@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import {
+  applyRosterAssignFreelancer,
   applyRosterAssignUser,
   applyRosterShiftToDay,
   applyRosterSwap,
@@ -26,6 +27,7 @@ const slotSchema = z.object({
 const bodySchema = z.object({
   source: z.discriminatedUnion("type", [
     z.object({ type: z.literal("user"), userId: z.string().min(1) }),
+    z.object({ type: z.literal("freelancer"), freelancerId: z.string().min(1) }),
     z.object({ type: z.literal("slot"), slot: slotSchema }),
   ]),
   target: z.discriminatedUnion("type", [
@@ -47,6 +49,15 @@ export async function POST(req: NextRequest) {
       await applyRosterAssignUser(
         body.target.slot as RosterSlotRef,
         body.source.userId,
+        forcePast,
+      );
+      return NextResponse.json({ ok: true });
+    }
+
+    if (body.source.type === "freelancer" && body.target.type === "slot") {
+      await applyRosterAssignFreelancer(
+        body.target.slot as RosterSlotRef,
+        body.source.freelancerId,
         forcePast,
       );
       return NextResponse.json({ ok: true });

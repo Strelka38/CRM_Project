@@ -219,6 +219,7 @@ export async function GET(req: NextRequest) {
         ],
         sharesCustom: q.sharesCustom,
         customShares: q.calcShares,
+        zones: q.zones,
       });
 
       cashRevenueTotal += companyCalc.marginTotal;

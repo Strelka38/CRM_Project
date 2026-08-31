@@ -78,6 +78,8 @@ export function watermarksEqual(a: SlotWatermarks, b: SlotWatermarks): boolean {
 }
 
 const MOUNT_NAME_RE = /монтаж|пусконал|риггинг|rigg/i;
+const MOUNT_NEGATION_RE = /без\s+монтаж\w*/gi;
+const MOUNT_SERVICE_RE = /^(монтаж|демонтаж|риггинг|rigg|пусконал)/i;
 
 /** Роли персонала (услуги/должности), не Zoom и не лицензии. */
 const PERSONNEL_ROLE_RE =
@@ -93,14 +95,25 @@ export function normalizeSpecialtyName(name: string): string {
     .replace(/\s+/g, " ");
 }
 
+function stripMountNegation(name: string): string {
+  return String(name || "")
+    .replace(MOUNT_NEGATION_RE, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export function isMountPersonnelName(name: string): boolean {
-  return MOUNT_NAME_RE.test(String(name || ""));
+  return MOUNT_NAME_RE.test(stripMountNegation(name));
+}
+
+export function isMountServiceLabel(name: string): boolean {
+  return MOUNT_SERVICE_RE.test(stripMountNegation(name));
 }
 
 export function looksLikePersonnelRole(name: string): boolean {
   const n = String(name || "").trim();
   if (!n || SKIP_SERVICE_RE.test(n)) return false;
-  return PERSONNEL_ROLE_RE.test(n) || isMountPersonnelName(n);
+  return PERSONNEL_ROLE_RE.test(n);
 }
 
 export function slotLabelName(block: {
@@ -116,8 +129,8 @@ export function slotLabelName(block: {
 }
 
 /**
- * PERSONNEL / релевантные услуги персонала → EVENT.
- * Монтаж в названии (и PERSONNEL с «монтаж») → MOUNT.
+ * Слоты только из каталога: PERSONNEL, услуга со ставкой, услуга-роль.
+ * Свободные строки (импорт без совпадения) назначения не создают.
  */
 export function classifyPersonnelBlock(block: {
   type?: string | null;
@@ -125,23 +138,54 @@ export function classifyPersonnelBlock(block: {
   title?: string | null;
   catalogName?: string | null;
   itemKind?: string | null;
+  linkedSpecialtyId?: string | null;
+  linkedSpecialtyName?: string | null;
 }): AssignmentKindValue | null {
   const type = String(block.type || "").toUpperCase();
   if (type !== "ITEM" && type !== "KIT_HEADER") return null;
   const kind = String(block.itemKind || "").toUpperCase();
   const label = slotLabelName(block);
   if (!label) return null;
+  const linked = Boolean(String(block.linkedSpecialtyId || "").trim());
+  const fromCatalog = kind === "PERSONNEL" || kind === "SERVICE";
+  if (!fromCatalog && !linked) return null;
 
-  if (isMountPersonnelName(label)) {
-    if (kind === "PERSONNEL" || kind === "SERVICE" || looksLikePersonnelRole(label)) {
+  const mountLabel =
+    isMountPersonnelName(label) ||
+    isMountPersonnelName(block.linkedSpecialtyName || "") ||
+    isMountServiceLabel(label);
+
+  if (mountLabel) {
+    if (linked || kind === "PERSONNEL") return "MOUNT";
+    if (
+      kind === "SERVICE" &&
+      (looksLikePersonnelRole(label) || isMountServiceLabel(label))
+    ) {
       return "MOUNT";
     }
     return null;
   }
 
-  if (kind === "PERSONNEL") return "EVENT";
+  if (kind === "PERSONNEL" || linked) return "EVENT";
   if (kind === "SERVICE" && looksLikePersonnelRole(label)) return "EVENT";
   return null;
+}
+
+export function findSpecialtyByCatalogItemId<
+  T extends {
+    id: string;
+    catalogItemId?: string | null;
+    catalogItemIds?: string[] | null;
+  },
+>(catalogItemId: string | null | undefined, specialties: T[]): T | null {
+  const id = String(catalogItemId || "").trim();
+  if (!id) return null;
+  return (
+    specialties.find((s) => {
+      if (s.catalogItemId === id) return true;
+      return (s.catalogItemIds ?? []).includes(id);
+    }) ?? null
+  );
 }
 
 export function findBestSpecialty<T extends { id: string; name: string }>(
@@ -499,8 +543,36 @@ export type PersonnelBlockInput = {
   dayCoefOverride?: number | null;
   itemKind?: string | null;
   catalogName?: string | null;
+  catalogItemId?: string | null;
+  linkedSpecialtyId?: string | null;
+  linkedSpecialtyName?: string | null;
   zoneId?: string | null;
 };
+
+export type SpecialtyLinkRow = {
+  id: string;
+  name: string;
+  catalogItemId?: string | null;
+  catalogItemIds?: string[] | null;
+};
+
+export function annotatePersonnelBlocks<T extends PersonnelBlockInput>(
+  blocks: T[],
+  specialties: SpecialtyLinkRow[],
+): T[] {
+  return blocks.map((block) => {
+    const linked = findSpecialtyByCatalogItemId(
+      block.catalogItemId,
+      specialties,
+    );
+    if (!linked) return block;
+    return {
+      ...block,
+      linkedSpecialtyId: linked.id,
+      linkedSpecialtyName: linked.name,
+    };
+  });
+}
 
 export function collectPersonnelSlotRequests(
   blocks: PersonnelBlockInput[],
@@ -584,42 +656,30 @@ async function resolveSpecialtyId(
   tx: Tx,
   label: string,
   cache: Map<string, { id: string; name: string }>,
-): Promise<string> {
+): Promise<string | null> {
   const n = normalizeSpecialtyName(label);
   const hit = [...cache.values()].find(
     (s) => normalizeSpecialtyName(s.name) === n,
   );
   if (hit) return hit.id;
 
-  const list = [...cache.values()];
-  const best = findBestSpecialty(label, list);
+  const best = findBestSpecialty(label, [...cache.values()]);
   if (best) return best.id;
 
-  try {
-    const created = await tx.specialty.create({
-      data: {
-        name: label.trim().slice(0, 80) || "Должность",
-        sortOrder: 1000 + cache.size,
-        active: true,
-      },
-      select: { id: true, name: true },
-    });
-    cache.set(created.id, created);
-    return created.id;
-  } catch {
-    const again = await tx.specialty.findMany({
-      select: { id: true, name: true },
-    });
-    for (const s of again) cache.set(s.id, s);
-    const retry =
-      findBestSpecialty(label, again) ||
-      again.find((s) => normalizeSpecialtyName(s.name) === n);
-    if (retry) return retry.id;
-    throw new Error(`Не удалось создать должность «${label}»`);
-  }
+  const again = await tx.specialty.findMany({
+    select: { id: true, name: true },
+  });
+  for (const s of again) cache.set(s.id, s);
+  const retry =
+    again.find((s) => normalizeSpecialtyName(s.name) === n) ||
+    findBestSpecialty(label, again);
+  return retry?.id ?? null;
 }
 
-/** Upsert пустых слотов по PERSONNEL/монтажу из активных зон сметы. */
+/**
+ * Синхронизация персонала по смете запускается только явным
+ * «Импортом из сметы» в спецификации, никогда из автосохранения сметы.
+ */
 export async function syncQuoteAssignmentSlots(
   tx: Tx,
   quoteId: string,
@@ -640,7 +700,7 @@ export async function syncQuoteAssignmentSlots(
           dayMode: true,
           dayCoefOverride: true,
           zoneId: true,
-          catalogItem: { select: { name: true, itemKind: true } },
+          catalogItem: { select: { id: true, name: true, itemKind: true } },
         },
       },
       assignments: {
@@ -661,26 +721,39 @@ export async function syncQuoteAssignmentSlots(
     return { create: [], deleteIds: [], watermarks: {} };
   }
 
+  const specialties = await tx.specialty.findMany({
+    select: {
+      id: true,
+      name: true,
+      catalogItems: { select: { catalogItemId: true } },
+    },
+  });
+  const linkRows: SpecialtyLinkRow[] = specialties.map((s) => ({
+    id: s.id,
+    name: s.name,
+    catalogItemIds: s.catalogItems.map((c) => c.catalogItemId),
+  }));
+  const cache = new Map(linkRows.map((s) => [s.id, { id: s.id, name: s.name }]));
+
   const activeBlocks = blocksInActiveZones(quote.zones, quote.blocks);
   const requests = collectPersonnelSlotRequests(
-    activeBlocks.map((b) => ({
-      type: b.type,
-      name: b.name,
-      title: b.title,
-      qty: b.qty,
-      unitPrice: b.unitPrice,
-      dayMode: b.dayMode,
-      dayCoefOverride: b.dayCoefOverride,
-      itemKind: b.catalogItem?.itemKind ?? null,
-      catalogName: b.catalogItem?.name ?? null,
-      zoneId: b.zoneId,
-    })),
+    annotatePersonnelBlocks(
+      activeBlocks.map((b) => ({
+        type: b.type,
+        name: b.name,
+        title: b.title,
+        qty: b.qty,
+        unitPrice: b.unitPrice,
+        dayMode: b.dayMode,
+        dayCoefOverride: b.dayCoefOverride,
+        itemKind: b.catalogItem?.itemKind ?? null,
+        catalogName: b.catalogItem?.name ?? null,
+        catalogItemId: b.catalogItem?.id ?? null,
+        zoneId: b.zoneId,
+      })),
+      linkRows,
+    ),
   );
-
-  const specialties = await tx.specialty.findMany({
-    select: { id: true, name: true },
-  });
-  const cache = new Map(specialties.map((s) => [s.id, s]));
 
   const desiredParts: Array<{
     specialtyId: string;
@@ -689,7 +762,10 @@ export async function syncQuoteAssignmentSlots(
     zoneId: string | null;
   }> = [];
   for (const req of requests) {
-    const specialtyId = await resolveSpecialtyId(tx, req.label, cache);
+    const specialtyId =
+      req.block.linkedSpecialtyId ||
+      (await resolveSpecialtyId(tx, req.label, cache));
+    if (!specialtyId) continue;
     desiredParts.push({
       specialtyId,
       kind: req.kind,
@@ -777,7 +853,7 @@ async function loadQuoteDesiredSlots(
           title: true,
           qty: true,
           zoneId: true,
-          catalogItem: { select: { name: true, itemKind: true } },
+          catalogItem: { select: { id: true, name: true, itemKind: true } },
         },
       },
       assignments: {
@@ -795,21 +871,34 @@ async function loadQuoteDesiredSlots(
     },
   });
   if (!quote) return null;
+  const specialties = await tx.specialty.findMany({
+    select: {
+      id: true,
+      name: true,
+      catalogItems: { select: { catalogItemId: true } },
+    },
+  });
+  const linkRows: SpecialtyLinkRow[] = specialties.map((s) => ({
+    id: s.id,
+    name: s.name,
+    catalogItemIds: s.catalogItems.map((c) => c.catalogItemId),
+  }));
   const activeBlocks = blocksInActiveZones(quote.zones, quote.blocks);
   const requests = collectPersonnelSlotRequests(
-    activeBlocks.map((b) => ({
-      type: b.type,
-      name: b.name,
-      title: b.title,
-      qty: b.qty,
-      itemKind: b.catalogItem?.itemKind ?? null,
-      catalogName: b.catalogItem?.name ?? null,
-      zoneId: b.zoneId,
-    })),
+    annotatePersonnelBlocks(
+      activeBlocks.map((b) => ({
+        type: b.type,
+        name: b.name,
+        title: b.title,
+        qty: b.qty,
+        itemKind: b.catalogItem?.itemKind ?? null,
+        catalogName: b.catalogItem?.name ?? null,
+        catalogItemId: b.catalogItem?.id ?? null,
+        zoneId: b.zoneId,
+      })),
+      linkRows,
+    ),
   );
-  const specialties = await tx.specialty.findMany({
-    select: { id: true, name: true },
-  });
   const desiredParts: Array<{
     specialtyId: string;
     kind: AssignmentKindValue;
@@ -817,7 +906,9 @@ async function loadQuoteDesiredSlots(
     zoneId: string | null;
   }> = [];
   for (const req of requests) {
-    const spec = findBestSpecialty(req.label, specialties);
+    const spec = req.block.linkedSpecialtyId
+      ? linkRows.find((s) => s.id === req.block.linkedSpecialtyId)
+      : findBestSpecialty(req.label, linkRows);
     if (!spec) continue;
     desiredParts.push({
       specialtyId: spec.id,

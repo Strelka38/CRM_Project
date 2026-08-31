@@ -20,6 +20,8 @@ const LABELS: Array<{ key: keyof DatabaseBackupCounts; label: string }> = [
   { key: "kits", label: "Комплекты" },
   { key: "kitComponents", label: "Состав комплектов" },
   { key: "clients", label: "Клиенты" },
+  { key: "freelancers", label: "Фрилансеры" },
+  { key: "freelancerSpecialties", label: "Ставки фрилансеров" },
   { key: "venues", label: "Площадки" },
   { key: "venuePhotos", label: "Фото площадок" },
   { key: "vehicles", label: "Транспорт" },

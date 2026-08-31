@@ -105,6 +105,44 @@ ALTER TABLE "EquipmentRepair" ADD COLUMN IF NOT EXISTS "resolutionComment" TEXT 
 
 ALTER TABLE "Specialty" ADD COLUMN IF NOT EXISTS "description" TEXT NOT NULL DEFAULT '';
 
+CREATE TABLE IF NOT EXISTS "SpecialtyCatalogItem" (
+  "id" TEXT NOT NULL,
+  "specialtyId" TEXT NOT NULL,
+  "catalogItemId" TEXT NOT NULL,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "SpecialtyCatalogItem_pkey" PRIMARY KEY ("id")
+);
+CREATE UNIQUE INDEX IF NOT EXISTS "SpecialtyCatalogItem_catalogItemId_key" ON "SpecialtyCatalogItem"("catalogItemId");
+CREATE INDEX IF NOT EXISTS "SpecialtyCatalogItem_specialtyId_idx" ON "SpecialtyCatalogItem"("specialtyId");
+DO $$ BEGIN
+  ALTER TABLE "SpecialtyCatalogItem" ADD CONSTRAINT "SpecialtyCatalogItem_specialtyId_fkey"
+    FOREIGN KEY ("specialtyId") REFERENCES "Specialty"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+  ALTER TABLE "SpecialtyCatalogItem" ADD CONSTRAINT "SpecialtyCatalogItem_catalogItemId_fkey"
+    FOREIGN KEY ("catalogItemId") REFERENCES "CatalogItem"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'Specialty' AND column_name = 'catalogItemId'
+  ) THEN
+    INSERT INTO "SpecialtyCatalogItem" ("id", "specialtyId", "catalogItemId", "createdAt")
+    SELECT 'sci_' || s."id", s."id", s."catalogItemId", CURRENT_TIMESTAMP
+    FROM "Specialty" s
+    WHERE s."catalogItemId" IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM "SpecialtyCatalogItem" x WHERE x."catalogItemId" = s."catalogItemId"
+      );
+    ALTER TABLE "Specialty" DROP CONSTRAINT IF EXISTS "Specialty_catalogItemId_fkey";
+    DROP INDEX IF EXISTS "Specialty_catalogItemId_key";
+    ALTER TABLE "Specialty" DROP COLUMN IF EXISTS "catalogItemId";
+  END IF;
+END $$;
+
 ALTER TABLE "CalendarEntry" ADD COLUMN IF NOT EXISTS "clientId" TEXT;
 CREATE INDEX IF NOT EXISTS "CalendarEntry_clientId_idx" ON "CalendarEntry"("clientId");
 DO $$ BEGIN
@@ -123,3 +161,93 @@ CREATE TABLE IF NOT EXISTS "EquipmentRepairPhoto" (
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT "EquipmentRepairPhoto_pkey" PRIMARY KEY ("id")
 );
+
+DO $$ BEGIN
+  CREATE TYPE "PayoutKind" AS ENUM ('STAFF_MONTH', 'FREELANCER_EVENT');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "canAccessPayments" BOOLEAN NOT NULL DEFAULT false;
+
+CREATE TABLE IF NOT EXISTS "Payout" (
+  "id" TEXT NOT NULL,
+  "sourceKey" TEXT NOT NULL,
+  "kind" "PayoutKind" NOT NULL,
+  "periodYm" TEXT NOT NULL,
+  "userId" TEXT,
+  "assignmentId" TEXT,
+  "quoteId" TEXT,
+  "payeeName" TEXT NOT NULL,
+  "amount" DOUBLE PRECISION NOT NULL,
+  "breakdown" JSONB,
+  "paid" BOOLEAN NOT NULL DEFAULT false,
+  "paidAt" TIMESTAMP(3),
+  "paidById" TEXT,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "Payout_pkey" PRIMARY KEY ("id")
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS "Payout_sourceKey_key" ON "Payout"("sourceKey");
+CREATE INDEX IF NOT EXISTS "Payout_userId_paid_idx" ON "Payout"("userId", "paid");
+CREATE INDEX IF NOT EXISTS "Payout_kind_paid_idx" ON "Payout"("kind", "paid");
+CREATE INDEX IF NOT EXISTS "Payout_periodYm_idx" ON "Payout"("periodYm");
+CREATE INDEX IF NOT EXISTS "Payout_paidAt_idx" ON "Payout"("paidAt");
+
+DO $$ BEGIN
+  ALTER TABLE "Payout" ADD CONSTRAINT "Payout_userId_fkey"
+    FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  ALTER TABLE "Payout" ADD CONSTRAINT "Payout_paidById_fkey"
+    FOREIGN KEY ("paidById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+CREATE TABLE IF NOT EXISTS "Freelancer" (
+  "id" TEXT NOT NULL,
+  "name" TEXT NOT NULL,
+  "comment" TEXT NOT NULL DEFAULT '',
+  "active" BOOLEAN NOT NULL DEFAULT true,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "Freelancer_pkey" PRIMARY KEY ("id")
+);
+CREATE INDEX IF NOT EXISTS "Freelancer_name_idx" ON "Freelancer"("name");
+CREATE INDEX IF NOT EXISTS "Freelancer_active_idx" ON "Freelancer"("active");
+CREATE UNIQUE INDEX IF NOT EXISTS "Freelancer_name_lower_key" ON "Freelancer"(lower(btrim("name")));
+
+CREATE TABLE IF NOT EXISTS "FreelancerSpecialty" (
+  "id" TEXT NOT NULL,
+  "freelancerId" TEXT NOT NULL,
+  "specialtyId" TEXT NOT NULL,
+  "hourlyRate" DOUBLE PRECISION NOT NULL DEFAULT 0,
+  "shiftRate" DOUBLE PRECISION NOT NULL DEFAULT 0,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "FreelancerSpecialty_pkey" PRIMARY KEY ("id")
+);
+CREATE INDEX IF NOT EXISTS "FreelancerSpecialty_specialtyId_idx" ON "FreelancerSpecialty"("specialtyId");
+CREATE UNIQUE INDEX IF NOT EXISTS "FreelancerSpecialty_freelancerId_specialtyId_key" ON "FreelancerSpecialty"("freelancerId", "specialtyId");
+DO $$ BEGIN
+  ALTER TABLE "FreelancerSpecialty" ADD CONSTRAINT "FreelancerSpecialty_freelancerId_fkey"
+    FOREIGN KEY ("freelancerId") REFERENCES "Freelancer"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+  ALTER TABLE "FreelancerSpecialty" ADD CONSTRAINT "FreelancerSpecialty_specialtyId_fkey"
+    FOREIGN KEY ("specialtyId") REFERENCES "Specialty"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+ALTER TABLE "QuoteZone" ADD COLUMN IF NOT EXISTS "workingDayIndexes" INTEGER[] NOT NULL DEFAULT ARRAY[]::INTEGER[];
+DROP INDEX IF EXISTS "QuoteAssignment_filled_quote_user_spec_kind_day_key";
+DROP INDEX IF EXISTS "QuoteAssignment_filled_quote_user_spec_kind_alldays_key";
+CREATE UNIQUE INDEX IF NOT EXISTS "QuoteAssignment_filled_quote_user_spec_kind_zone_day_key"
+  ON "QuoteAssignment" ("quoteId", "userId", "specialtyId", "kind", "dayIndex", (COALESCE("zoneId", '')))
+  WHERE "userId" IS NOT NULL AND "dayIndex" IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS "QuoteAssignment_filled_quote_user_spec_kind_zone_alldays_key"
+  ON "QuoteAssignment" ("quoteId", "userId", "specialtyId", "kind", (COALESCE("zoneId", '')))
+  WHERE "userId" IS NOT NULL AND "dayIndex" IS NULL;

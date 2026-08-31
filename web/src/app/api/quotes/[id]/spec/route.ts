@@ -167,7 +167,13 @@ async function loadSpecPayload(id: string) {
       blocks: { orderBy: { sortOrder: "asc" as const } },
       zones: {
         orderBy: { sortOrder: "asc" as const },
-        select: { id: true, name: true, sortOrder: true, active: true },
+        select: {
+          id: true,
+          name: true,
+          sortOrder: true,
+          active: true,
+          workingDayIndexes: true,
+        },
       },
     },
   });
@@ -269,6 +275,7 @@ function serializePayload(
     overrides: payload.overrides,
     extras: payload.extras,
     assignments: payload.assignments,
+    zones: payload.quote.zones,
   };
 }
 
@@ -374,7 +381,13 @@ export async function PATCH(
         blocks: { orderBy: { sortOrder: "asc" } },
         zones: {
           orderBy: { sortOrder: "asc" },
-          select: { id: true, name: true, sortOrder: true, active: true },
+          select: {
+            id: true,
+            name: true,
+            sortOrder: true,
+            active: true,
+            workingDayIndexes: true,
+          },
         },
       },
     });

@@ -8,12 +8,14 @@ import {
   parseRateCsv,
   parseUserCsv,
   parseVenueCsv,
+  parseFreelancerCsv,
   parseVehicleCsv,
   parseKitCsv,
   parseQuoteCsv,
   formatLegalAccountsCsv,
   clientToCsvCells,
   venueToCsvCells,
+  freelancerToCsvCells,
   rateToCsvCells,
   vehicleToCsvCells,
   kitToCsvCells,
@@ -48,6 +50,18 @@ const venues = parseVenueCsv(venueCsv);
 assert.equal(venues.rows[0].name, "Крокус");
 assert.equal(venues.rows[0].active, false);
 assert.equal(venueToCsvCells({ ...venues.rows[0], id: "v1" })[1], "Крокус");
+
+const freelancerCsv = toCsv([
+  ["ФИО", "Комментарий", "Активен"],
+  ["Иванов А.А.", "звук", "1"],
+]);
+const freelancers = parseFreelancerCsv(freelancerCsv);
+assert.equal(freelancers.errors.length, 0);
+assert.equal(freelancers.rows[0].name, "Иванов А.А.");
+assert.equal(
+  freelancerToCsvCells({ ...freelancers.rows[0], id: "f1" })[1],
+  "Иванов А.А.",
+);
 
 const accounts = parseLegalAccountsCsv(
   "Сбер|Сбербанк|40802810100000000001|30101810900000000607|042520607|1",
@@ -96,6 +110,30 @@ assert.equal(rates.rows[0].sortOrder, 2);
 assert.equal(rates.rows[0].description, "Пульт и радио");
 assert.equal(rateToCsvCells({ ...rates.rows[0], id: "r1" })[1], "Звукооператор");
 assert.equal(rateToCsvCells({ ...rates.rows[0], id: "r1" })[5], "Пульт и радио");
+
+const rateWithService = parseRateCsv(toCsv([
+  ["Название", "Час", "Смена", "Услуга"],
+  ["Звукооператор", "1500", "8000", "Звук на площадке"],
+]));
+assert.equal(rateWithService.rows[0].serviceName, "Звук на площадке");
+assert.equal(
+  rateToCsvCells({
+    ...rateWithService.rows[0],
+    id: "r2",
+    serviceName: "Звук на площадке",
+  })[6],
+  "Звук на площадке",
+);
+assert.equal(rates.rows[0].serviceName, undefined);
+
+const rateWithServices = parseRateCsv(toCsv([
+  ["Название", "Час", "Смена", "Услуги"],
+  ["Звукооператор", "1500", "8000", "Звук на площадке; Звукорежиссёр"],
+]));
+assert.equal(
+  rateWithServices.rows[0].serviceName,
+  "Звук на площадке; Звукорежиссёр",
+);
 
 const missing = parseClientCsv(toCsv([["Контакт"], ["Иван"]]));
 assert.ok(missing.errors[0]?.includes("Компания"));

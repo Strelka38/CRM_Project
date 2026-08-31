@@ -20,6 +20,7 @@ import {
   DirectoryCardLink,
   DirectoryCsvMenu,
   DirectorySelectionActions,
+  IconExcel,
   IconPlusDoc,
   IconTemplate,
   downloadCsvExport,
@@ -81,7 +82,9 @@ export default function QuotesPage() {
   const [periodDays, setPeriodDays] = useState(1);
   const [csvBusy, setCsvBusy] = useState(false);
   const [csvMessage, setCsvMessage] = useState("");
+  const [importNotice, setImportNotice] = useState("");
   const csvImportRef = useRef<HTMLInputElement>(null);
+  const excelImportRef = useRef<HTMLInputElement>(null);
 
   async function load() {
     try {
@@ -258,6 +261,79 @@ export default function QuotesPage() {
     });
   }
 
+  async function importExcel(files: File[]) {
+    if (files.length === 0) return;
+    setCreating(true);
+    setError("");
+    setImportNotice("");
+    try {
+      const form = new FormData();
+      for (const file of files) form.append("file", file);
+      const res = await fetch("/api/quotes/import-excel", {
+        method: "POST",
+        body: form,
+      });
+      const text = await res.text();
+      const data = text
+        ? (JSON.parse(text) as {
+            id?: string;
+            error?: string;
+            unmatched?: string[];
+            imported?: Array<{
+              id: string;
+              proposalNumber: string;
+              unmatched?: string[];
+            }>;
+            failed?: Array<{ fileName: string; error: string }>;
+          })
+        : {};
+      if (res.status === 401) {
+        router.push("/login?callbackUrl=/quotes");
+        return;
+      }
+      const imported = Array.isArray(data.imported) ? data.imported : [];
+      const failed = Array.isArray(data.failed) ? data.failed : [];
+      if (!res.ok && imported.length === 0) {
+        const failText = failed
+          .map((f) => `${f.fileName}: ${f.error}`)
+          .join("; ");
+        setError(
+          failText ||
+            (typeof data.error === "string"
+              ? data.error
+              : "Не удалось импортировать Excel"),
+        );
+        return;
+      }
+      if (imported.length === 1 && failed.length === 0) {
+        const unmatched = Array.isArray(imported[0].unmatched)
+          ? imported[0].unmatched.length
+          : Array.isArray(data.unmatched)
+            ? data.unmatched.length
+            : 0;
+        const q = unmatched > 0 ? `?imported=${unmatched}` : "";
+        router.push(`/quotes/${imported[0].id}${q}`);
+        return;
+      }
+      await load();
+      const okText =
+        imported.length === 1
+          ? `Импортирована смета КП ${imported[0].proposalNumber}`
+          : `Импортировано ${imported.length} смет (${imported
+              .map((q) => `КП ${q.proposalNumber}`)
+              .join(", ")})`;
+      const failText = failed
+        .map((f) => `${f.fileName}: ${f.error}`)
+        .join("; ");
+      if (failText) setError(failText);
+      setImportNotice(okText);
+    } catch {
+      setError("Не удалось импортировать Excel");
+    } finally {
+      setCreating(false);
+    }
+  }
+
   async function exportCsv() {
     setCsvBusy(true);
     setCsvMessage("");
@@ -312,6 +388,16 @@ export default function QuotesPage() {
                 disabled={creating}
                 onClick={() => setFromTemplateOpen(true)}
               />
+              <DirectoryAddButton
+                title={
+                  creating
+                    ? "Импортируем…"
+                    : "Из Excel — можно выбрать несколько файлов"
+                }
+                icon={<IconExcel />}
+                disabled={creating}
+                onClick={() => excelImportRef.current?.click()}
+              />
             </>
           ) : null}
           <div className="min-w-[12rem] max-w-[16rem] flex-1">
@@ -354,10 +440,27 @@ export default function QuotesPage() {
               if (file) void importCsv(file);
             }}
           />
+          <input
+            ref={excelImportRef}
+            type="file"
+            multiple
+            accept=".xlsx,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel.sheet.macroEnabled.12"
+            className="hidden"
+            onChange={(e) => {
+              const files = Array.from(e.target.files ?? []);
+              e.target.value = "";
+              if (files.length) void importExcel(files);
+            }}
+          />
         </div>
         {csvMessage ? (
           <p className="border-b border-[var(--line)] px-4 py-2 text-xs text-[var(--muted)]">
             {csvMessage}
+          </p>
+        ) : null}
+        {importNotice ? (
+          <p className="border-b border-[var(--line)] px-4 py-2 text-sm text-[var(--ink)]">
+            {importNotice}
           </p>
         ) : null}
         {error ? (

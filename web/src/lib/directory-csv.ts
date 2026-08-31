@@ -212,6 +212,50 @@ export function parseVenueCsv(text: string): {
   return { rows: out, errors };
 }
 
+export const FREELANCER_CSV_HEADERS = [
+  "ID",
+  "ФИО",
+  "Комментарий",
+  "Активен",
+] as const;
+
+export type FreelancerCsvRow = {
+  id: string | null;
+  name: string;
+  comment: string;
+  active: boolean;
+};
+
+export function freelancerToCsvCells(
+  f: FreelancerCsvRow & { id: string },
+): string[] {
+  return [f.id, f.name, f.comment, f.active ? "1" : "0"];
+}
+
+export function parseFreelancerCsv(text: string): {
+  rows: FreelancerCsvRow[];
+  errors: string[];
+} {
+  const { rows, map, errors } = parseTable(text, ["ФИО"]);
+  if (errors.length) return { rows: [], errors };
+  const out: FreelancerCsvRow[] = [];
+  rows.forEach((line, i) => {
+    const lineNo = i + 2;
+    const name = csvCell(map, line, "ФИО", "name").trim();
+    if (!name) {
+      errors.push(`Строка ${lineNo}: пустое ФИО`);
+      return;
+    }
+    out.push({
+      id: csvCell(map, line, "ID", "id").trim() || null,
+      name,
+      comment: csvCell(map, line, "Комментарий", "comment").trim(),
+      active: csvBool(csvCell(map, line, "Активен", "active"), true),
+    });
+  });
+  return { rows: out, errors };
+}
+
 export type LegalAccountCsv = {
   label: string;
   bankName: string;
@@ -487,6 +531,7 @@ export const RATE_CSV_HEADERS = [
   "Час",
   "Смена",
   "Описание",
+  "Услуги",
   "Активен",
 ] as const;
 
@@ -497,10 +542,14 @@ export type RateCsvRow = {
   hourlyRate: number;
   shiftRate: number;
   description: string;
+  /** undefined — колонки не было, связь не трогаем; "" — отвязать. */
+  serviceName?: string;
   active: boolean;
 };
 
-export function rateToCsvCells(s: RateCsvRow & { id: string }): string[] {
+export function rateToCsvCells(
+  s: RateCsvRow & { id: string; serviceName?: string },
+): string[] {
   return [
     s.id,
     s.name,
@@ -508,6 +557,7 @@ export function rateToCsvCells(s: RateCsvRow & { id: string }): string[] {
     String(s.hourlyRate),
     String(s.shiftRate),
     s.description,
+    s.serviceName ?? "",
     s.active ? "1" : "0",
   ];
 }
@@ -536,6 +586,12 @@ export function parseRateCsv(text: string): {
       errors.push(`Строка ${lineNo}: ставка смена не может быть отрицательной`);
       return;
     }
+    const hasServiceColumn = [
+      "услуга",
+      "услуги",
+      "service",
+      "catalogitem",
+    ].some((k) => map.has(k));
     out.push({
       id: csvCell(map, line, "ID", "id").trim() || null,
       name,
@@ -543,6 +599,18 @@ export function parseRateCsv(text: string): {
       hourlyRate: hourly ?? 0,
       shiftRate: shift ?? 0,
       description: csvCell(map, line, "Описание", "description").trim(),
+      ...(hasServiceColumn
+        ? {
+            serviceName: csvCell(
+              map,
+              line,
+              "Услуги",
+              "Услуга",
+              "service",
+              "catalogItem",
+            ).trim(),
+          }
+        : {}),
       active: csvBool(csvCell(map, line, "Активен", "active"), true),
     });
   });

@@ -2,12 +2,17 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import {
+  formatZoneDateHint,
+  workingDayCount,
+} from "@/lib/quote-assignment-days";
 
 export type ZoneTab = {
   id: string;
   name: string;
   sortOrder: number;
   active?: boolean;
+  workingDayIndexes?: number[];
 };
 
 type Props = {
@@ -20,6 +25,8 @@ type Props = {
   onToggleActive?: (id: string) => void;
   canEdit?: boolean;
   showSummary?: boolean;
+  eventDate?: string;
+  durationDays?: number;
 };
 
 export function QuoteZoneTabs({
@@ -32,6 +39,8 @@ export function QuoteZoneTabs({
   onToggleActive,
   canEdit = true,
   showSummary = true,
+  eventDate,
+  durationDays,
 }: Props) {
   const [menuId, setMenuId] = useState<string | null>(null);
   const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(
@@ -99,6 +108,11 @@ export function QuoteZoneTabs({
       {zones.map((z) => {
         const selected = activeId === z.id;
         const off = z.active === false;
+        const eventDays = workingDayCount(durationDays);
+        const hint =
+          eventDays >= 2
+            ? formatZoneDateHint(z.workingDayIndexes ?? [], eventDays, eventDate)
+            : "";
         return (
           <div
             key={z.id}
@@ -110,15 +124,28 @@ export function QuoteZoneTabs({
           >
             <button
               type="button"
-              className="max-w-[10rem] truncate"
+              className="max-w-[12rem] truncate text-left"
               onClick={() => onSelect(z.id)}
               title={
                 off
                   ? `${z.name} — выключена, не в сумме и резерве`
-                  : z.name
+                  : hint
+                    ? `${z.name} · ${hint}`
+                    : z.name
               }
             >
-              {off ? `${z.name} (выкл.)` : z.name}
+              <span className="block truncate">
+                {off ? `${z.name} (выкл.)` : z.name}
+              </span>
+              {hint ? (
+                <span
+                  className={`block truncate text-caption font-normal ${
+                    selected ? "text-[var(--muted)]" : ""
+                  }`}
+                >
+                  {hint}
+                </span>
+              ) : null}
             </button>
             {canEdit && (
               <button

@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import {
   allocateZonesToSlots,
+  annotatePersonnelBlocks,
   classifyPersonnelBlock,
+  collectPersonnelSlotRequests,
   findBestSpecialty,
+  findSpecialtyByCatalogItemId,
   groupDesiredQty,
   isFilledSlot,
   montageBudgetFromBlocks,
@@ -49,14 +52,129 @@ assert.equal(
   "EVENT",
 );
 
+assert.equal(
+  classifyPersonnelBlock({
+    type: "ITEM",
+    name: "Работа на площадке",
+    itemKind: "SERVICE",
+    linkedSpecialtyId: "s1",
+    linkedSpecialtyName: "Звукарь",
+  }),
+  "EVENT",
+);
+assert.equal(
+  classifyPersonnelBlock({
+    type: "ITEM",
+    name: "Zoom",
+    itemKind: "SERVICE",
+  }),
+  null,
+);
+assert.equal(
+  classifyPersonnelBlock({
+    type: "ITEM",
+    name: "Zoom",
+    itemKind: "SERVICE",
+    linkedSpecialtyId: "s-zoom",
+  }),
+  "EVENT",
+);
+assert.equal(
+  classifyPersonnelBlock({
+    type: "ITEM",
+    name: "Бригада",
+    itemKind: "SERVICE",
+    linkedSpecialtyId: "m1",
+    linkedSpecialtyName: "Монтажник",
+  }),
+  "MOUNT",
+);
+
+assert.equal(
+  classifyPersonnelBlock({
+    type: "ITEM",
+    name: "Сценический комплекс, 10х6м, фронтон сбоку, без монтажа",
+  }),
+  null,
+);
+assert.equal(
+  classifyPersonnelBlock({
+    type: "ITEM",
+    name: "Сценический комплекс, 10х6м, фронтон сбоку, без монтажа",
+    itemKind: "EQUIPMENT",
+  }),
+  null,
+);
+assert.equal(
+  classifyPersonnelBlock({
+    type: "ITEM",
+    name: "Монтаж/демонтаж",
+  }),
+  null,
+);
+assert.equal(
+  classifyPersonnelBlock({
+    type: "ITEM",
+    name: "Монтаж/демонтаж",
+    itemKind: "SERVICE",
+  }),
+  "MOUNT",
+);
+assert.equal(
+  classifyPersonnelBlock({
+    type: "ITEM",
+    name: "Водитель грузовика",
+    itemKind: "PERSONNEL",
+  }),
+  "EVENT",
+);
+
 const specs = [
-  { id: "s1", name: "Звукарь" },
+  { id: "s1", name: "Звукарь", catalogItemId: "cat-sound" },
   { id: "s2", name: "Световик" },
 ];
 assert.equal(findBestSpecialty("ЗВУКАРЬ", specs)?.id, "s1");
 assert.equal(findBestSpecialty("Звукорежиссер / звукарь", specs)?.id, "s1");
 assert.equal(findBestSpecialty("Звукорежиссер", specs)?.id, "s1");
 assert.equal(findBestSpecialty("Неизвестная роль", specs), null);
+assert.equal(findSpecialtyByCatalogItemId("cat-sound", specs)?.id, "s1");
+assert.equal(findSpecialtyByCatalogItemId("missing", specs), null);
+assert.equal(
+  findSpecialtyByCatalogItemId("cat-sound-alt", [
+    { id: "s1", name: "Звукарь", catalogItemIds: ["cat-sound", "cat-sound-alt"] },
+  ])?.id,
+  "s1",
+);
+
+const linkedBlocks = annotatePersonnelBlocks(
+  [
+    {
+      type: "ITEM",
+      name: "Работа на площадке",
+      itemKind: "SERVICE",
+      catalogItemId: "cat-sound",
+      qty: 2,
+    },
+  ],
+  specs,
+);
+assert.equal(
+  collectPersonnelSlotRequests([
+    {
+      type: "ITEM",
+      name: "Работа на площадке",
+      itemKind: "SERVICE",
+      qty: 2,
+    },
+  ]).length,
+  0,
+);
+assert.equal(linkedBlocks[0]?.linkedSpecialtyId, "s1");
+assert.equal(
+  collectPersonnelSlotRequests(linkedBlocks)[0]?.kind,
+  "EVENT",
+);
+assert.equal(collectPersonnelSlotRequests(linkedBlocks)[0]?.qty, 2);
 
 assert.equal(isFilledSlot({ userId: "u1" }), true);
 assert.equal(

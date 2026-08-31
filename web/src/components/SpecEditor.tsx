@@ -11,9 +11,14 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import { type PickedCatalogItem } from "@/components/CatalogPicker";
+import { CatalogReplaceDropTarget } from "@/components/CatalogReplaceDropTarget";
 import { QuoteCatalogSidebar } from "@/components/QuoteCatalogSidebar";
 import { QuoteZoneTabs, type ZoneTab } from "@/components/QuoteZoneTabs";
-import { staffCoverageLines } from "@/lib/quote-assignment-days";
+import {
+  peakItemQtyByWorkingDay,
+  staffCoverageLines,
+  type ZoneWorkingDays,
+} from "@/lib/quote-assignment-days";
 import { isVacantStaff } from "@/lib/staff-slots";
 import {
   StockHeaderCells,
@@ -230,6 +235,7 @@ export function SpecEditor({
   const [overrides, setOverrides] = useState<Override[]>([]);
   const [lineOrder, setLineOrder] = useState<string[]>([]);
   const [assignments, setAssignments] = useState<StaffRow[]>([]);
+  const [staffZones, setStaffZones] = useState<ZoneWorkingDays[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<string | null>(null);
@@ -345,6 +351,14 @@ export function SpecEditor({
         const bv = Number(b.vacant ?? isVacantStaff(b));
         return bv - av;
       }),
+    );
+    setStaffZones(
+      Array.isArray(data.zones)
+        ? (data.zones as ZoneWorkingDays[]).map((z) => ({
+            id: z.id,
+            workingDayIndexes: z.workingDayIndexes,
+          }))
+        : [],
     );
     dirtyRef.current = false;
   }, []);
@@ -559,6 +573,8 @@ export function SpecEditor({
           name: line.zoneName,
           sortOrder: line.zoneSortOrder ?? byId.size,
           active: line.zoneActive !== false,
+          workingDayIndexes: staffZones.find((z) => z.id === line.zoneId)
+            ?.workingDayIndexes,
         });
       }
     }
@@ -574,7 +590,7 @@ export function SpecEditor({
       });
     }
     return zones;
-  }, [allRows]);
+  }, [allRows, staffZones]);
 
   const resolvedZoneId = specZones.some((zone) => zone.id === activeZoneId)
     ? activeZoneId
@@ -598,15 +614,18 @@ export function SpecEditor({
   }, [allRows, canEdit, showHidden, resolvedZoneId]);
 
   const neededByItem = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const l of allRows) {
-      if (l.hidden || l.type !== "ITEM" || !l.catalogItemId) continue;
-      const q = Number(l.qty) || 0;
-      if (q <= 0) continue;
-      map.set(l.catalogItemId, (map.get(l.catalogItemId) || 0) + q);
-    }
-    return map;
-  }, [allRows]);
+    return peakItemQtyByWorkingDay(
+      allRows.filter(
+        (line) =>
+          !line.hidden &&
+          line.type === "ITEM" &&
+          Boolean(line.catalogItemId) &&
+          line.zoneActive !== false,
+      ),
+      meta?.durationDays ?? 1,
+      staffZones,
+    );
+  }, [allRows, meta?.durationDays, staffZones]);
 
   const catalogIdsKey = useMemo(() => {
     const ids = new Set<string>();
@@ -897,29 +916,35 @@ export function SpecEditor({
     updateLineOrder(next.map((r) => r.key));
   }
 
-  function onPickCatalog(item: PickedCatalogItem, qty?: number) {
+  function replaceLineFromCatalog(
+    target: ReplaceTarget,
+    item: PickedCatalogItem,
+  ) {
+    if (target.kind === "derived") {
+      setOverride(target.deriveKey, "REPLACE", {
+        name: item.name,
+        catalogItemId: item.id,
+      });
+      setOverride(target.deriveKey, "RENAME", { name: item.name });
+      setDerived((prev) =>
+        prev.map((line) =>
+          line.key === target.key
+            ? { ...line, name: item.name, catalogItemId: item.id }
+            : line,
+        ),
+      );
+    } else {
+      updateExtra(target.key, {
+        name: item.name,
+        catalogItemId: item.id,
+      });
+    }
+  }
+
+  function onPickCatalog(item: PickedCatalogItem) {
     if (!picker) return;
     if (picker.mode === "replace") {
-      const target = picker.target;
-      if (target.kind === "derived") {
-        setOverride(target.deriveKey, "REPLACE", {
-          name: item.name,
-          catalogItemId: item.id,
-        });
-        setOverride(target.deriveKey, "RENAME", { name: item.name });
-        setDerived((prev) =>
-          prev.map((l) =>
-            l.key === target.key
-              ? { ...l, name: item.name, catalogItemId: item.id }
-              : l,
-          ),
-        );
-      } else {
-        updateExtra(target.key, {
-          name: item.name,
-          catalogItemId: item.id,
-        });
-      }
+      replaceLineFromCatalog(picker.target, item);
       setPicker(null);
       return;
     }
@@ -927,7 +952,7 @@ export function SpecEditor({
 
   function onPickFromSidebar(item: PickedCatalogItem, qty?: number) {
     if (picker) {
-      onPickCatalog(item, qty);
+      onPickCatalog(item);
       return;
     }
     addFromCatalog(item, qty);
@@ -991,6 +1016,7 @@ export function SpecEditor({
         assignments.map(staffAsCoverage),
         meta.durationDays,
         meta.date,
+        staffZones,
       ).map((line) => ({
         name: line.text,
         specialtyName: line.vacant
@@ -1038,8 +1064,9 @@ export function SpecEditor({
     assignments.map(staffAsCoverage),
     meta.durationDays,
     meta.date,
+    staffZones,
   );
-  const tableColSpan = canEdit ? 8 : 4;
+  const tableColSpan = canEdit ? 9 : 4;
   const catalogSelectionLabel =
     picker?.mode === "replace"
       ? "Выберите оборудование для замены"
@@ -1127,6 +1154,8 @@ export function SpecEditor({
           onDelete={() => {}}
           canEdit={false}
           showSummary={false}
+          eventDate={meta.date}
+          durationDays={meta.durationDays}
         />
       ) : null}
 
@@ -1145,6 +1174,14 @@ export function SpecEditor({
             <tr>
               <th className="px-1.5 py-1.5 text-left">Название</th>
               <th className="w-14 px-1.5 py-1.5">Кол-во</th>
+              {canEdit && (
+                <th
+                  className="w-10 px-1 py-1.5 text-center"
+                  title="Замена из каталога"
+                >
+                  ⇄
+                </th>
+              )}
               <th className="w-20 px-1.5 py-1.5 text-left">Чьё</th>
               <th className="px-1.5 py-1.5 text-left">Комментарий</th>
               {canEdit && <StockHeaderCells />}
@@ -1294,6 +1331,34 @@ export function SpecEditor({
                           <span className="tabular-nums">{line.qty}</span>
                         ))}
                     </td>
+                    {canEdit && (
+                      <td className="px-1 py-1">
+                        <CatalogReplaceDropTarget
+                          disabled={
+                            isSection ||
+                            line.hidden ||
+                            (!isExtra && !line.deriveKey)
+                          }
+                          onDragActiveChange={(active) => {
+                            if (!active) return;
+                            setCatalogOver(false);
+                            setGapIndex(null);
+                          }}
+                          onReplace={(item) =>
+                            replaceLineFromCatalog(
+                              isExtra
+                                ? { kind: "extra", key: line.key }
+                                : {
+                                    kind: "derived",
+                                    key: line.key,
+                                    deriveKey: line.deriveKey!,
+                                  },
+                              item,
+                            )
+                          }
+                        />
+                      </td>
+                    )}
                     <td className="px-1.5 py-1">
                       {!isSection &&
                         (canEdit ? (
@@ -1574,6 +1639,10 @@ export function SpecEditor({
             <p className="mt-1 text-sm text-[var(--muted)]">
               Скрытые, переименованные и ручные строки сохранятся. Ушедшие из
               сметы позиции снимутся, новые добавятся.
+            </p>
+            <p className="mt-2 rounded-md bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-300">
+              После подтверждения пул персонала синхронизируется со сметой:
+              недостающие слоты добавятся, лишние назначения удалятся.
             </p>
             <ul className="mt-3 space-y-1 text-sm">
               <li>Новые: {importPreview.counts.added}</li>

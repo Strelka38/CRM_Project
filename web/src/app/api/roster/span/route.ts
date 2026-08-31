@@ -9,6 +9,7 @@ const bodySchema = z.object({
   fromDay: z.number().int().min(1),
   toDay: z.number().int().min(1),
   forcePast: z.boolean().optional(),
+  addDuties: z.array(z.enum(["mount", "demount"])).optional(),
 });
 
 export async function POST(req: NextRequest) {

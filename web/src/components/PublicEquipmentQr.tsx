@@ -24,6 +24,7 @@ type Payload = {
     id: string;
     unitNumber: number;
     label: string | null;
+    owner?: "SHOW_MASTER" | "DIAKOM" | "NE_EVENT" | null;
     qrToken: string;
     inRepair: boolean;
   };
@@ -135,6 +136,7 @@ export function PublicEquipmentQr({ token }: { token: string }) {
         }}
         unitNumber={data.unit.unitNumber}
         unitLabel={data.unit.label}
+        unitOwner={data.unit.owner}
         unitInRepair={data.unit.inRepair}
         documents={data.documents}
         editable={false}

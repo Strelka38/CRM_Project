@@ -8,7 +8,6 @@ import {
   defaultDemountDate,
   defaultMountDate,
 } from "@/lib/quote-schedule";
-import { syncQuoteAssignmentSlots } from "@/lib/quote-assignment-slots";
 import { ensureQuoteSchemaColumns } from "@/lib/ensure-schema";
 import type { CloneBlock, QuoteStructurePayload } from "@/lib/quote-structure";
 
@@ -174,8 +173,6 @@ export async function createQuoteFromStructure(
       owner: { select: { id: true, name: true, email: true } },
     },
   });
-
-  await syncQuoteAssignmentSlots(prisma, quote.id);
 
   return quote;
 }

@@ -31,6 +31,7 @@ import {
   inferCatalogOwners,
   normalizeOwners,
   ownerShorts,
+  type CatalogOwnerValue,
 } from "@/lib/catalog-owner";
 import { EquipmentCardDrawer } from "@/components/EquipmentItemPage";
 import { formatUnitId } from "@/lib/equipment-id";
@@ -79,6 +80,7 @@ type EquipUnit = {
   unitNumber: number;
   qrToken: string;
   label?: string | null;
+  owner?: CatalogOwnerValue | null;
   inRepair?: boolean;
   active?: boolean;
 };
@@ -394,6 +396,12 @@ export function CatalogAdmin() {
   const [writeOffComment, setWriteOffComment] = useState("");
   const [writeOffError, setWriteOffError] = useState("");
   const [cardItemId, setCardItemId] = useState<string | null>(null);
+  const [clipboard, setClipboard] = useState<{
+    itemIds: string[];
+    kitIds: string[];
+    categoryIds: string[];
+    label: string;
+  } | null>(null);
   const [sectionDraft, setSectionDraft] = useState<string | null>(null);
   const [sectionBusy, setSectionBusy] = useState(false);
   const [sectionError, setSectionError] = useState("");
@@ -1011,6 +1019,93 @@ export function CatalogAdmin() {
       }
       setSelectedCategoryIds(new Set());
       if (selectedItemId) void ensureItemUnits(selectedItemId, true);
+      void loadItems();
+      void loadKits();
+      void loadCats();
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
+  function clipboardLabelForSelection() {
+    const catCount = selectedCategoryIds.size;
+    const itemCount = selectedItemIds.size;
+    const kitCount = selectedKitIds.size;
+    if (catCount === 1 && itemCount === 0 && kitCount === 0) {
+      return (
+        categories.find((c) => selectedCategoryIds.has(c.id))?.name || "раздел"
+      );
+    }
+    if (itemCount === 1 && catCount === 0 && kitCount === 0) {
+      const id = [...selectedItemIds][0];
+      const item =
+        items.find((it) => it.id === id) ||
+        Object.values(itemsByCat)
+          .flat()
+          .find((it) => it.id === id);
+      return item?.name || "позиция";
+    }
+    if (kitCount === 1 && catCount === 0 && itemCount === 0) {
+      const id = [...selectedKitIds][0];
+      const kit =
+        kits.find((k) => k.id === id) ||
+        Object.values(kitsByCat)
+          .flat()
+          .find((k) => k.id === id);
+      return kit?.name || "комплект";
+    }
+    const n = catCount + itemCount + kitCount;
+    return `${n} объект${n === 1 ? "" : n < 5 ? "а" : "ов"}`;
+  }
+
+  function cutSelection() {
+    const itemIds = [...selectedItemIds];
+    const kitIds = [...selectedKitIds];
+    const categoryIds = [...selectedCategoryIds];
+    if (itemIds.length + kitIds.length + categoryIds.length === 0) {
+      alert("Вырезать можно раздел, позицию или комплект");
+      return;
+    }
+    setClipboard({
+      itemIds,
+      kitIds,
+      categoryIds,
+      label: clipboardLabelForSelection(),
+    });
+    setSelectedItemIds(new Set());
+    setSelectedKitIds(new Set());
+    setSelectedUnitIds(new Set());
+    setSelectedCategoryIds(new Set());
+  }
+
+  function pasteTargetCategoryId() {
+    return categories.find((c) => c.path === selectedPath)?.id ?? null;
+  }
+
+  async function pasteClipboard() {
+    if (!clipboard) return;
+    const targetCategoryId = pasteTargetCategoryId();
+    setBulkBusy(true);
+    try {
+      const res = await fetch("/api/catalog/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "move",
+          itemIds: clipboard.itemIds,
+          kitIds: clipboard.kitIds,
+          categoryIds: clipboard.categoryIds,
+          targetCategoryId,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.error || "Не удалось вставить");
+        return;
+      }
+      setClipboard(null);
+      setItemsByCat({});
+      setKitsByCat({});
       void loadItems();
       void loadKits();
       void loadCats();
@@ -1791,9 +1886,11 @@ export function CatalogAdmin() {
               <CatalogSelectionActions
                 count={selectedCount}
                 disabled={bulkBusy}
+                clipboardLabel={clipboard?.label ?? null}
                 canRename={selectedCategoryIds.size === 1}
                 onDelete={() => void bulkAction("delete")}
-                onCopy={() => void bulkAction("copy")}
+                onCut={cutSelection}
+                onPaste={() => void pasteClipboard()}
                 onPrintQr={printSelectedQr}
                 onRename={renameSelectedFolder}
               />
@@ -2004,6 +2101,9 @@ export function CatalogAdmin() {
                             >
                               <TypeGlyph kind="unit" />
                               {unit.label || `Ед. №${unit.unitNumber}`}
+                              <FirmTag
+                                owners={unit.owner ? [unit.owner] : []}
+                              />
                             </Link>
                           </td>
                           <td className="px-2 py-2 text-[var(--muted)]">—</td>

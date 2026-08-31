@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { addDays, formatDateKey, parseEventDate } from "@/lib/dates";
+import { freelancerAssignmentPay, freelancerNameKey } from "@/lib/freelancer-directory";
+import { ensureQuoteSchemaColumns } from "@/lib/ensure-schema";
 import { calcAssignmentPay } from "@/lib/payroll";
 import { getYearMonthRange, parseYearMonth } from "@/lib/period";
 import {
   rosterPersonName,
   buildRosterItems,
   collectBusyDates,
+  collectFreelancerBusyDates,
 } from "@/lib/roster";
 import { requireAssignmentManager } from "@/lib/session";
 
@@ -14,9 +17,22 @@ function dateOnlyUtc(d: Date): Date {
   return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
 }
 
+let ensureOnce: Promise<void> | null = null;
+
+function ensureSchemaOnce() {
+  if (!ensureOnce) {
+    ensureOnce = ensureQuoteSchemaColumns().catch((e) => {
+      ensureOnce = null;
+      throw e;
+    });
+  }
+  return ensureOnce;
+}
+
 export async function GET(req: NextRequest) {
   try {
     await requireAssignmentManager();
+    await ensureSchemaOnce();
     const fromRaw = req.nextUrl.searchParams.get("from");
     const toRaw = req.nextUrl.searchParams.get("to");
     const from = parseEventDate(fromRaw || undefined);
@@ -31,7 +47,8 @@ export async function GET(req: NextRequest) {
       parseYearMonth(req.nextUrl.searchParams.get("month")),
     );
 
-    const [quotes, entries, dayOffs, monthAssignments, users] = await Promise.all([
+    const [quotes, entries, dayOffs, monthAssignments, users, monthFreelance, freelancers] =
+      await Promise.all([
       prisma.quote.findMany({
         where: {
           eventDate: {
@@ -51,6 +68,8 @@ export async function GET(req: NextRequest) {
           mountDurationDays: true,
           demountDate: true,
           demountDurationDays: true,
+          owner: { select: { owners: true } },
+          zones: { select: { id: true, workingDayIndexes: true } },
           assignments: {
             select: {
               id: true,
@@ -89,6 +108,7 @@ export async function GET(req: NextRequest) {
           kind: true,
           date: true,
           title: true,
+          createdBy: { select: { owners: true } },
           responsibleUser: {
             select: {
               id: true,
@@ -166,12 +186,48 @@ export async function GET(req: NextRequest) {
           },
         },
       }),
+      prisma.quoteAssignment.findMany({
+        where: {
+          isFreelancer: true,
+          freelancerName: { not: "" },
+          quote: {
+            eventDate: { gte: monthRange.from, lt: monthRange.to },
+            lifecycle: { in: ["CALCULATED", "CONFIRMED", "COMPLETED"] },
+          },
+        },
+        select: {
+          freelancerName: true,
+          payMode: true,
+          hours: true,
+          rateOverride: true,
+          bonus: true,
+          montageAmount: true,
+        },
+      }),
+      prisma.freelancer.findMany({
+        where: { active: true },
+        orderBy: { name: "asc" },
+        select: {
+          id: true,
+          name: true,
+          active: true,
+          specialties: {
+            select: {
+              specialty: { select: { id: true, name: true } },
+            },
+          },
+        },
+      }),
     ]);
 
     const items = buildRosterItems(
-      quotes,
+      quotes.map((q) => ({
+        ...q,
+        firmOwners: q.owner?.owners ?? [],
+      })),
       entries.map((e) => ({
         ...e,
+        firmOwners: e.createdBy?.owners ?? [],
         date: formatDateKey(
           new Date(
             e.date.getUTCFullYear(),
@@ -234,9 +290,35 @@ export async function GET(req: NextRequest) {
       owners: u.owners,
       monthEarned: earnedByUser.get(u.id) || 0,
       busyDates: busyByUser[u.id] || [],
+      kind: "staff" as const,
     }));
 
-    return NextResponse.json({ items, people });
+    const earnedByFreelancer = new Map<string, number>();
+    const freelancerIdByKey = new Map(
+      freelancers.map((f) => [freelancerNameKey(f.name), f.id]),
+    );
+    for (const a of monthFreelance) {
+      const id = freelancerIdByKey.get(freelancerNameKey(a.freelancerName));
+      if (!id) continue;
+      earnedByFreelancer.set(
+        id,
+        (earnedByFreelancer.get(id) || 0) + freelancerAssignmentPay(a),
+      );
+    }
+    const busyByFreelancer = collectFreelancerBusyDates(items, freelancers);
+    const freelancerPeople = freelancers.map((f) => ({
+      id: f.id,
+      name: f.name,
+      firstName: "",
+      lastName: "",
+      active: f.active,
+      specialties: f.specialties.map((s) => s.specialty),
+      monthEarned: earnedByFreelancer.get(f.id) || 0,
+      busyDates: busyByFreelancer[f.id] || [],
+      kind: "freelancer" as const,
+    }));
+
+    return NextResponse.json({ items, people, freelancers: freelancerPeople });
   } catch (e) {
     if (e instanceof Response) return e;
     console.error("GET /api/roster", e);

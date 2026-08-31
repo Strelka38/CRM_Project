@@ -2,6 +2,10 @@
 
 import { formatUnitId } from "@/lib/equipment-id";
 import { downloadQrPng } from "@/lib/download-qr";
+import {
+  CATALOG_OWNERS,
+  type CatalogOwnerValue,
+} from "@/lib/catalog-owner";
 
 type Category = { id: string; name: string; path: string };
 
@@ -21,6 +25,7 @@ type UnitRow = {
   unitNumber: number;
   qrToken: string;
   label?: string | null;
+  owner?: CatalogOwnerValue | null;
   inRepair?: boolean;
   active?: boolean;
   writeOffReason?: string | null;
@@ -50,6 +55,7 @@ type Props = {
   /** Номер единицы на публичной QR-странице */
   unitNumber?: number | null;
   unitLabel?: string | null;
+  unitOwner?: CatalogOwnerValue | null;
   unitInRepair?: boolean;
   documents: DocumentRow[];
   units?: UnitRow[];
@@ -62,10 +68,34 @@ type Props = {
   onSyncUnits?: () => void | Promise<void>;
   onAddUnit?: () => void | Promise<void>;
   onWriteOff?: (unitId: string) => void | Promise<void>;
+  onRestoreWriteOff?: (unitId: string) => void | Promise<void>;
   onSaveLabel?: (unitId: string, label: string) => void | Promise<void>;
+  onSaveOwner?: (
+    unitId: string,
+    owner: CatalogOwnerValue | null,
+  ) => void | Promise<void>;
   onToggleShowInCatalog?: (value: boolean) => void | Promise<void>;
   origin?: string;
 };
+
+function ownerShort(owner: CatalogOwnerValue | null | undefined) {
+  return CATALOG_OWNERS.find((o) => o.value === owner)?.short ?? "";
+}
+
+function warehouseSummary(units: UnitRow[]) {
+  const counts: Partial<Record<CatalogOwnerValue, number>> = {};
+  let unassigned = 0;
+  for (const u of units) {
+    if (u.active === false) continue;
+    if (u.owner) counts[u.owner] = (counts[u.owner] ?? 0) + 1;
+    else unassigned += 1;
+  }
+  const parts = CATALOG_OWNERS.filter((o) => counts[o.value]).map(
+    (o) => `${o.short} ${counts[o.value]}`,
+  );
+  if (unassigned) parts.push(`без склада ${unassigned}`);
+  return parts.join(" · ");
+}
 
 function fmtSize(n: number) {
   if (n < 1024) return `${n} Б`;
@@ -87,6 +117,7 @@ export function EquipmentCard({
   item,
   unitNumber,
   unitLabel,
+  unitOwner,
   unitInRepair = false,
   documents,
   units = [],
@@ -99,13 +130,16 @@ export function EquipmentCard({
   onSyncUnits,
   onAddUnit,
   onWriteOff,
+  onRestoreWriteOff,
   onSaveLabel,
+  onSaveOwner,
   onToggleShowInCatalog,
   origin = "",
 }: Props) {
   const dims = [item.width, item.height, item.depth]
     .filter((v) => v != null)
     .join(" × ");
+  const unitWarehouseSummary = warehouseSummary(units);
 
   const titleMeta = [
     item.model || item.manufacturer || null,
@@ -139,6 +173,11 @@ export function EquipmentCard({
         <p className="text-sm text-[var(--muted)]">{titleMeta}</p>
         {unitLabel ? (
           <p className="text-sm text-[var(--ink)]">Метка: {unitLabel}</p>
+        ) : null}
+        {unitOwner ? (
+          <p className="text-sm text-[var(--ink)]">
+            Склад: {ownerShort(unitOwner)}
+          </p>
         ) : null}
         {unitInRepair ? (
           <p className="text-sm text-[var(--warning)]">Статус: в ремонте</p>
@@ -341,6 +380,9 @@ export function EquipmentCard({
               ) : null}
             </div>
           </div>
+          {unitWarehouseSummary ? (
+            <p className="text-xs text-[var(--muted)]">{unitWarehouseSummary}</p>
+          ) : null}
           {units.length === 0 ? (
             <p className="text-sm text-[var(--muted)]">
               Единиц пока нет. Нажмите «+ Единица».
@@ -353,6 +395,7 @@ export function EquipmentCard({
                     <th className="px-3 py-2 font-medium">ID единицы</th>
                     <th className="px-3 py-2 font-medium">№</th>
                     <th className="px-3 py-2 font-medium">Метка</th>
+                    <th className="px-3 py-2 font-medium">Склад</th>
                     <th className="px-3 py-2 font-medium">QR-ссылка</th>
                     <th className="px-3 py-2 font-medium" />
                     <th className="px-3 py-2 font-medium" />
@@ -406,6 +449,38 @@ export function EquipmentCard({
                           )}
                         </td>
                         <td className="px-3 py-2">
+                          {editable && onSaveOwner && !writtenOff ? (
+                            <select
+                              className="field py-1 text-sm"
+                              aria-label="Склад"
+                              title="Склад"
+                              value={u.owner || ""}
+                              disabled={busy}
+                              onChange={(e) => {
+                                const next = e.target.value as
+                                  | CatalogOwnerValue
+                                  | "";
+                                void onSaveOwner(u.id, next || null);
+                              }}
+                            >
+                              <option value="">—</option>
+                              {CATALOG_OWNERS.map((o) => (
+                                <option
+                                  key={o.value}
+                                  value={o.value}
+                                  title={o.label}
+                                >
+                                  {o.short}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <span className="text-[var(--muted)]">
+                              {ownerShort(u.owner) || "—"}
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2">
                           {writtenOff ? (
                             <span className="text-xs text-[var(--muted)]">
                               {u.writeOffComment || "Списано"}
@@ -436,6 +511,7 @@ export function EquipmentCard({
                                 void downloadQrPng(
                                   `${origin}${href}`,
                                   `qr-${unitId}`,
+                                  unitId,
                                 );
                               }}
                             >
@@ -468,7 +544,16 @@ export function EquipmentCard({
                           ) : null}
                         </td>
                         <td className="px-3 py-2 text-right">
-                          {editable && onWriteOff && !writtenOff ? (
+                          {writtenOff && onRestoreWriteOff ? (
+                            <button
+                              type="button"
+                              disabled={busy}
+                              className="text-xs text-[var(--accent)] disabled:opacity-50"
+                              onClick={() => void onRestoreWriteOff(u.id)}
+                            >
+                              Вернуть на склад
+                            </button>
+                          ) : editable && onWriteOff && !writtenOff ? (
                             <button
                               type="button"
                               disabled={busy}

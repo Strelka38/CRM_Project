@@ -15,6 +15,10 @@ import {
   computeQuoteCalculation,
 } from "@/lib/quote-calculation";
 import {
+  allocateExpenseInputs,
+  buildSummaryPeople,
+} from "@/lib/export/calc-summary";
+import {
   formatPeriodLabel,
   getPeriodRange,
   parseListPeriod,
@@ -69,7 +73,13 @@ export async function GET(req: NextRequest) {
         },
         zones: {
           orderBy: { sortOrder: "asc" },
-          select: { id: true, name: true, sortOrder: true, active: true },
+          select: {
+            id: true,
+            name: true,
+            sortOrder: true,
+            active: true,
+            workingDayIndexes: true,
+          },
         },
         blocks: {
           orderBy: { sortOrder: "asc" },
@@ -93,8 +103,13 @@ export async function GET(req: NextRequest) {
         calcLineOverrides: true,
         assignments: {
           include: {
+            specialty: { select: { id: true, name: true } },
             user: {
               select: {
+                id: true,
+                name: true,
+                firstName: true,
+                lastName: true,
                 owners: true,
                 specialties: {
                   select: {
@@ -129,6 +144,7 @@ export async function GET(req: NextRequest) {
         ],
         sharesCustom: q.sharesCustom,
         customShares: q.calcShares,
+        zones: q.zones,
       });
 
       const revenueByCompany: Partial<Record<CatalogOwnerValue, number>> = {};
@@ -174,6 +190,21 @@ export async function GET(req: NextRequest) {
         q.owner.agencyPercent,
       );
       const breakdownWithCogs = attachCogsToBreakdown(breakdown, baseCalc);
+      const extraByCompany = allocateExpenseInputs(
+        q.extraExpenses.map((e) => ({
+          name: e.name,
+          amount: e.amount,
+          mode: e.mode,
+          owners: e.owners as CatalogOwnerValue[],
+          company: e.company,
+          amounts: amountsFromOverride(e),
+        })),
+        revenueByCompany,
+      );
+      const people = buildSummaryPeople(
+        laborMontage.assignmentRows,
+        revenueByCompany,
+      );
 
       return {
         id: q.id,
@@ -210,6 +241,8 @@ export async function GET(req: NextRequest) {
             agencyDeductedTotal,
         ),
         sharesCustom: q.sharesCustom,
+        extraByCompany,
+        people,
       };
     });
 

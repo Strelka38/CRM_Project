@@ -155,6 +155,16 @@ export function IconTemplate() {
   );
 }
 
+export function IconExcel() {
+  return (
+    <svg viewBox="0 0 24 24" className="size-6" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
+      <path d="M7 3.5h7.5L19.5 9v11A1.5 1.5 0 0 1 18 21.5H7A1.5 1.5 0 0 1 5.5 20V5A1.5 1.5 0 0 1 7 3.5Z" />
+      <path d="M14.5 3.5V9h5" />
+      <path d="m9 13.5 2.4 3.5L9 20.5M14.5 13.5 12.1 17l2.4 3.5" />
+    </svg>
+  );
+}
+
 export function IconCheck() {
   return (
     <svg viewBox="0 0 24 24" className="size-6" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden>
@@ -217,12 +227,14 @@ export function DirectorySelectionActions({
   onCopy,
   extra,
   disabled,
+  deleteTitle = "Отключить выбранные",
 }: {
   count: number;
   onDelete?: () => void;
   onCopy?: () => void;
   extra?: ReactNode;
   disabled?: boolean;
+  deleteTitle?: string;
 }) {
   if (count <= 0) return null;
   return (
@@ -230,7 +242,7 @@ export function DirectorySelectionActions({
       {extra}
       {onDelete ? (
         <DirectoryIconButton
-          title="Отключить выбранные"
+          title={deleteTitle}
           danger
           disabled={disabled}
           onClick={onDelete}
@@ -254,10 +266,16 @@ export function DirectorySelectionActions({
 
 export function DirectoryCsvMenu({
   onExport,
+  onExportExcel,
+  excelDisabled,
+  excelHint,
   onImport,
   busy,
 }: {
   onExport: () => void;
+  onExportExcel?: () => void;
+  excelDisabled?: boolean;
+  excelHint?: string;
   onImport?: () => void;
   busy?: boolean;
 }) {
@@ -289,8 +307,8 @@ export function DirectoryCsvMenu({
     <div ref={rootRef} className="relative shrink-0">
       <button
         type="button"
-        title="Экспорт / импорт CSV"
-        aria-label="Экспорт / импорт CSV"
+        title="Экспорт"
+        aria-label="Экспорт"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
         className="rounded-md p-1.5 text-[var(--muted)] hover:bg-[var(--header-hover)] hover:text-[var(--ink)]"
@@ -298,7 +316,7 @@ export function DirectoryCsvMenu({
         <ExportIcon />
       </button>
       {open ? (
-        <div className="absolute right-0 z-30 mt-1 w-48 rounded-md border border-[var(--line)] bg-[var(--panel)] py-1 shadow-lg">
+        <div className="absolute right-0 z-30 mt-1 min-w-56 rounded-md border border-[var(--line)] bg-[var(--panel)] py-1 shadow-lg">
           <button
             type="button"
             disabled={busy}
@@ -307,6 +325,17 @@ export function DirectoryCsvMenu({
           >
             Экспорт CSV
           </button>
+          {onExportExcel ? (
+            <button
+              type="button"
+              disabled={busy || excelDisabled}
+              title={excelDisabled ? excelHint : undefined}
+              className="flex w-full px-3 py-1.5 text-left text-sm text-[var(--ink)] hover:bg-[var(--header-hover)] disabled:opacity-40"
+              onClick={() => run(onExportExcel)}
+            >
+              {busy ? "Excel…" : "Экспорт Excel (сводная)"}
+            </button>
+          ) : null}
           {onImport ? (
             <button
               type="button"

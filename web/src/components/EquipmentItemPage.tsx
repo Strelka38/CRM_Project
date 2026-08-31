@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { useSession } from "next-auth/react";
 import { EquipmentCard, type EquipmentCardData } from "./EquipmentCard";
 import {
   ItemDrawer,
@@ -9,6 +10,8 @@ import {
   type DrawerItemPatch,
 } from "./ItemDrawer";
 import { Button, Modal, SideDrawer } from "@/components/ui";
+import type { CatalogOwnerValue } from "@/lib/catalog-owner";
+import { isAdmin } from "@/lib/roles";
 
 type Doc = {
   id: string;
@@ -25,6 +28,7 @@ type Unit = {
   unitNumber: number;
   qrToken: string;
   label?: string | null;
+  owner?: CatalogOwnerValue | null;
   inRepair?: boolean;
   active?: boolean;
   writeOffReason?: string | null;
@@ -56,15 +60,17 @@ export function EquipmentItemPage({
   onClose?: () => void;
   onChanged?: () => void;
 }) {
+  const { data: session } = useSession();
+  const admin = isAdmin(session?.user?.role);
   const [item, setItem] = useState<ApiItem | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [writeOffId, setWriteOffId] = useState<string | null>(null);
-  const [writeOffReason, setWriteOffReason] = useState<"DAMAGED" | "LOST">(
-    "DAMAGED",
-  );
+  const [writeOffReason, setWriteOffReason] = useState<
+    "DAMAGED" | "LOST" | "CREATED_BY_MISTAKE"
+  >("DAMAGED");
   const [writeOffComment, setWriteOffComment] = useState("");
   const [writeOffError, setWriteOffError] = useState("");
 
@@ -152,30 +158,76 @@ export function EquipmentItemPage({
     await reload();
   }
 
+  async function saveOwner(unitId: string, owner: CatalogOwnerValue | null) {
+    const res = await fetch(`/api/equipment/units/${unitId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ owner }),
+    });
+    if (!res.ok) {
+      setError("Не удалось сохранить склад");
+      return;
+    }
+    await reload();
+  }
+
   async function submitWriteOff() {
     if (!writeOffId) return;
     setBusy(true);
     setWriteOffError("");
     try {
       const res = await fetch(`/api/equipment/units/${writeOffId}`, {
-        method: "PATCH",
+        method: writeOffReason === "CREATED_BY_MISTAKE" ? "DELETE" : "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          writeOff: true,
-          reason: writeOffReason,
-          comment: writeOffComment.trim(),
-        }),
+        body:
+          writeOffReason === "CREATED_BY_MISTAKE"
+            ? undefined
+            : JSON.stringify({
+                writeOff: true,
+                reason: writeOffReason,
+                comment: writeOffComment.trim(),
+              }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setWriteOffError(data.error || "Не удалось списать");
+        setWriteOffError(
+          data.error ||
+            (writeOffReason === "CREATED_BY_MISTAKE"
+              ? "Не удалось удалить единицу"
+              : "Не удалось списать"),
+        );
         return;
       }
       setWriteOffId(null);
       setWriteOffComment("");
       await reload();
     } catch {
-      setWriteOffError("Не удалось списать");
+      setWriteOffError(
+        writeOffReason === "CREATED_BY_MISTAKE"
+          ? "Не удалось удалить единицу"
+          : "Не удалось списать",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function restoreWriteOff(unitId: string) {
+    if (!confirm("Вернуть списанную единицу на склад?")) return;
+    setBusy(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/equipment/units/${unitId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ restoreWriteOff: true }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error || "Не удалось вернуть единицу на склад");
+        return;
+      }
+      await reload();
     } finally {
       setBusy(false);
     }
@@ -372,31 +424,46 @@ export function EquipmentItemPage({
         className="max-w-md"
       >
         <p className="mt-1 text-sm text-[var(--muted)]">
-          Единица будет снята со склада как повреждённая или утерянная и больше
-          не попадёт в резерв.
+          {writeOffReason === "CREATED_BY_MISTAKE"
+            ? "Единица будет полностью удалена вместе с QR-кодом и историей. Это действие нельзя отменить."
+            : "Единица будет снята со склада как повреждённая или утерянная и больше не попадёт в резерв."}
         </p>
         <label className="mt-4 block text-sm">
           <span className="text-[var(--muted)]">Причина</span>
           <select
             className="field mt-1"
             value={writeOffReason}
-            onChange={(e) =>
-              setWriteOffReason(e.target.value === "LOST" ? "LOST" : "DAMAGED")
-            }
+            onChange={(e) => {
+              const value = e.target.value;
+              setWriteOffReason(
+                value === "LOST"
+                  ? "LOST"
+                  : value === "CREATED_BY_MISTAKE" && admin
+                    ? "CREATED_BY_MISTAKE"
+                    : "DAMAGED",
+              );
+            }}
           >
             <option value="DAMAGED">Повреждено</option>
             <option value="LOST">Утеряно</option>
+            {admin ? (
+              <option value="CREATED_BY_MISTAKE">
+                Случайно создано — удалить полностью
+              </option>
+            ) : null}
           </select>
         </label>
-        <label className="mt-3 block text-sm">
-          <span className="text-[var(--muted)]">Комментарий</span>
-          <textarea
-            className="field mt-1 min-h-24"
-            placeholder="Что случилось, где, когда…"
-            value={writeOffComment}
-            onChange={(e) => setWriteOffComment(e.target.value)}
-          />
-        </label>
+        {writeOffReason !== "CREATED_BY_MISTAKE" ? (
+          <label className="mt-3 block text-sm">
+            <span className="text-[var(--muted)]">Комментарий</span>
+            <textarea
+              className="field mt-1 min-h-24"
+              placeholder="Что случилось, где, когда…"
+              value={writeOffComment}
+              onChange={(e) => setWriteOffComment(e.target.value)}
+            />
+          </label>
+        ) : null}
         {writeOffError ? (
           <p className="mt-2 text-sm text-[var(--danger)]">{writeOffError}</p>
         ) : null}
@@ -415,7 +482,13 @@ export function EquipmentItemPage({
             disabled={busy}
             onClick={() => void submitWriteOff()}
           >
-            {busy ? "Списание…" : "Списать"}
+            {busy
+              ? writeOffReason === "CREATED_BY_MISTAKE"
+                ? "Удаление…"
+                : "Списание…"
+              : writeOffReason === "CREATED_BY_MISTAKE"
+                ? "Удалить полностью"
+                : "Списать"}
           </Button>
         </div>
       </Modal>
@@ -441,7 +514,9 @@ export function EquipmentItemPage({
         setWriteOffComment("");
         setWriteOffError("");
       }}
+      onRestoreWriteOff={admin ? restoreWriteOff : undefined}
       onSaveLabel={saveLabel}
+      onSaveOwner={saveOwner}
       onToggleShowInCatalog={toggleShowInCatalog}
     />
   );

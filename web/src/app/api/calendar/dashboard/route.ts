@@ -90,7 +90,11 @@ export async function GET() {
           where: {
             lifecycle: { in: ["CALCULATED", "CONFIRMED"] },
             assignments: {
-              some: { userId: null, isFreelancer: false },
+              some: {
+                userId: null,
+                isFreelancer: false,
+                kind: { not: "MOUNT" },
+              },
             },
             OR: [{ eventDate: { gte: recent } }, { eventDate: null }],
           },

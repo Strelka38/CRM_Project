@@ -99,6 +99,13 @@ function ownersOf(v: unknown): CatalogOwner[] {
   );
 }
 
+function ownerOf(v: unknown): CatalogOwner | null {
+  if (typeof v === "string" && OWNERS.includes(v as CatalogOwner)) {
+    return v as CatalogOwner;
+  }
+  return null;
+}
+
 function notesOf(v: unknown): string[] {
   if (!Array.isArray(v)) return [];
   return v.filter((x): x is string => typeof x === "string");
@@ -159,6 +166,8 @@ export async function collectDatabaseBackup(): Promise<DatabaseBackupFile> {
     kits,
     kitComponents,
     clients,
+    freelancers,
+    freelancerSpecialties,
     venues,
     venuePhotos,
     vehicles,
@@ -171,7 +180,10 @@ export async function collectDatabaseBackup(): Promise<DatabaseBackupFile> {
     quoteAuditEvents,
     specRevisions,
   ] = await Promise.all([
-    prisma.specialty.findMany({ orderBy: { sortOrder: "asc" } }),
+    prisma.specialty.findMany({
+      orderBy: { sortOrder: "asc" },
+      include: { catalogItems: { select: { catalogItemId: true } } },
+    }),
     prisma.user.findMany({ orderBy: { createdAt: "asc" } }),
     prisma.userSpecialty.findMany(),
     prisma.catalogCategory.findMany({ orderBy: { path: "asc" } }),
@@ -179,6 +191,8 @@ export async function collectDatabaseBackup(): Promise<DatabaseBackupFile> {
     prisma.kit.findMany({ orderBy: { sortOrder: "asc" } }),
     prisma.kitComponent.findMany(),
     prisma.client.findMany({ orderBy: { companyName: "asc" } }),
+    prisma.freelancer.findMany({ orderBy: { name: "asc" } }),
+    prisma.freelancerSpecialty.findMany(),
     prisma.venue.findMany({ orderBy: { name: "asc" } }),
     prisma.venuePhoto.findMany({ orderBy: { sortOrder: "asc" } }),
     prisma.vehicle.findMany({ orderBy: { plateNumber: "asc" } }),
@@ -198,7 +212,10 @@ export async function collectDatabaseBackup(): Promise<DatabaseBackupFile> {
     exportedAt: new Date().toISOString(),
     tables: JSON.parse(
       JSON.stringify({
-        specialties,
+        specialties: specialties.map(({ catalogItems, ...row }) => ({
+          ...row,
+          catalogItemIds: catalogItems.map((c) => c.catalogItemId),
+        })),
         users,
         userSpecialties,
         catalogCategories,
@@ -206,6 +223,8 @@ export async function collectDatabaseBackup(): Promise<DatabaseBackupFile> {
         kits,
         kitComponents,
         clients,
+        freelancers,
+        freelancerSpecialties,
         venues,
         venuePhotos,
         vehicles,
@@ -256,6 +275,8 @@ export function parseDatabaseBackup(raw: unknown): DatabaseBackupFile {
       kits: rowsOf(tables.kits),
       kitComponents: rowsOf(tables.kitComponents),
       clients: rowsOf(tables.clients),
+      freelancers: rowsOf(tables.freelancers),
+      freelancerSpecialties: rowsOf(tables.freelancerSpecialties),
       venues: rowsOf(tables.venues),
       venuePhotos: rowsOf(tables.venuePhotos),
       vehicles: rowsOf(tables.vehicles),
@@ -314,6 +335,13 @@ export async function applyDatabaseBackup(
         counts,
         warnings,
       );
+      await linkSpecialtyCatalogItems(
+        tx,
+        backup.tables.specialties,
+        specialtyIds,
+        itemIds,
+        warnings,
+      );
       const kitIds = await importKits(
         tx,
         backup.tables.kits,
@@ -330,6 +358,20 @@ export async function applyDatabaseBackup(
         warnings,
       );
       await importClients(tx, backup.tables.clients, counts, warnings);
+      const freelancerIds = await importFreelancers(
+        tx,
+        backup.tables.freelancers,
+        counts,
+        warnings,
+      );
+      await importFreelancerSpecialties(
+        tx,
+        backup.tables.freelancerSpecialties,
+        freelancerIds,
+        specialtyIds,
+        counts,
+        warnings,
+      );
       const venueIds = await importVenues(
         tx,
         backup.tables.venues,
@@ -461,6 +503,57 @@ async function importSpecialties(
   return map;
 }
 
+async function linkSpecialtyCatalogItems(
+  tx: Prisma.TransactionClient,
+  raw: unknown[],
+  specialtyIds: IdMap,
+  itemIds: IdMap,
+  warnings: string[],
+) {
+  const usedItems = new Set<string>();
+  for (const rec of rowsOf(raw)) {
+    const dumpId = requireId(rec);
+    const specialtyId = mapped(specialtyIds, dumpId);
+    if (!specialtyId) continue;
+    const dumpItemIds: string[] = [];
+    if (Array.isArray(rec.catalogItemIds)) {
+      for (const value of rec.catalogItemIds) {
+        const id = str(value).trim();
+        if (id) dumpItemIds.push(id);
+      }
+    } else {
+      const one = str(rec.catalogItemId).trim();
+      if (one) dumpItemIds.push(one);
+    }
+    const catalogItemIds: string[] = [];
+    for (const dumpItemId of dumpItemIds) {
+      const catalogItemId = mapped(itemIds, dumpItemId);
+      if (!catalogItemId) {
+        warnings.push(
+          `Специальность: услуга ${dumpItemId} не найдена, связь пропущена`,
+        );
+        continue;
+      }
+      if (usedItems.has(catalogItemId)) {
+        warnings.push(
+          "Специальность: услуга уже привязана, повторная связь пропущена",
+        );
+        continue;
+      }
+      usedItems.add(catalogItemId);
+      catalogItemIds.push(catalogItemId);
+    }
+    await tx.specialtyCatalogItem.deleteMany({ where: { specialtyId } });
+    if (catalogItemIds.length === 0) continue;
+    await tx.specialtyCatalogItem.createMany({
+      data: catalogItemIds.map((catalogItemId) => ({
+        specialtyId,
+        catalogItemId,
+      })),
+    });
+  }
+}
+
 async function importUsers(
   tx: Prisma.TransactionClient,
   raw: unknown[],
@@ -495,6 +588,7 @@ async function importUsers(
       active: bool(rec.active, true),
       monthlySalary: num(rec.monthlySalary, 0),
       agencyPercent: num(rec.agencyPercent, 5),
+      canAccessPayments: bool(rec.canAccessPayments, false),
       owners: ownersOf(rec.owners),
       timezone: str(rec.timezone, "Asia/Irkutsk") || "Asia/Irkutsk",
       weatherPlace: pickEnum(
@@ -515,6 +609,7 @@ async function importUsers(
         comment: profile.comment,
         monthlySalary: profile.monthlySalary,
         agencyPercent: profile.agencyPercent,
+        canAccessPayments: profile.canAccessPayments,
         owners: profile.owners,
         timezone: profile.timezone,
         weatherPlace: profile.weatherPlace,
@@ -830,6 +925,74 @@ async function importClients(
   }
 }
 
+async function importFreelancers(
+  tx: Prisma.TransactionClient,
+  raw: unknown[],
+  counts: DatabaseBackupCounts,
+  warnings: string[],
+): Promise<IdMap> {
+  const map: IdMap = new Map();
+  for (const rec of rowsOf(raw)) {
+    const id = requireId(rec);
+    const name = str(rec.name).trim();
+    if (!id || !name) {
+      warnings.push("Пропущен фрилансер без id или ФИО");
+      continue;
+    }
+    const data = {
+      name,
+      comment: str(rec.comment),
+      active: bool(rec.active, true),
+    };
+    const existing = await tx.freelancer.findUnique({ where: { id } });
+    if (existing) {
+      await tx.freelancer.update({ where: { id }, data });
+    } else {
+      await tx.freelancer.create({
+        data: { id, ...data, createdAt: asDate(rec.createdAt) },
+      });
+    }
+    map.set(id, id);
+    counts.freelancers += 1;
+  }
+  return map;
+}
+
+async function importFreelancerSpecialties(
+  tx: Prisma.TransactionClient,
+  raw: unknown[],
+  freelancerIds: IdMap,
+  specialtyIds: IdMap,
+  counts: DatabaseBackupCounts,
+  warnings: string[],
+) {
+  for (const rec of rowsOf(raw)) {
+    const freelancerId = mapped(freelancerIds, str(rec.freelancerId));
+    const specialtyId = mapped(specialtyIds, str(rec.specialtyId));
+    if (!freelancerId || !specialtyId) {
+      warnings.push(
+        "Пропущена ставка фрилансера: нет фрилансера или специальности",
+      );
+      continue;
+    }
+    const data = {
+      hourlyRate: num(rec.hourlyRate, 0),
+      shiftRate: num(rec.shiftRate, 0),
+    };
+    await tx.freelancerSpecialty.upsert({
+      where: { freelancerId_specialtyId: { freelancerId, specialtyId } },
+      create: {
+        freelancerId,
+        specialtyId,
+        ...data,
+        createdAt: asDate(rec.createdAt),
+      },
+      update: data,
+    });
+    counts.freelancerSpecialties += 1;
+  }
+}
+
 async function importVenues(
   tx: Prisma.TransactionClient,
   raw: unknown[],
@@ -1096,6 +1259,7 @@ async function importEquipmentUnits(
       unitNumber,
       qrToken,
       label: optStr(rec.label),
+      owner: ownerOf(rec.owner),
       active: bool(rec.active, true),
       inRepair: bool(rec.inRepair, false),
     };

@@ -21,6 +21,7 @@ export type AppChromeProps = {
   database: boolean;
   workloadStats: boolean;
   showBackup: boolean;
+  payoutsAccess: boolean;
   logoutAction: () => Promise<void>;
 };
 
@@ -47,12 +48,14 @@ function AppNav({
   database,
   workloadStats,
   showBackup,
+  payoutsAccess,
   variant = "sidebar",
 }: {
   manager: boolean;
   database: boolean;
   workloadStats: boolean;
   showBackup: boolean;
+  payoutsAccess: boolean;
   variant?: "sidebar" | "top";
 }) {
   const horizontal = variant === "top";
@@ -68,7 +71,7 @@ function AppNav({
         Календарь
       </NavLink>
       {manager ? (
-        <AccountingMenu variant={variant} />
+        <AccountingMenu variant={variant} showPayouts={payoutsAccess} />
       ) : (
         <>
           <NavLink href="/quotes" className={horizontal ? "whitespace-nowrap" : undefined}>
@@ -77,6 +80,11 @@ function AppNav({
           <NavLink href="/payroll" className={horizontal ? "whitespace-nowrap" : undefined}>
             Моя ЗП
           </NavLink>
+          {payoutsAccess && (
+            <NavLink href="/payouts" className={horizontal ? "whitespace-nowrap" : undefined}>
+              Оплаты
+            </NavLink>
+          )}
           {workloadStats && (
             <NavLink href="/roster" className={horizontal ? "whitespace-nowrap" : undefined}>
               Срост
@@ -240,6 +248,7 @@ export function AppChrome({
   database,
   workloadStats,
   showBackup,
+  payoutsAccess,
   logoutAction,
 }: AppChromeProps) {
   const pathname = usePathname();
@@ -264,7 +273,7 @@ export function AppChrome({
     };
   }, [drawerOpen]);
 
-  const navProps = { manager, database, workloadStats, showBackup };
+  const navProps = { manager, database, workloadStats, showBackup, payoutsAccess };
 
   function onPlusClick() {
     if (pathname.startsWith("/calendar")) {

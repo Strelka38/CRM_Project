@@ -135,26 +135,33 @@ export function CatalogAddToolbar({
 
 export function CatalogSelectionActions({
   count,
+  clipboardLabel,
   onDelete,
   onPrintQr,
-  onCopy,
+  onCut,
+  onPaste,
   onRename,
   canRename,
   disabled,
 }: {
   count: number;
+  clipboardLabel?: string | null;
   onDelete: () => void;
   onPrintQr: () => void;
-  onCopy: () => void;
+  onCut: () => void;
+  onPaste?: () => void;
   onRename?: () => void;
   canRename?: boolean;
   disabled?: boolean;
 }) {
-  if (count <= 0) return null;
+  const hasClipboard = Boolean(clipboardLabel);
+  if (count <= 0 && !hasClipboard) return null;
   const btn =
     "rounded-md p-1.5 transition-colors hover:bg-[var(--panel)] disabled:opacity-40";
   return (
     <div className="flex items-center gap-0.5 rounded-md border border-[var(--accent)]/30 bg-[var(--selected)] px-0.5 py-0.5 animate-fade-up">
+      {count > 0 ? (
+        <>
       <button
         type="button"
         disabled={disabled}
@@ -188,14 +195,17 @@ export function CatalogSelectionActions({
       <button
         type="button"
         disabled={disabled}
-        title="Копировать"
-        aria-label="Копировать"
+        title="Вырезать"
+        aria-label="Вырезать"
         className={cn(btn, "text-[var(--ink)]")}
-        onClick={onCopy}
+        onClick={onCut}
       >
         <svg viewBox="0 0 24 24" className="size-6" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
-          <rect x="8" y="8" width="12" height="12" rx="2" />
-          <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" />
+          <circle cx="6" cy="7" r="2.5" />
+          <circle cx="6" cy="17" r="2.5" />
+          <path d="m8.2 8.8 11.3-5.3" />
+          <path d="M8.2 15.2 20 21" />
+          <path d="M14 12 8.2 8.8" />
         </svg>
       </button>
       {onRename ? (
@@ -214,6 +224,24 @@ export function CatalogSelectionActions({
           <svg viewBox="0 0 24 24" className="size-6" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
             <path d="M12 20h9" />
             <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5Z" />
+          </svg>
+        </button>
+      ) : null}
+        </>
+      ) : null}
+      {hasClipboard && onPaste ? (
+        <button
+          type="button"
+          disabled={disabled}
+          title={`Вставить «${clipboardLabel}» в текущий раздел`}
+          aria-label={`Вставить ${clipboardLabel}`}
+          className={cn(btn, "text-[var(--ink)]")}
+          onClick={onPaste}
+        >
+          <svg viewBox="0 0 24 24" className="size-6" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
+            <rect x="8" y="5" width="12" height="15" rx="2" />
+            <path d="M11 5V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v1" />
+            <path d="M11 12h6M11 16h6" />
           </svg>
         </button>
       ) : null}

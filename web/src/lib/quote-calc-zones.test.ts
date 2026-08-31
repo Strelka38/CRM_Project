@@ -68,4 +68,33 @@ const formulaCashless = calcBlock(
 );
 assert.equal(formulaCashless.displayUnitPrice, 4450);
 
+const splitZones = [
+  { id: "za", name: "A", sortOrder: 0, active: true, workingDayIndexes: [1, 2] },
+  { id: "zb", name: "B", sortOrder: 1, active: true, workingDayIndexes: [3, 4] },
+];
+const splitBlocks = [
+  {
+    type: "ITEM" as const,
+    sortOrder: 0,
+    name: "Пульт",
+    qty: 1,
+    unitPrice: 1000,
+    dayMode: "HALF_EXTRA",
+    zoneId: "za",
+  },
+  {
+    type: "ITEM" as const,
+    sortOrder: 1,
+    name: "Кабинет",
+    qty: 1,
+    unitPrice: 1000,
+    dayMode: "HALF_EXTRA",
+    zoneId: "zb",
+  },
+];
+const split = calcByZones(splitZones, splitBlocks, false, 4, 0, 10);
+assert.equal(split.zones[0].payable, 1500);
+assert.equal(split.zones[1].payable, 1500);
+assert.equal(split.payable, 3000);
+
 console.log("quote-calc-zones.test.ts ok");

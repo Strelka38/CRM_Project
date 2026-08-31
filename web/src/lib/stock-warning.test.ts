@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { peakReservedQty } from "./stock";
 
 /** Stock warning is a payload, not a 409 — save still happens. */
 type StockIssue = {
@@ -32,5 +33,26 @@ assert.equal(res.status, 200);
 assert.equal(res.stockWarning, true);
 assert.equal(res.stockIssues[0].shortfall, 2);
 assert.notEqual(res.status, 409);
+
+assert.equal(
+  peakReservedQty([
+    { dailyQty: { "2026-08-24": 2 } },
+    {
+      dailyQty: {
+        "2026-08-25": 4,
+        "2026-08-26": 4,
+        "2026-08-27": 4,
+      },
+    },
+  ]),
+  4,
+);
+assert.equal(
+  peakReservedQty([
+    { dailyQty: { "2026-08-24": 2 } },
+    { dailyQty: { "2026-08-24": 4 } },
+  ]),
+  6,
+);
 
 console.log("stock-warning.test.ts ok");

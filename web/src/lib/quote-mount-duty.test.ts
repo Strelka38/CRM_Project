@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   planMountDutyAssign,
   planMountDutyUnassign,
+  rowHasMountDuty,
 } from "./quote-mount-duty";
 
 const vacantBoth = {
@@ -97,5 +98,9 @@ assert.deepEqual(
     },
   ],
 );
+
+assert.equal(rowHasMountDuty(alreadyMount, "mount"), true);
+assert.equal(rowHasMountDuty(alreadyMount, "demount"), false);
+assert.equal(rowHasMountDuty(vacantBoth, "mount"), true);
 
 console.log("quote-mount-duty.test.ts: ok");

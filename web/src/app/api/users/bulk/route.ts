@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
 
     const targets = await prisma.user.findMany({
       where: { id: { in: ids } },
-      select: { id: true, role: true, active: true },
+      select: { id: true, role: true, active: true, name: true, owners: true },
     });
 
     if (body.action === "addSpecialty") {
@@ -127,6 +127,61 @@ export async function POST(req: NextRequest) {
       ids,
       adminCount,
     );
+
+    if (body.action === "delete") {
+      const actorId = session.user.id;
+      const applyTargets = targets.filter((u) => apply.includes(u.id));
+      const result = apply.length
+        ? await prisma.$transaction(async (tx) => {
+            for (const u of applyTargets) {
+              await tx.quoteAssignment.updateMany({
+                where: { userId: u.id },
+                data: {
+                  userId: null,
+                  isFreelancer: true,
+                  freelancerName: u.name,
+                  owners: u.owners,
+                },
+              });
+            }
+            await tx.quote.updateMany({
+              where: { ownerId: { in: apply } },
+              data: { ownerId: actorId },
+            });
+            await tx.quoteTemplate.updateMany({
+              where: { ownerId: { in: apply } },
+              data: { ownerId: actorId },
+            });
+            await tx.calendarEntry.updateMany({
+              where: { createdById: { in: apply } },
+              data: { createdById: actorId },
+            });
+            await tx.equipmentRepair.updateMany({
+              where: { reportedById: { in: apply } },
+              data: { reportedById: actorId },
+            });
+            await tx.quoteComment.updateMany({
+              where: { authorId: { in: apply } },
+              data: { authorId: actorId },
+            });
+            await tx.quoteAttachment.updateMany({
+              where: { uploaderId: { in: apply } },
+              data: { uploaderId: actorId },
+            });
+            await tx.equipmentDocument.updateMany({
+              where: { uploaderId: { in: apply } },
+              data: { uploaderId: actorId },
+            });
+            return tx.user.deleteMany({ where: { id: { in: apply } } });
+          })
+        : { count: 0 };
+      return NextResponse.json({
+        ok: true,
+        count: result.count,
+        skipped: skipped + skippedSelf,
+      });
+    }
+
     const result = apply.length
       ? await prisma.user.updateMany({
           where: { id: { in: apply } },

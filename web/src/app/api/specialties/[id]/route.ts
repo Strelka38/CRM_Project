@@ -3,6 +3,14 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { ensureQuoteSchemaColumns } from "@/lib/ensure-schema";
 import { requireDatabaseAccess } from "@/lib/session";
+import {
+  isUniqueCatalogLinkError,
+  parseCatalogItemIds,
+  replaceSpecialtyCatalogItems,
+  resolveCatalogServiceIds,
+  serializeSpecialty,
+  specialtyCatalogInclude,
+} from "@/lib/specialty-link";
 
 const patchSchema = z.object({
   name: z.string().min(1).optional(),
@@ -11,6 +19,8 @@ const patchSchema = z.object({
   shiftRate: z.number().nonnegative().optional(),
   description: z.string().optional(),
   active: z.boolean().optional(),
+  catalogItemIds: z.array(z.string()).optional(),
+  catalogItemId: z.union([z.string(), z.null()]).optional(),
 });
 
 let ensureOnce: Promise<void> | null = null;
@@ -40,6 +50,15 @@ export async function PATCH(
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
+    const parsedIds = parseCatalogItemIds(body);
+    const resolved =
+      parsedIds === undefined
+        ? undefined
+        : await resolveCatalogServiceIds(parsedIds, id);
+    if (resolved && "error" in resolved) {
+      return NextResponse.json({ error: resolved.error }, { status: 400 });
+    }
+
     const data: {
       name?: string;
       sortOrder?: number;
@@ -55,15 +74,25 @@ export async function PATCH(
     if (body.description !== undefined) data.description = body.description.trim();
     if (body.active !== undefined) data.active = body.active;
 
-    const specialty = await prisma.specialty.update({
+    await prisma.specialty.update({ where: { id }, data });
+    if (resolved) {
+      await replaceSpecialtyCatalogItems(id, resolved.ids);
+    }
+    const specialty = await prisma.specialty.findUniqueOrThrow({
       where: { id },
-      data,
+      include: specialtyCatalogInclude,
     });
-    return NextResponse.json(specialty);
+    return NextResponse.json(serializeSpecialty(specialty));
   } catch (e) {
     if (e instanceof Response) return e;
     if (e instanceof z.ZodError) {
       return NextResponse.json({ error: e.flatten() }, { status: 400 });
+    }
+    if (isUniqueCatalogLinkError(e)) {
+      return NextResponse.json(
+        { error: "Эта услуга уже связана с другой специальностью" },
+        { status: 400 },
+      );
     }
     return NextResponse.json(
       { error: "Не удалось обновить специальность" },

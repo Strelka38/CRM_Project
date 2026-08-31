@@ -10,6 +10,7 @@ import {
   requireSession,
 } from "@/lib/session";
 import { serializeAssignmentPay } from "@/lib/quote-assignments";
+import { ensureFreelancerByName } from "@/lib/freelancer-directory";
 import {
   backfillAssignmentZones,
   ensureMountSpecialtyId,
@@ -263,6 +264,8 @@ export async function POST(
             },
             include: assignmentInclude,
           });
+
+      await ensureFreelancerByName(created.freelancerName);
 
       const full = serializeAssignmentPay({ ...created, user: null });
       return NextResponse.json(showPay ? full : stripPay(full), {

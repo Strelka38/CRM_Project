@@ -11,10 +11,7 @@ export const SERVICES_SECTION_TITLE = "Услуги";
 export type DefaultQuoteZone = { name: string; sortOrder: number };
 
 export function defaultQuoteZones(): DefaultQuoteZone[] {
-  return DEFAULT_QUOTE_ZONE_NAMES.map((name, sortOrder) => ({
-    name,
-    sortOrder,
-  }));
+  return [{ name: "Зона 1", sortOrder: 0 }];
 }
 
 export function isPersonnelOrServiceKind(

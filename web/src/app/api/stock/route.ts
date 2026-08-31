@@ -3,7 +3,6 @@ import { parseEventDate } from "@/lib/dates";
 import { requireSession } from "@/lib/session";
 import {
   getAvailability,
-  getReservationDetails,
   type StockSchedule,
 } from "@/lib/stock";
 
@@ -45,9 +44,6 @@ export async function GET(req: NextRequest) {
       ids.map(async (id) => {
         const av = await getAvailability(id, schedule, excludeQuoteId);
         if (!av) return [id, null] as const;
-        const reservations = av.unlimited
-          ? []
-          : await getReservationDetails(id, schedule, excludeQuoteId);
         return [
           id,
           {
@@ -57,7 +53,7 @@ export async function GET(req: NextRequest) {
             reserved: av.reserved,
             available: av.available,
             unlimited: av.unlimited,
-            reservations,
+            reservations: av.reservations,
           },
         ] as const;
       }),

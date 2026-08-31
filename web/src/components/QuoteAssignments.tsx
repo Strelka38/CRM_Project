@@ -9,11 +9,18 @@ import {
 import { formatMoney } from "@/lib/format";
 import { canSeeAssignmentPay } from "@/lib/roles";
 import { Button, Modal } from "@/components/ui";
+import { DateRangePicker } from "@/components/DateRangePicker";
+import { parseEventDate } from "@/lib/dates";
 import {
   effectiveEventAssignments,
+  formatZoneDateHint,
+  rangeFromWorkingDayIndexes,
+  storedWorkingDayIndexes,
   workingDayCount,
+  workingDayIndexesFromRange,
 } from "@/lib/quote-assignment-days";
 import { mountDutyFlags } from "@/lib/quote-assignments";
+import { FreelancerQuickSearch } from "@/components/FreelancerQuickSearch";
 
 type Specialty = { id: string; name: string; shiftRate?: number };
 type UserOption = {
@@ -33,6 +40,7 @@ type QuoteZoneOption = {
   name: string;
   sortOrder?: number;
   active?: boolean;
+  workingDayIndexes?: number[];
 };
 
 type Assignment = {
@@ -135,6 +143,36 @@ function calendarBusyLabel(c: CalendarBusyConflict) {
   return `${c.date}: ${kindLabel} «${c.title}» (${roleLabel})`;
 }
 
+function AssignmentFreelancerName({
+  name,
+  onCommit,
+}: {
+  name: string;
+  onCommit: (next: string) => void;
+}) {
+  const [text, setText] = useState(name);
+
+  useEffect(() => {
+    setText(name);
+  }, [name]);
+
+  return (
+    <FreelancerQuickSearch
+      value={text}
+      onChange={setText}
+      onPick={(f) => {
+        setText(f.name);
+        if (f.name.trim() !== name) onCommit(f.name);
+      }}
+      onBlur={() => {
+        if (text.trim() !== name) onCommit(text);
+      }}
+      placeholder="ФИО фрилансера"
+      inputClassName="field max-w-[200px]"
+    />
+  );
+}
+
 export function QuoteAssignments({
   quoteId,
   canEdit,
@@ -144,6 +182,8 @@ export function QuoteAssignments({
   recommendedQty,
   zones,
   durationDays,
+  eventDate,
+  onZoneWorkingDaysChange,
   onChanged,
 }: {
   quoteId: string;
@@ -156,6 +196,8 @@ export function QuoteAssignments({
   zones?: QuoteZoneOption[];
   /** Длительность мероприятия (для вкладок дней у специалистов). */
   durationDays?: number;
+  eventDate?: string;
+  onZoneWorkingDaysChange?: (zoneId: string, workingDayIndexes: number[]) => void;
   onChanged?: () => void;
 }) {
   const { data: session } = useSession();
@@ -166,6 +208,10 @@ export function QuoteAssignments({
   const [users, setUsers] = useState<UserOption[]>([]);
   const [allSpecialties, setAllSpecialties] = useState<Specialty[]>([]);
   const [zoneList, setZoneList] = useState<QuoteZoneOption[]>(zones ?? []);
+  const [eventDateText, setEventDateText] = useState(eventDate ?? "");
+  const [layoutMode, setLayoutMode] = useState<"days" | "zones">("days");
+  const layoutInitRef = useRef(false);
+  const [zoneTab, setZoneTab] = useState("");
   const [mode, setMode] = useState<"staff" | "freelancer">("staff");
   const [userId, setUserId] = useState("");
   const [specialtyId, setSpecialtyId] = useState("");
@@ -182,7 +228,12 @@ export function QuoteAssignments({
   const [loading, setLoading] = useState(true);
   const [checkingBusy, setCheckingBusy] = useState(false);
   const eventDays = kind === "EVENT" ? workingDayCount(durationDays) : 1;
-  const showDayTabs = kind === "EVENT" && eventDays >= 2;
+  const activeZones = zoneList.filter((z) => z.active !== false);
+  const showLayoutToggle =
+    kind === "EVENT" && (eventDays >= 2 || activeZones.length >= 2);
+  const showDayTabs =
+    kind === "EVENT" && eventDays >= 2 && layoutMode !== "zones";
+  const showZoneTabs = kind === "EVENT" && layoutMode === "zones";
   const [dayTab, setDayTab] = useState(1);
   const [conflictWarn, setConflictWarn] = useState<{
     userName: string;
@@ -229,8 +280,12 @@ export function QuoteAssignments({
       }
     }
     if (qRes?.ok) {
-      const data = (await qRes.json()) as { zones?: QuoteZoneOption[] };
+      const data = (await qRes.json()) as {
+        zones?: QuoteZoneOption[];
+        date?: string;
+      };
       if (Array.isArray(data.zones)) setZoneList(data.zones);
+      if (typeof data.date === "string") setEventDateText(data.date);
     } else if (zones) {
       setZoneList(zones);
     }
@@ -244,6 +299,28 @@ export function QuoteAssignments({
   useEffect(() => {
     if (zones) setZoneList(zones);
   }, [zones]);
+
+  useEffect(() => {
+    if (eventDate) setEventDateText(eventDate);
+  }, [eventDate]);
+
+  useEffect(() => {
+    if (layoutInitRef.current) return;
+    if (zoneList.length === 0) return;
+    layoutInitRef.current = true;
+    if (zoneList.some((z) => (z.workingDayIndexes?.length ?? 0) > 0)) {
+      setLayoutMode("zones");
+    }
+  }, [zoneList]);
+
+  useEffect(() => {
+    if (!showZoneTabs) return;
+    const list = zoneList.filter((z) => z.active !== false);
+    if (zoneTab && (list.some((z) => z.id === zoneTab) || zoneList.some((z) => z.id === zoneTab))) {
+      return;
+    }
+    setZoneTab(list[0]?.id || zoneList[0]?.id || "");
+  }, [showZoneTabs, zoneTab, zoneList]);
 
   useEffect(() => {
     if (dayTab > eventDays) setDayTab(1);
@@ -298,6 +375,7 @@ export function QuoteAssignments({
         ...(kind === "MOUNT" ? {} : { specialtyId }),
         kind,
         ...(showDayTabs ? { dayIndex: dayTab } : {}),
+        ...(showZoneTabs && zoneTab ? { zoneId: zoneTab } : {}),
         payMode: noPay || kind === "MOUNT" ? "SHIFT" : payMode,
         hours:
           noPay || kind === "MOUNT" || payMode !== "HOURLY" ? null : hours,
@@ -380,6 +458,7 @@ export function QuoteAssignments({
         ...(kind === "MOUNT" ? {} : { specialtyId: freelancerSpecialtyId }),
         kind,
         ...(showDayTabs ? { dayIndex: dayTab } : {}),
+        ...(showZoneTabs && zoneTab ? { zoneId: zoneTab } : {}),
         freelancerName: freelancerName.trim(),
         owners: freelancerOwner ? [freelancerOwner] : [],
         rateOverride: noPay
@@ -483,11 +562,51 @@ export function QuoteAssignments({
 
   const kindRows = assignments.filter((a) => (a.kind || "EVENT") === kind);
   const rows =
-    kind === "MOUNT" || !showDayTabs
+    kind === "MOUNT"
       ? kindRows
-      : effectiveEventAssignments(kindRows, dayTab);
+      : showZoneTabs
+        ? kindRows.filter((a) => !zoneTab || !a.zoneId || a.zoneId === zoneTab)
+        : showDayTabs
+          ? effectiveEventAssignments(kindRows, dayTab, {
+              eventDays,
+              zones: zoneList,
+            })
+          : kindRows;
+
+  async function saveZoneWorkingDays(zoneId: string, indexes: number[]) {
+    const next = storedWorkingDayIndexes(indexes, eventDays);
+    setZoneList((prev) =>
+      prev.map((z) =>
+        z.id === zoneId ? { ...z, workingDayIndexes: next } : z,
+      ),
+    );
+    onZoneWorkingDaysChange?.(zoneId, next);
+    const res = await fetch(`/api/quotes/${quoteId}/zones/${zoneId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ workingDayIndexes: next }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setError(
+        typeof data.error === "string"
+          ? data.error
+          : "Не удалось сохранить даты зоны",
+      );
+    }
+  }
 
   const mountHideJob = kind === "MOUNT";
+  const eventStartDate = parseEventDate(eventDateText);
+  const selectedZone = zoneList.find((z) => z.id === zoneTab);
+  const selectedZoneRange =
+    eventStartDate && selectedZone
+      ? rangeFromWorkingDayIndexes(
+          eventStartDate,
+          eventDays,
+          selectedZone.workingDayIndexes ?? [],
+        )
+      : null;
   const total = rows.reduce((s, a) => s + a.pay, 0);
   const colCount =
     1 +
@@ -528,7 +647,9 @@ export function QuoteAssignments({
               ? recommendedQty != null
                 ? `Рекомендуется по смете: ${recommendedQty}. Можно поставить больше.`
                 : "Монтажники отдельно от участников шоу. М — монтаж, Д — демонтаж; по умолчанию оба."
-              : showDayTabs
+              : showZoneTabs
+                ? "Назначение по зонам. Число строк — по проданным услугам со ставкой, не по дням. Даты зоны задают, когда люди видны в календаре Сроста."
+                : showDayTabs
                 ? "Назначение по дням. Если на всех днях одни и те же люди, в карточке список будет общим."
                 : noPay
                   ? "Пустые строки — должности из сметы; ФИО можно назначить позже."
@@ -542,6 +663,33 @@ export function QuoteAssignments({
           </p>
         )}
       </div>
+
+      {showLayoutToggle && (
+        <div className="mb-2 flex flex-wrap gap-1 text-sm">
+          <button
+            type="button"
+            className={
+              layoutMode === "days"
+                ? "rounded-md bg-[var(--accent)] px-3 py-1 text-white"
+                : "rounded-md border border-[var(--line)] px-3 py-1 text-[var(--muted)]"
+            }
+            onClick={() => setLayoutMode("days")}
+          >
+            По дням
+          </button>
+          <button
+            type="button"
+            className={
+              layoutMode === "zones"
+                ? "rounded-md bg-[var(--accent)] px-3 py-1 text-white"
+                : "rounded-md border border-[var(--line)] px-3 py-1 text-[var(--muted)]"
+            }
+            onClick={() => setLayoutMode("zones")}
+          >
+            По зонам
+          </button>
+        </div>
+      )}
 
       {showDayTabs && (
         <div className="mb-3 flex flex-wrap gap-1">
@@ -559,6 +707,73 @@ export function QuoteAssignments({
               День {d}
             </button>
           ))}
+        </div>
+      )}
+
+      {showZoneTabs && (
+        <div className="mb-3 space-y-2">
+          <div className="flex flex-wrap gap-1">
+            {(activeZones.length > 0 ? activeZones : zoneList).map((z) => {
+              const hint = formatZoneDateHint(
+                z.workingDayIndexes ?? [],
+                eventDays,
+                eventDateText,
+              );
+              return (
+                <button
+                  key={z.id}
+                  type="button"
+                  className={
+                    zoneTab === z.id
+                      ? "rounded-md bg-[var(--accent)] px-3 py-1 text-left text-sm text-white"
+                      : "rounded-md border border-[var(--line)] px-3 py-1 text-left text-sm text-[var(--muted)]"
+                  }
+                  onClick={() => setZoneTab(z.id)}
+                >
+                  <span className="block leading-tight">{z.name}</span>
+                  {hint ? (
+                    <span
+                      className={
+                        zoneTab === z.id
+                          ? "block text-caption text-white/80"
+                          : "block text-caption"
+                      }
+                    >
+                      {hint}
+                    </span>
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>
+          {canEdit && zoneTab ? (
+            eventStartDate && selectedZoneRange ? (
+              <DateRangePicker
+                dense
+                label="Даты зоны"
+                emptyLabel="Выберите даты зоны…"
+                date={selectedZoneRange.date}
+                durationDays={selectedZoneRange.durationDays}
+                onChange={(date, durationDays) => {
+                  const rangeStart = parseEventDate(date);
+                  if (!rangeStart || !eventStartDate) return;
+                  void saveZoneWorkingDays(
+                    zoneTab,
+                    workingDayIndexesFromRange(
+                      eventStartDate,
+                      eventDays,
+                      rangeStart,
+                      durationDays,
+                    ),
+                  );
+                }}
+              />
+            ) : (
+              <p className="text-xs text-[var(--muted)]">
+                Сначала укажите даты мероприятия — по ним зона попадёт в календарь Сроста.
+              </p>
+            )
+          ) : null}
         </div>
       )}
 
@@ -756,11 +971,10 @@ export function QuoteAssignments({
               )}
               <label className="text-sm">
                 <span className="text-[var(--muted)]">ФИО</span>
-                <input
-                  className="field mt-1"
-                  placeholder="Можно заполнить позже"
+                <FreelancerQuickSearch
                   value={freelancerName}
-                  onChange={(e) => setFreelancerName(e.target.value)}
+                  onChange={setFreelancerName}
+                  placeholder="Можно заполнить позже"
                 />
               </label>
               <label className="text-sm">
@@ -885,17 +1099,13 @@ export function QuoteAssignments({
                       <span className="text-[var(--muted)]">не назначен</span>
                     ) : fl && canEdit ? (
                       <div className="flex flex-col gap-0.5">
-                        <input
-                          className="field max-w-[200px]"
-                          placeholder="ФИО фрилансера"
-                          defaultValue={a.freelancerName}
-                          onBlur={(e) => {
-                            if (e.target.value.trim() !== a.freelancerName) {
-                              void patchAssignment(a.id, {
-                                freelancerName: e.target.value,
-                              });
-                            }
-                          }}
+                        <AssignmentFreelancerName
+                          name={a.freelancerName}
+                          onCommit={(next) =>
+                            void patchAssignment(a.id, {
+                              freelancerName: next,
+                            })
+                          }
                         />
                         <span className="text-caption text-[var(--muted)]">
                           Фрилансер
@@ -917,28 +1127,40 @@ export function QuoteAssignments({
                   {kind !== "MOUNT" && (
                   <td className="px-2 py-2">
                     {canEdit && zoneList.length > 0 ? (
-                      <select
-                        className="field max-w-[160px]"
-                        value={a.zoneId || ""}
-                        onChange={(e) =>
-                          void patchAssignment(a.id, {
-                            zoneId: e.target.value || null,
-                          })
-                        }
-                      >
-                        <option value="">—</option>
-                        {zoneList.map((z) => (
-                          <option key={z.id} value={z.id}>
-                            {z.name}
-                          </option>
-                        ))}
-                        {a.zoneId &&
-                          !zoneList.some((z) => z.id === a.zoneId) && (
-                            <option value={a.zoneId}>
-                              {a.zone?.name || "зона"}
+                      <div className="flex flex-col gap-0.5">
+                        <select
+                          className="field max-w-[160px]"
+                          value={a.zoneId || ""}
+                          onChange={(e) =>
+                            void patchAssignment(a.id, {
+                              zoneId: e.target.value || null,
+                            })
+                          }
+                        >
+                          <option value="">—</option>
+                          {zoneList.map((z) => (
+                            <option key={z.id} value={z.id}>
+                              {z.name}
                             </option>
-                          )}
-                      </select>
+                          ))}
+                          {a.zoneId &&
+                            !zoneList.some((z) => z.id === a.zoneId) && (
+                              <option value={a.zoneId}>
+                                {a.zone?.name || "зона"}
+                              </option>
+                            )}
+                        </select>
+                        {a.zoneId ? (
+                          <span className="text-caption text-[var(--muted)]">
+                            {formatZoneDateHint(
+                              zoneList.find((z) => z.id === a.zoneId)
+                                ?.workingDayIndexes ?? [],
+                              eventDays,
+                              eventDateText,
+                            )}
+                          </span>
+                        ) : null}
+                      </div>
                     ) : (
                       <span className="text-[var(--muted)]">
                         {zoneLabel(a) || "—"}

@@ -14,6 +14,12 @@ import {
   uploadCsvImport,
 } from "@/components/DirectoryToolbar";
 
+type CatalogService = {
+  id: string;
+  name: string;
+  itemKind: string;
+};
+
 type SpecialtyRow = {
   id: string;
   name: string;
@@ -22,6 +28,8 @@ type SpecialtyRow = {
   shiftRate: number;
   description: string;
   active: boolean;
+  catalogItemIds?: string[];
+  catalogItems?: CatalogService[];
 };
 
 type Draft = {
@@ -30,7 +38,13 @@ type Draft = {
   hourlyRate: string;
   shiftRate: string;
   description: string;
+  catalogItemIds: string[];
 };
+
+function rowServiceIds(s: SpecialtyRow): string[] {
+  if (s.catalogItemIds?.length) return s.catalogItemIds;
+  return (s.catalogItems ?? []).map((item) => item.id);
+}
 
 function toDraft(s: SpecialtyRow): Draft {
   return {
@@ -39,6 +53,7 @@ function toDraft(s: SpecialtyRow): Draft {
     hourlyRate: String(s.hourlyRate),
     shiftRate: String(s.shiftRate),
     description: s.description ?? "",
+    catalogItemIds: rowServiceIds(s),
   };
 }
 
@@ -49,6 +64,84 @@ const compactShiftClass =
 const compactSortClass =
   "field !w-11 py-1 px-1.5 text-left tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none";
 const compactNameClass = "field !w-[12rem] py-1 px-2 text-left";
+const compactServiceClass =
+  "field w-full min-w-[12rem] py-1 px-1.5 text-left text-xs";
+
+function sameIds(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const left = [...a].sort();
+  const right = [...b].sort();
+  return left.every((id, i) => id === right[i]);
+}
+
+function ServicePicker({
+  selectedIds,
+  onChange,
+  services,
+  takenIds,
+  extras = [],
+}: {
+  selectedIds: string[];
+  onChange: (ids: string[]) => void;
+  services: CatalogService[];
+  takenIds: Set<string>;
+  extras?: CatalogService[];
+}) {
+  const byId = new Map<string, CatalogService>();
+  for (const item of extras) byId.set(item.id, item);
+  for (const item of services) byId.set(item.id, item);
+  const selected = selectedIds
+    .map((id) => byId.get(id))
+    .filter((item): item is CatalogService => Boolean(item));
+  const available = services.filter(
+    (item) => !selectedIds.includes(item.id) && !takenIds.has(item.id),
+  );
+  return (
+    <div className="flex min-w-[14rem] max-w-[22rem] flex-col gap-1">
+      <div className="flex flex-wrap gap-1">
+        {selected.map((item) => (
+          <span
+            key={item.id}
+            className="inline-flex max-w-full items-center gap-1 rounded-md bg-[var(--selected)]/50 px-1.5 py-0.5 text-xs"
+          >
+            <span className="truncate">{item.name}</span>
+            <button
+              type="button"
+              className="shrink-0 text-[var(--muted)] hover:text-[var(--danger)]"
+              onClick={() =>
+                onChange(selectedIds.filter((id) => id !== item.id))
+              }
+              aria-label={`Убрать ${item.name}`}
+            >
+              ×
+            </button>
+          </span>
+        ))}
+        {selected.length === 0 ? (
+          <span className="text-xs text-[var(--muted)]">Не связаны</span>
+        ) : null}
+      </div>
+      {available.length > 0 ? (
+        <select
+          className={compactServiceClass}
+          value=""
+          onChange={(e) => {
+            const id = e.target.value;
+            if (id) onChange([...selectedIds, id]);
+          }}
+        >
+          <option value="">Добавить услугу…</option>
+          {available.map((item) => (
+            <option key={item.id} value={item.id}>
+              {item.name}
+              {item.itemKind === "PERSONNEL" ? " · персонал" : ""}
+            </option>
+          ))}
+        </select>
+      ) : null}
+    </div>
+  );
+}
 
 function parseNonNeg(value: string): number | null {
   const n = Number(value);
@@ -58,6 +151,7 @@ function parseNonNeg(value: string): number | null {
 
 export function RatesAdmin() {
   const [specialties, setSpecialties] = useState<SpecialtyRow[]>([]);
+  const [services, setServices] = useState<CatalogService[]>([]);
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -75,17 +169,26 @@ export function RatesAdmin() {
   const [newHourly, setNewHourly] = useState("");
   const [newShift, setNewShift] = useState("");
   const [newDescription, setNewDescription] = useState("");
+  const [newCatalogItemIds, setNewCatalogItemIds] = useState<string[]>([]);
   const [creating, setCreating] = useState(false);
 
   async function load() {
-    const res = await fetch("/api/specialties?active=0");
+    const res = await fetch("/api/specialties?active=0&services=1");
     if (!res.ok) {
       setError("Не удалось загрузить специальности");
       setSpecialties([]);
+      setServices([]);
       return;
     }
-    const rows: SpecialtyRow[] = await res.json();
+    const data: unknown = await res.json();
+    const rows: SpecialtyRow[] = Array.isArray(data)
+      ? data
+      : ((data as { specialties?: SpecialtyRow[] }).specialties ?? []);
+    const serviceList: CatalogService[] = Array.isArray(data)
+      ? []
+      : ((data as { services?: CatalogService[] }).services ?? []);
     setSpecialties(rows);
+    setServices(serviceList);
     setDrafts(Object.fromEntries(rows.map((s) => [s.id, toDraft(s)])));
     setSelected((prev) => {
       const ids = new Set(rows.map((r) => r.id));
@@ -100,12 +203,22 @@ export function RatesAdmin() {
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     if (!needle) return specialties;
-    return specialties.filter(
-      (s) =>
+    return specialties.filter((s) => {
+      const serviceNames = (s.catalogItems ?? [])
+        .map((item) => item.name)
+        .concat(
+          rowServiceIds(s)
+            .map((id) => services.find((svc) => svc.id === id)?.name || "")
+            .filter(Boolean),
+        )
+        .join(" ");
+      return (
         s.name.toLowerCase().includes(needle) ||
-        (s.description ?? "").toLowerCase().includes(needle),
-    );
-  }, [specialties, q]);
+        (s.description ?? "").toLowerCase().includes(needle) ||
+        serviceNames.toLowerCase().includes(needle)
+      );
+    });
+  }, [specialties, services, q]);
 
   function isDirty(s: SpecialtyRow): boolean {
     const d = drafts[s.id];
@@ -115,7 +228,8 @@ export function RatesAdmin() {
       Number(d.sortOrder) !== s.sortOrder ||
       Number(d.hourlyRate) !== s.hourlyRate ||
       Number(d.shiftRate) !== s.shiftRate ||
-      d.description.trim() !== (s.description ?? "")
+      d.description.trim() !== (s.description ?? "") ||
+      !sameIds(d.catalogItemIds, rowServiceIds(s))
     );
   }
 
@@ -159,11 +273,15 @@ export function RatesAdmin() {
         hourlyRate,
         shiftRate,
         description: d.description.trim(),
+        catalogItemIds: d.catalogItemIds,
       }),
     });
     setSavingId(null);
     if (!res.ok) {
-      setError("Не удалось сохранить специальность");
+      const payload = (await res.json().catch(() => null)) as {
+        error?: string;
+      } | null;
+      setError(payload?.error || "Не удалось сохранить специальность");
       return;
     }
     const updated: SpecialtyRow = await res.json();
@@ -223,17 +341,25 @@ export function RatesAdmin() {
         hourlyRate,
         shiftRate,
         description: newDescription.trim(),
+        catalogItemIds: newCatalogItemIds,
       }),
     });
     setCreating(false);
     if (!res.ok) {
-      setError("Не удалось создать (возможно, такое название уже есть)");
+      const payload = (await res.json().catch(() => null)) as {
+        error?: string;
+      } | null;
+      setError(
+        payload?.error ||
+          "Не удалось создать (возможно, такое название уже есть)",
+      );
       return;
     }
     setNewName("");
     setNewHourly("");
     setNewShift("");
     setNewDescription("");
+    setNewCatalogItemIds([]);
     setShowCreate(false);
     setOk("Специальность создана");
     void load();
@@ -298,6 +424,14 @@ export function RatesAdmin() {
   const allSelected =
     filtered.length > 0 && filtered.every((s) => selected.has(s.id));
 
+  function takenServiceIds(exceptId: string): Set<string> {
+    return new Set(
+      specialties
+        .filter((row) => row.id !== exceptId)
+        .flatMap((row) => rowServiceIds(row)),
+    );
+  }
+
   return (
     <div className="w-full px-4 py-6 md:px-6">
       <header className="mb-8 animate-fade-up">
@@ -306,9 +440,10 @@ export function RatesAdmin() {
         </p>
         <h1 className="mt-1 text-3xl font-medium tracking-tight">Ставки</h1>
         <p className="mt-1 text-sm text-[var(--muted)]">
-          Справочник специальностей и базовые ставки. При назначении сотруднику
-          подставляются эти значения — индивидуальные ставки правятся в карточке
-          сотрудника.
+          Справочник специальностей и базовые ставки. К специальности можно
+          привязать несколько услуг из каталога — при добавлении любой из них в
+          смету в спецификации появится запрос на эту специальность.
+          Индивидуальные ставки правятся в карточке сотрудника.
         </p>
       </header>
 
@@ -330,6 +465,7 @@ export function RatesAdmin() {
             <DirectorySelectionActions
               count={selected.size}
               disabled={busy}
+              deleteTitle="Удалить выбранные"
               onDelete={() => setConfirmDelete(true)}
               onCopy={() => void bulk("copy")}
             />
@@ -381,6 +517,17 @@ export function RatesAdmin() {
                 }}
               />
             </label>
+            <div className="text-sm md:col-span-2">
+              <span className="text-[var(--muted)]">Услуги в смете</span>
+              <div className="mt-1">
+                <ServicePicker
+                  selectedIds={newCatalogItemIds}
+                  onChange={setNewCatalogItemIds}
+                  services={services}
+                  takenIds={new Set(specialties.flatMap((row) => rowServiceIds(row)))}
+                />
+              </div>
+            </div>
             <label className="text-sm">
               <span className="text-[var(--muted)]">Ставка час</span>
               <input
@@ -444,6 +591,9 @@ export function RatesAdmin() {
                   Специальность
                 </th>
                 <th className="w-px whitespace-nowrap px-2 py-2 text-left">
+                  Услуги
+                </th>
+                <th className="w-px whitespace-nowrap px-2 py-2 text-left">
                   Час
                 </th>
                 <th className="w-px whitespace-nowrap px-2 py-2 text-left">
@@ -494,6 +644,17 @@ export function RatesAdmin() {
                         onChange={(e) =>
                           updateDraft(s.id, { name: e.target.value })
                         }
+                      />
+                    </td>
+                    <td className="min-w-[16rem] px-2 py-2 text-left align-middle">
+                      <ServicePicker
+                        selectedIds={d.catalogItemIds}
+                        onChange={(catalogItemIds) =>
+                          updateDraft(s.id, { catalogItemIds })
+                        }
+                        services={services}
+                        takenIds={takenServiceIds(s.id)}
+                        extras={s.catalogItems ?? []}
                       />
                     </td>
                     <td className="w-px whitespace-nowrap px-2 py-2 text-left align-middle">
@@ -558,7 +719,7 @@ export function RatesAdmin() {
               {filtered.length === 0 && (
                 <tr>
                   <td
-                    colSpan={8}
+                    colSpan={9}
                     className="px-3 py-8 text-left text-[var(--muted)]"
                   >
                     Специальностей пока нет
@@ -572,9 +733,9 @@ export function RatesAdmin() {
 
       <ConfirmDialog
         open={confirmDelete}
-        title="Отключить специальности"
-        message={`Отключить выбранные специальности (${selected.size})? Назначения в сметах сохранятся.`}
-        confirmLabel="Отключить"
+        title="Удалить специальности"
+        message={`Удалить выбранные специальности (${selected.size}) вместе со ставками? Если специальность уже стоит в смете, удаление не пройдёт.`}
+        confirmLabel="Удалить"
         busy={busy}
         onConfirm={() => void bulk("delete")}
         onCancel={() => setConfirmDelete(false)}

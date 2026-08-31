@@ -6,6 +6,7 @@ import {
   normalizeCashlessPercent,
 } from "./pricing";
 import type { DayMode } from "./types";
+import { zoneDurationDays } from "./quote-assignment-days";
 
 export type CostKind = "equipment" | "service" | "consumable";
 
@@ -198,6 +199,7 @@ export type ZoneInput = {
   sortOrder: number;
   /** false = выключена: не в сумме и не в резерве */
   active?: boolean;
+  workingDayIndexes?: number[] | null;
 };
 
 export function isZoneActive(zone: { active?: boolean | null }): boolean {
@@ -256,7 +258,12 @@ export function calcByZones(
     const zoneBlocks = blocks
       .filter((b) => b.zoneId === z.id)
       .sort((a, b) => a.sortOrder - b.sortOrder);
-    const doc = calcDocument(zoneBlocks, cashless, durationDays, percent);
+    const doc = calcDocument(
+      zoneBlocks,
+      cashless,
+      zoneDurationDays(z.id, durationDays, zones),
+      percent,
+    );
 
     let equipmentTotal = 0;
     let servicesTotal = 0;

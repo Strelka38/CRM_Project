@@ -5,15 +5,6 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 
-const ITEMS = [
-  { href: "/quotes", label: "Сметы" },
-  { href: "/roster", label: "Срост" },
-  { href: "/payroll", label: "Моя ЗП" },
-  { href: "/unpaid", label: "Неоплаченные" },
-  { href: "/statistics", label: "Статистика" },
-  { href: "/calculations", label: "Калькуляции" },
-] as const;
-
 function isItemActive(pathname: string, href: string) {
   // Редактор сметы открывается из календаря — подсвечиваем «Сметы» только на списке.
   if (href === "/quotes") return pathname === "/quotes";
@@ -22,9 +13,20 @@ function isItemActive(pathname: string, href: string) {
 
 export function AccountingMenu({
   variant = "sidebar",
+  showPayouts = false,
 }: {
   variant?: "sidebar" | "top";
+  showPayouts?: boolean;
 }) {
+  const ITEMS = [
+    { href: "/quotes", label: "Сметы" },
+    { href: "/roster", label: "Срост" },
+    { href: "/payroll", label: "Моя ЗП" },
+    ...(showPayouts ? [{ href: "/payouts", label: "Оплаты" }] : []),
+    { href: "/unpaid", label: "Неоплаченные" },
+    { href: "/statistics", label: "Статистика" },
+    { href: "/calculations", label: "Калькуляции" },
+  ];
   const pathname = usePathname();
   const active = ITEMS.some((item) => isItemActive(pathname, item.href));
   const [open, setOpen] = useState(variant === "sidebar" ? active : false);

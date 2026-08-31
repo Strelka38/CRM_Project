@@ -117,6 +117,11 @@ enum EquipmentRepairStatus {
   CLOSED
 }
 
+enum PayoutKind {
+  STAFF_MONTH
+  FREELANCER_EVENT
+}
+
 model User {
   id            String           @id @default(cuid())
   email         String           @unique
@@ -137,6 +142,8 @@ model User {
   /// IANA, по умолчанию Иркутск (UTC+8)
   timezone      String           @default("Asia/Irkutsk")
   weatherPlace  WeatherPlace     @default(IRKUTSK)
+  /// Раздел «Оплаты»: ЗП за прошлый месяц и выплаты фрилансерам
+  canAccessPayments Boolean      @default(false)
   createdAt     DateTime         @default(now())
   updatedAt     DateTime         @updatedAt
   quotes             Quote[]
@@ -156,6 +163,8 @@ model User {
   quoteSnapshotsCreated       QuoteSnapshot[]           @relation("QuoteSnapshotCreatedBy")
   quoteAuditEvents            QuoteAuditEvent[]         @relation("QuoteAuditEventActor")
   specRevisionsCreated        SpecRevision[]            @relation("SpecRevisionCreatedBy")
+  payouts                     Payout[]                  @relation("UserPayouts")
+  payoutsMarked               Payout[]                  @relation("PayoutPaidBy")
 }
 
 model Specialty {
@@ -168,8 +177,22 @@ model Specialty {
   active      Boolean          @default(true)
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
-  users       UserSpecialty[]
-  assignments QuoteAssignment[]
+  users         UserSpecialty[]
+  freelancers   FreelancerSpecialty[]
+  assignments   QuoteAssignment[]
+  catalogItems  SpecialtyCatalogItem[]
+}
+
+/// Услуги / персонал каталога, из которых в спецификации появляется слот этой специальности.
+model SpecialtyCatalogItem {
+  id            String      @id @default(cuid())
+  specialtyId   String
+  specialty     Specialty   @relation(fields: [specialtyId], references: [id], onDelete: Cascade)
+  catalogItemId String      @unique
+  catalogItem   CatalogItem @relation(fields: [catalogItemId], references: [id], onDelete: Cascade)
+  createdAt     DateTime    @default(now())
+
+  @@index([specialtyId])
 }
 
 model UserSpecialty {
@@ -285,6 +308,7 @@ model CatalogItem {
   calendarEntryLines CalendarEntryLine[]
   equipmentUnits   EquipmentUnit[]
   equipmentDocuments EquipmentDocument[]
+  specialtyLinks     SpecialtyCatalogItem[]
 
   @@index([categoryId])
   @@index([itemKind])
@@ -301,6 +325,8 @@ model EquipmentUnit {
   /// Непрозрачный токен для публичного URL /q/[token]
   qrToken       String      @unique
   label         String?
+  /// Склад единицы: ШМ / ДК / NE. Одна фирма — один склад.
+  owner         CatalogOwner?
   active        Boolean     @default(true)
   /// Списана в ремонт — не участвует в складском остатке
   inRepair      Boolean     @default(false)
@@ -315,6 +341,7 @@ model EquipmentUnit {
   @@unique([catalogItemId, unitNumber])
   @@index([catalogItemId])
   @@index([inRepair])
+  @@index([owner])
 }
 
 model EquipmentDocument {
@@ -414,6 +441,63 @@ model Client {
 
   @@index([companyName])
   @@index([inn])
+}
+
+/// Справочник фрилансеров: ФИО + статистика выплат по назначениям в сметах.
+model Freelancer {
+  id          String                @id @default(cuid())
+  name        String
+  comment     String                @default("")
+  active      Boolean               @default(true)
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+  specialties FreelancerSpecialty[]
+
+  @@index([name])
+  @@index([active])
+}
+
+model FreelancerSpecialty {
+  id           String     @id @default(cuid())
+  freelancerId String
+  freelancer   Freelancer @relation(fields: [freelancerId], references: [id], onDelete: Cascade)
+  specialtyId  String
+  specialty    Specialty  @relation(fields: [specialtyId], references: [id], onDelete: Cascade)
+  hourlyRate   Float      @default(0)
+  shiftRate    Float      @default(0)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@unique([freelancerId, specialtyId])
+  @@index([specialtyId])
+}
+
+/// Отметка выплаты: оклад штата за месяц или оплата фрилансеру с мероприятия.
+model Payout {
+  id           String     @id @default(cuid())
+  /// staff:{userId}:{YYYY-MM} | freelancer:{assignmentId}
+  sourceKey    String     @unique
+  kind         PayoutKind
+  /// YYYY-MM
+  periodYm     String
+  userId       String?
+  user         User?      @relation("UserPayouts", fields: [userId], references: [id], onDelete: SetNull)
+  assignmentId String?
+  quoteId      String?
+  payeeName    String
+  amount       Float
+  breakdown    Json?
+  paid         Boolean    @default(false)
+  paidAt       DateTime?
+  paidById     String?
+  paidBy       User?      @relation("PayoutPaidBy", fields: [paidById], references: [id], onDelete: SetNull)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@index([userId, paid])
+  @@index([kind, paid])
+  @@index([periodYm])
+  @@index([paidAt])
 }
 
 /// Юрлицо исполнителя для договор/счёт/акт. Рядом с CatalogOwner, не вместо тегов склада.
@@ -647,6 +731,8 @@ model QuoteZone {
   sortOrder Int          @default(0)
   /// false = выключена (фаза 1.2): не в сумме и не в резерве. Пока не скрывать в UI.
   active    Boolean      @default(true)
+  /// 1-based дни мероприятия, когда зона работает. Пусто = все дни.
+  workingDayIndexes Int[] @default([])
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
   blocks      QuoteBlock[]

@@ -35,7 +35,11 @@ type SettlementQuote = {
   }>;
   calcShares: Array<{ company: CatalogOwnerValue | string; percent: number }>;
   assignments: Parameters<typeof buildLaborAndMontageBreakdown>[0]["assignments"];
-  zones?: Array<{ id: string; active?: boolean | null }>;
+  zones?: Array<{
+    id: string;
+    active?: boolean | null;
+    workingDayIndexes?: number[] | null;
+  }>;
 };
 
 /** Полный расчёт калькуляции + агентские менеджера проекта. */
@@ -77,6 +81,7 @@ export function computeQuoteSettlement(quote: SettlementQuote): {
       company: s.company as CatalogOwnerValue,
       percent: s.percent,
     })),
+    zones: quote.zones,
   });
 
   const revenueByCompany: Partial<Record<CatalogOwnerValue, number>> = {};

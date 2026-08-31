@@ -121,6 +121,7 @@ export async function GET(
         id: unit.id,
         unitNumber: unit.unitNumber,
         label: unit.label,
+        owner: unit.owner,
         qrToken: unit.qrToken,
         inRepair: unit.inRepair,
       },

@@ -11,9 +11,29 @@ export async function POST(req: NextRequest) {
     const ids = [...new Set(body.ids)];
 
     if (body.action === "delete") {
-      const result = await prisma.specialty.updateMany({
+      const inUse = await prisma.quoteAssignment.findMany({
+        where: { specialtyId: { in: ids } },
+        select: { specialtyId: true },
+        distinct: ["specialtyId"],
+      });
+      if (inUse.length > 0) {
+        const blocked = await prisma.specialty.findMany({
+          where: { id: { in: inUse.map((a) => a.specialtyId) } },
+          select: { name: true },
+          orderBy: { name: "asc" },
+        });
+        const names = blocked.map((s) => s.name).join(", ");
+        return NextResponse.json(
+          {
+            error: names
+              ? `Нельзя удалить: есть назначения в сметах (${names})`
+              : "Нельзя удалить: есть назначения в сметах",
+          },
+          { status: 409 },
+        );
+      }
+      const result = await prisma.specialty.deleteMany({
         where: { id: { in: ids } },
-        data: { active: false },
       });
       return NextResponse.json({ ok: true, count: result.count });
     }

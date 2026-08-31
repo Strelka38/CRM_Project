@@ -27,6 +27,7 @@ import {
   parseEventDate,
   startOfDay,
 } from "@/lib/dates";
+import { freelancerNamesMatch } from "@/lib/freelancer-directory";
 import {
   eventDayIndexForDate,
   eventStartDate,
@@ -34,18 +35,27 @@ import {
   groupRosterByEvent,
   groupRosterByKind,
   itemsOnRosterDay,
+  packRosterGroupOffsets,
   personHasRosterRole,
   personMatchesRosterOwners,
+  personMatchesSpecialtyFilter,
   rankRosterPeople,
   rosterBarLabel,
   rosterItemPast,
-  rosterPeopleQueryForSlot,
+  rosterItemMatchesFirms,
+  isVacantInstallerSlot,
+  packRosterLanes,
+  dateInRosterResizeWindow,
+  rosterRangeDuties,
   rosterPersonMatchesQuery,
+  rosterSpecialtyFilterForSlot,
   ROSTER_KIND_COLORS,
   ROSTER_KIND_LABELS,
+  ROSTER_MOUNT_COLOR,
   type RosterItem,
   type RosterKind,
   type RosterPerson,
+  type RosterSpecialtyFilter,
 } from "@/lib/roster";
 
 type RosterSeg = {
@@ -125,6 +135,7 @@ type DragState =
   | {
       mode: "user";
       userId: string;
+      kind: "staff" | "freelancer";
       name: string;
       x: number;
       y: number;
@@ -143,16 +154,19 @@ function FilterChip({
   color,
   active,
   onToggle,
+  title,
 }: {
   label: string;
   color: string;
   active: boolean;
   onToggle: () => void;
+  title?: string;
 }) {
   return (
     <button
       type="button"
       aria-pressed={active}
+      title={title}
       onClick={onToggle}
       className={cn(
         "inline-flex items-center gap-1.5 rounded-full px-1 py-0.5 text-caption transition-opacity hover:text-[var(--ink)]",
@@ -201,29 +215,25 @@ function formatRosterRange(start: Date, end: Date) {
 }
 
 function assignLanes(segs: Omit<RosterSeg, "lane">[]): RosterSeg[] {
-  const sorted = [...segs].sort((a, b) => {
-    if (a.startCol !== b.startCol) return a.startCol - b.startCol;
-    return b.span - a.span;
-  });
-  const laneEnds: number[] = [];
-  return sorted.map((seg) => {
-    let lane = 0;
-    while (lane < laneEnds.length && laneEnds[lane]! > seg.startCol) lane += 1;
-    laneEnds[lane] = seg.startCol + seg.span;
-    return { ...seg, lane };
-  });
+  return packRosterLanes(segs);
 }
 
 function groupKey(item: RosterItem): string {
   return item.quoteId || item.entryId || item.title || item.id;
 }
 
+function colRangeOf(group: Array<{ startCol: number; span: number }>) {
+  const startCol = Math.min(...group.map((s) => s.startCol));
+  const endExclusive = Math.max(...group.map((s) => s.startCol + s.span));
+  return { startCol, endExclusive };
+}
+
 function appendGroupedLanes(
   out: RosterSeg[],
   segs: Omit<RosterSeg, "lane">[],
-  offset: number,
-): number {
-  if (segs.length === 0) return offset;
+  colHeight: number[],
+) {
+  if (segs.length === 0) return;
   const groups = new Map<string, Omit<RosterSeg, "lane">[]>();
   for (const seg of segs) {
     const key = groupKey(seg.item);
@@ -232,18 +242,29 @@ function appendGroupedLanes(
     groups.set(key, list);
   }
   const ordered = [...groups.entries()].sort((a, b) => {
-    const aMin = Math.min(...a[1].map((s) => s.startCol));
-    const bMin = Math.min(...b[1].map((s) => s.startCol));
-    if (aMin !== bMin) return aMin - bMin;
+    const aRange = colRangeOf(a[1]);
+    const bRange = colRangeOf(b[1]);
+    if (aRange.startCol !== bRange.startCol) {
+      return aRange.startCol - bRange.startCol;
+    }
+    const aSpan = aRange.endExclusive - aRange.startCol;
+    const bSpan = bRange.endExclusive - bRange.startCol;
+    if (aSpan !== bSpan) return bSpan - aSpan;
     const aTitle = a[1][0]?.item.title || "";
     const bTitle = b[1][0]?.item.title || "";
     return aTitle.localeCompare(bTitle, "ru");
   });
 
-  let next = offset;
   for (const [, group] of ordered) {
-    const startCol = Math.min(...group.map((s) => s.startCol));
-    const endExclusive = Math.max(...group.map((s) => s.startCol + s.span));
+    const { startCol, endExclusive } = colRangeOf(group);
+    const laid = assignLanes(group);
+    let innerMax = -1;
+    for (const s of laid) if (s.lane > innerMax) innerMax = s.lane;
+    const height = 1 + Math.max(0, innerMax + 1);
+    const offset = packRosterGroupOffsets(
+      [{ startCol, endExclusive, height }],
+      colHeight,
+    )[0]!;
     const sample = group[0]!;
     out.push({
       item: {
@@ -261,29 +282,24 @@ function appendGroupedLanes(
       continuesRight: group.some(
         (s) => s.continuesRight && s.startCol + s.span === endExclusive,
       ),
-      lane: next,
+      lane: offset,
       header: true,
     });
-    next += 1;
-    const laid = assignLanes(group);
-    let max = -1;
     for (const s of laid) {
-      out.push({ ...s, lane: s.lane + next });
-      if (s.lane > max) max = s.lane;
+      out.push({ ...s, lane: s.lane + offset + 1 });
     }
-    next += max + 1;
   }
-  return next;
 }
 
 function assignLanesByKind(segs: Omit<RosterSeg, "lane">[]): RosterSeg[] {
   const out: RosterSeg[] = [];
-  let offset = 0;
+  const colCount = segs.reduce((m, s) => Math.max(m, s.startCol + s.span), 0);
+  const colHeight = Array.from({ length: colCount }, () => 0);
   for (const kind of KIND_ORDER) {
-    offset = appendGroupedLanes(
+    appendGroupedLanes(
       out,
       segs.filter((s) => s.item.kind === kind),
-      offset,
+      colHeight,
     );
   }
   return out;
@@ -364,7 +380,11 @@ function hitTarget(x: number, y: number, ignoreId?: string) {
       | HTMLElement
       | null;
     const userId = userEl?.dataset.rosterUser;
-    if (userId) return { type: "user" as const, userId };
+    if (userId) {
+      const kind =
+        userEl.dataset.rosterKind === "freelancer" ? "freelancer" : "staff";
+      return { type: "user" as const, userId, kind };
+    }
   }
   for (const node of stack) {
     if ((node as HTMLElement).closest?.("[data-roster-unassign]")) {
@@ -398,6 +418,8 @@ export function RosterView() {
   const [viewStart, setViewStart] = useState(() => startOfWeekMonday(new Date()));
   const [items, setItems] = useState<RosterItem[]>([]);
   const [people, setPeople] = useState<RosterPerson[]>([]);
+  const [freelancers, setFreelancers] = useState<RosterPerson[]>([]);
+  const [peopleKind, setPeopleKind] = useState<"staff" | "freelancer">("staff");
   const [kinds, setKinds] = useState<Record<RosterKind, boolean>>({
     EVENT: true,
     RENTAL: true,
@@ -408,6 +430,7 @@ export function RosterView() {
     DIAKOM: true,
     NE_EVENT: true,
   });
+  const [showVacantInstallers, setShowVacantInstallers] = useState(true);
   const [selectedDay, setSelectedDay] = useState(() => startOfDay(new Date()));
   const [dayPanelOpen, setDayPanelOpen] = useState(false);
   const [openQuoteId, setOpenQuoteId] = useState<string | null>(null);
@@ -418,6 +441,8 @@ export function RosterView() {
     entryId: string;
   } | null>(null);
   const [peopleQuery, setPeopleQuery] = useState("");
+  const [specialtyFilter, setSpecialtyFilter] =
+    useState<RosterSpecialtyFilter | null>(null);
   const [peopleOpen, setPeopleOpen] = useState(false);
   const [peopleCursor, setPeopleCursor] = useState(0);
   const [error, setError] = useState("");
@@ -437,6 +462,13 @@ export function RosterView() {
     run: (forcePast: boolean) => Promise<void>;
   } | null>(null);
 
+  function closePeoplePanel() {
+    setPeopleOpen(false);
+    setSelectedSlotId(null);
+    setPeopleQuery("");
+    setSpecialtyFilter(null);
+  }
+
   useEffect(() => {
     if (!peopleOpen && !selectedSlotId) return;
     function onPointerDown(e: PointerEvent) {
@@ -445,9 +477,7 @@ export function RosterView() {
       if (t.closest("[data-roster-people]")) return;
       if (t.closest("[data-roster-slot]")) return;
       if (t.closest("[role='dialog']")) return;
-      setSelectedSlotId(null);
-      setPeopleQuery("");
-      setPeopleOpen(false);
+      closePeoplePanel();
     }
     document.addEventListener("pointerdown", onPointerDown);
     return () => document.removeEventListener("pointerdown", onPointerDown);
@@ -471,6 +501,7 @@ export function RosterView() {
     const data = (await res.json().catch(() => null)) as {
       items?: RosterItem[];
       people?: RosterPerson[];
+      freelancers?: RosterPerson[];
       error?: string;
     } | null;
     if (!res.ok) {
@@ -479,6 +510,7 @@ export function RosterView() {
     }
     setItems(Array.isArray(data?.items) ? data.items : []);
     setPeople(Array.isArray(data?.people) ? data.people : []);
+    setFreelancers(Array.isArray(data?.freelancers) ? data.freelancers : []);
   }
 
   useEffect(() => {
@@ -492,13 +524,15 @@ export function RosterView() {
   const visibleItems = useMemo(() => {
     return items
       .filter((item) => kinds[item.kind])
+      .filter((item) => rosterItemMatchesFirms(item, ownerFilter))
+      .filter((item) => showVacantInstallers || !isVacantInstallerSlot(item))
       .map((item) => {
         if (drag?.mode === "resize" && drag.itemId === item.id) {
           return { ...item, start: drag.start, end: drag.end };
         }
         return item;
       });
-  }, [items, kinds, drag]);
+  }, [items, kinds, ownerFilter, showVacantInstallers, drag]);
 
   const viewLayout = useMemo(
     () => ({ days: visibleDays, segs: segmentsForDays(visibleDays, visibleItems) }),
@@ -518,23 +552,24 @@ export function RosterView() {
   const rangeLabel = formatRosterRange(viewStart, viewEnd);
 
   const rankedPeople = useMemo(() => {
-    const base = people.filter(
+    const source = peopleKind === "freelancer" ? freelancers : people;
+    const base = source.filter(
       (p) =>
         rosterPersonMatchesQuery(p, peopleQuery) &&
-        personMatchesRosterOwners(p, ownerFilter),
+        (peopleKind === "freelancer" ||
+          personMatchesRosterOwners(p, ownerFilter)),
     );
     let pool = base;
-    if (selectedSlot && selectedSlot.assignmentKind !== "MOUNT") {
-      if (selectedSlot.specialtyId || selectedSlot.role) {
-        const matching = base.filter((p) => personHasRosterRole(p, selectedSlot));
-        if (matching.length > 0) pool = matching;
-      }
+    if (specialtyFilter) {
+      pool = base.filter((p) =>
+        personMatchesSpecialtyFilter(p, specialtyFilter),
+      );
     }
     const dates = selectedSlot
       ? eachDateKey(selectedSlot.start, selectedSlot.end)
       : [selectedKey];
     return rankRosterPeople(pool, dates);
-  }, [people, peopleQuery, selectedSlot, selectedKey, ownerFilter]);
+  }, [people, freelancers, peopleKind, peopleQuery, specialtyFilter, selectedSlot, selectedKey, ownerFilter]);
 
   function shiftDays(delta: number) {
     setViewStart((prev) => addDays(prev, delta));
@@ -558,7 +593,7 @@ export function RosterView() {
   useEffect(() => {
     if (!peopleOpen) return;
     setPeopleCursor(0);
-  }, [peopleOpen, selectedSlotId, peopleQuery, ownerFilter]);
+  }, [peopleOpen, selectedSlotId, peopleQuery, specialtyFilter, ownerFilter, peopleKind]);
   useEffect(() => {
     if (peopleCursor < rankedPeople.length) return;
     setPeopleCursor(Math.max(0, rankedPeople.length - 1));
@@ -607,7 +642,8 @@ export function RosterView() {
 
   function selectSlot(item: RosterItem) {
     setSelectedSlotId(item.id);
-    setPeopleQuery(rosterPeopleQueryForSlot(item));
+    setPeopleQuery("");
+    setSpecialtyFilter(rosterSpecialtyFilterForSlot(item));
     setPeopleOpen(true);
     setDayPanelOpen(false);
     setError("");
@@ -630,10 +666,20 @@ export function RosterView() {
     force = false,
     forcePast = false,
   ) {
-    if (item.userId && item.userId === person.id) {
-      setSelectedSlotId(null);
-      setPeopleQuery("");
-      setPeopleOpen(false);
+    if (item.userId && person.kind !== "freelancer" && item.userId === person.id) {
+      closePeoplePanel();
+      return;
+    }
+    if (
+      person.kind === "freelancer" &&
+      item.freelancer &&
+      freelancerNamesMatch(item.name, person.name)
+    ) {
+      closePeoplePanel();
+      return;
+    }
+    if (person.kind === "freelancer" && item.source !== "quote") {
+      setError("Фрилансера можно назначить только на слот сметы");
       return;
     }
     if (rosterItemPast(item) && !forcePast) {
@@ -648,7 +694,7 @@ export function RosterView() {
       );
       return;
     }
-    if (item.quoteId && !force) {
+    if (item.quoteId && person.kind !== "freelancer" && !force) {
       setBusy(true);
       try {
         const checkRes = await fetch(
@@ -680,14 +726,15 @@ export function RosterView() {
       }
     }
     await postMove({
-      source: { type: "user", userId: person.id },
+      source:
+        person.kind === "freelancer"
+          ? { type: "freelancer", freelancerId: person.id }
+          : { type: "user", userId: person.id },
       target: { type: "slot", slot: slotRef(item) },
       forcePast,
     });
-    setSelectedSlotId(null);
-    setPeopleQuery("");
-    setPeopleOpen(false);
     setConflictWarn(null);
+    closePeoplePanel();
   }
 
   async function postMove(body: unknown) {
@@ -717,6 +764,7 @@ export function RosterView() {
     fromDay: number,
     toDay: number,
     forcePast = false,
+    addDuties: Array<"mount" | "demount"> = [],
   ) {
     if (!item.quoteId) return;
     setBusy(true);
@@ -731,6 +779,7 @@ export function RosterView() {
           fromDay,
           toDay,
           forcePast,
+          addDuties,
         }),
       });
       const data = (await res.json().catch(() => null)) as { error?: string } | null;
@@ -783,6 +832,7 @@ export function RosterView() {
     setDrag({
       mode: "user",
       userId: person.id,
+      kind: person.kind === "freelancer" ? "freelancer" : "staff",
       name: person.name,
       x: e.clientX,
       y: e.clientY,
@@ -797,35 +847,14 @@ export function RosterView() {
       if (!dayKey) return;
       const item = items.find((i) => i.id === drag.itemId);
       if (!item?.eventStart) return;
-      const start = eventStartDate({ eventDate: item.eventStart });
-      if (!start) return;
-      const day = parseEventDate(dayKey);
-      if (!day) return;
-      const idx = eventDayIndexForDate(start, item.eventDays, day);
-      if (idx == null) return;
-      const curStart = eventDayIndexForDate(
-        start,
-        item.eventDays,
-        parseEventDate(drag.start) || day,
-      );
-      const curEnd = eventDayIndexForDate(
-        start,
-        item.eventDays,
-        parseEventDate(drag.end) || day,
-      );
-      if (curStart == null || curEnd == null) return;
+      if (!dateInRosterResizeWindow(item, dayKey)) return;
+      if (!parseEventDate(dayKey)) return;
       if (drag.edge === "start") {
-        const next = Math.min(idx, curEnd);
-        setDrag({
-          ...drag,
-          start: formatDateKey(addDays(start, next - 1)),
-        });
+        if (dayKey > drag.end) return;
+        setDrag({ ...drag, start: dayKey });
       } else {
-        const next = Math.max(idx, curStart);
-        setDrag({
-          ...drag,
-          end: formatDateKey(addDays(start, next - 1)),
-        });
+        if (dayKey < drag.start) return;
+        setDrag({ ...drag, end: dayKey });
       }
       return;
     }
@@ -861,20 +890,33 @@ export function RosterView() {
       }
       const start = eventStartDate({ eventDate: item.eventStart });
       if (!start) return;
+      const eventEnd = addDays(start, Math.max(1, item.eventDays) - 1);
+      const spanStart = parseEventDate(current.start);
+      const spanEnd = parseEventDate(current.end);
       const fromDay = eventDayIndexForDate(
         start,
         item.eventDays,
-        parseEventDate(current.start) || start,
+        spanStart && spanStart > start ? spanStart : start,
       );
       const toDay = eventDayIndexForDate(
         start,
         item.eventDays,
-        parseEventDate(current.end) || start,
+        spanEnd && spanEnd < eventEnd ? spanEnd : eventEnd,
       );
-      if (fromDay == null || toDay == null) return;
-      if (item.start === current.start && item.end === current.end) return;
+      const duties = rosterRangeDuties(item, current.start, current.end);
+      const eventChanged =
+        fromDay != null &&
+        toDay != null &&
+        (item.start !== formatDateKey(addDays(start, fromDay - 1)) ||
+          item.end !== formatDateKey(addDays(start, toDay - 1)));
+      if (!eventChanged && duties.length === 0) return;
+      if (item.start === current.start && item.end === current.end && duties.length === 0) {
+        return;
+      }
+      const spanFrom = fromDay ?? 1;
+      const spanTo = toDay ?? item.eventDays;
       confirmIfPast([item], async (forcePast) => {
-        await postSpan(item, fromDay, toDay, forcePast);
+        await postSpan(item, spanFrom, spanTo, forcePast, duties);
       });
       return;
     }
@@ -895,7 +937,8 @@ export function RosterView() {
       if (hit.type !== "slot") return;
       const target = items.find((i) => i.id === hit.id);
       if (!target) return;
-      const person = people.find((p) => p.id === current.userId);
+      const pool = current.kind === "freelancer" ? freelancers : people;
+      const person = pool.find((p) => p.id === current.userId);
       if (!person) return;
       await assignPersonToItem(person, target);
       return;
@@ -918,7 +961,10 @@ export function RosterView() {
     if (hit.type === "user") {
       confirmIfPast([source], async (forcePast) => {
         await postMove({
-          source: { type: "user", userId: hit.userId },
+          source:
+            hit.kind === "freelancer"
+              ? { type: "freelancer", freelancerId: hit.userId }
+              : { type: "user", userId: hit.userId },
           target: { type: "slot", slot: slotRef(source) },
           forcePast,
         });
@@ -959,9 +1005,7 @@ export function RosterView() {
   function onPeopleKeyDown(e: ReactKeyboardEvent) {
     if (e.key === "Escape") {
       e.preventDefault();
-      setPeopleOpen(false);
-      setSelectedSlotId(null);
-      setPeopleQuery("");
+      closePeoplePanel();
       return;
     }
     if (rankedPeople.length === 0) return;
@@ -994,7 +1038,7 @@ export function RosterView() {
         ref={peopleSearchRef}
         value={peopleQuery}
         onChange={(e) => setPeopleQuery(e.target.value)}
-        placeholder="Имя или специальность"
+        placeholder="Фамилия или имя"
         aria-controls="roster-people-list"
         aria-activedescendant={
           highlightedPersonId ? `roster-person-${highlightedPersonId}` : undefined
@@ -1021,6 +1065,9 @@ export function RosterView() {
         {rankedPeople.length === 0 ? (
           <li className="px-1 py-2 text-xs text-[var(--muted)]">
             Никого не найдено
+            {peopleKind === "freelancer"
+              ? ". Специальности задаются в карточке фрилансера."
+              : ""}
           </li>
         ) : (
           rankedPeople.map(({ person: p, free, earnRatio }, idx) => (
@@ -1031,6 +1078,7 @@ export function RosterView() {
                 role="option"
                 aria-selected={highlightedPersonId === p.id}
                 data-roster-user={p.id}
+                data-roster-kind={p.kind === "freelancer" ? "freelancer" : "staff"}
                 onPointerDown={(e) => onUserPointerDown(e, p)}
                 onPointerMove={onPointerMove}
                 onPointerUp={(e) => void onPointerUp(e)}
@@ -1147,6 +1195,7 @@ export function RosterView() {
             label={owner.short}
             color={OWNER_CHIP_COLORS[owner.value]}
             active={ownerFilter[owner.value]}
+            title={`Мероприятия менеджеров ${owner.label}`}
             onToggle={() =>
               setOwnerFilter((prev) => ({
                 ...prev,
@@ -1155,6 +1204,14 @@ export function RosterView() {
             }
           />
         ))}
+        <span className="mx-1 hidden h-3 w-px bg-[var(--line)] sm:inline-block" />
+        <FilterChip
+          label="Пустые монтаж"
+          color={ROSTER_MOUNT_COLOR}
+          active={showVacantInstallers}
+          title="Пустые слоты монтажа и демонтажа"
+          onToggle={() => setShowVacantInstallers((v) => !v)}
+        />
       </div>
 
       {error ? (
@@ -1399,9 +1456,7 @@ export function RosterView() {
             aria-pressed={peopleOpen}
             onClick={() => {
               if (peopleOpen) {
-                setPeopleOpen(false);
-                setSelectedSlotId(null);
-                setPeopleQuery("");
+                closePeoplePanel();
               } else {
                 setPeopleOpen(true);
               }
@@ -1431,9 +1486,34 @@ export function RosterView() {
           </button>
           {peopleOpen ? (
             <div className="roster-people-panel">
-              <h2 className="mb-2 text-xs font-medium uppercase tracking-wider text-[var(--muted)]">
-                Сотрудники
-              </h2>
+              <div className="mb-2 flex rounded-md border border-[var(--line)] p-0.5">
+                <button
+                  type="button"
+                  aria-pressed={peopleKind === "staff"}
+                  onClick={() => setPeopleKind("staff")}
+                  className={cn(
+                    "flex-1 rounded-[5px] px-2 py-1 text-xs font-medium uppercase tracking-wider",
+                    peopleKind === "staff"
+                      ? "bg-[var(--accent)] text-white"
+                      : "text-[var(--muted)] hover:text-[var(--ink)]",
+                  )}
+                >
+                  Сотрудники
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={peopleKind === "freelancer"}
+                  onClick={() => setPeopleKind("freelancer")}
+                  className={cn(
+                    "flex-1 rounded-[5px] px-2 py-1 text-xs font-medium uppercase tracking-wider",
+                    peopleKind === "freelancer"
+                      ? "bg-[var(--accent)] text-white"
+                      : "text-[var(--muted)] hover:text-[var(--ink)]",
+                  )}
+                >
+                  Фрилансеры
+                </button>
+              </div>
               {peopleList}
             </div>
           ) : null}

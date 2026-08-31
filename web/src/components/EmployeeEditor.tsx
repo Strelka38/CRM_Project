@@ -11,6 +11,7 @@ import {
   type CatalogOwnerValue,
 } from "@/lib/catalog-owner";
 import { formatMoney } from "@/lib/format";
+import { formatYearMonthLabel, parseYearMonth } from "@/lib/period";
 import {
   assignableRoles,
   canEditUserRole,
@@ -51,6 +52,7 @@ type UserDetail = {
   owners: CatalogOwnerValue[];
   timezone: string;
   weatherPlace: "IRKUTSK" | "IRKUTSK_OBLAST";
+  canAccessPayments: boolean;
   specialties: UserSpecialtyRow[];
   estimatedSalary?: number;
   payrollRows?: Array<{
@@ -58,6 +60,15 @@ type UserDetail = {
     pay: number;
     specialty: Specialty;
     quote: { id: string; eventName: string; date: string; lifecycle: string };
+  }>;
+  payoutHistory?: Array<{
+    id: string;
+    kind: "STAFF_MONTH" | "FREELANCER_EVENT";
+    periodYm: string;
+    amount: number;
+    paidAt: string | null;
+    paidByName: string | null;
+    quoteId: string | null;
   }>;
 };
 
@@ -113,6 +124,7 @@ export function EmployeeEditor({
         owners: normalizeOwners(u.owners),
         timezone: u.timezone || "Asia/Irkutsk",
         weatherPlace: u.weatherPlace || "IRKUTSK",
+        canAccessPayments: Boolean(u.canAccessPayments),
       });
       setRows(
         u.specialties.map((s) => ({
@@ -158,6 +170,10 @@ export function EmployeeEditor({
         );
       }
     }
+    if (isAdmin) {
+      payload.canAccessPayments = user.canAccessPayments;
+      payload.email = user.email.trim();
+    }
     const res = await fetch(`/api/users/${userId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -165,11 +181,19 @@ export function EmployeeEditor({
     });
     setSaving(false);
     if (!res.ok) {
-      setError("Не удалось сохранить профиль");
+      const data = (await res.json().catch(() => null)) as
+        | { error?: unknown }
+        | null;
+      setError(
+        typeof data?.error === "string"
+          ? data.error
+          : "Не удалось сохранить профиль",
+      );
       return;
     }
     const updated = await res.json();
     setUser((prev) => (prev ? { ...prev, ...updated } : prev));
+    router.refresh();
     if (isAdmin && selfView) {
       await fetch("/api/settings", {
         method: "PATCH",
@@ -383,6 +407,27 @@ export function EmployeeEditor({
                   />
                   Активен
                 </label>
+                {isAdmin ? (
+                  <>
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={user.canAccessPayments}
+                        onChange={(e) =>
+                          setUser({
+                            ...user,
+                            canAccessPayments: e.target.checked,
+                          })
+                        }
+                      />
+                      Раздел «Оплаты»
+                    </label>
+                    <p className="text-caption text-[var(--muted)]">
+                      ЗП сотрудников за прошлый месяц и выплаты фрилансерам с
+                      мероприятий
+                    </p>
+                  </>
+                ) : null}
               </>
             ) : (
               <>
@@ -491,10 +536,30 @@ export function EmployeeEditor({
               E-mail
             </h2>
             <div className="p-4 text-sm">
-              <p className="font-medium">{user.email}</p>
-              <p className="mt-1 text-xs text-[var(--muted)]">
-                Логин нельзя изменить здесь
-              </p>
+              {isAdmin ? (
+                <label className="block">
+                  <input
+                    type="email"
+                    className="field"
+                    autoComplete="off"
+                    value={user.email}
+                    onChange={(e) =>
+                      setUser({ ...user, email: e.target.value })
+                    }
+                  />
+                  <p className="mt-1 text-xs text-[var(--muted)]">
+                    Логин для входа. После смены сотрудник входит по новому
+                    адресу.
+                  </p>
+                </label>
+              ) : (
+                <>
+                  <p className="font-medium">{user.email}</p>
+                  <p className="mt-1 text-xs text-[var(--muted)]">
+                    Логин нельзя изменить здесь
+                  </p>
+                </>
+              )}
               {selfView && (
                 <button
                   type="button"
@@ -698,6 +763,48 @@ export function EmployeeEditor({
                     <td className="px-2 py-2">{r.quote.lifecycle}</td>
                     <td className="px-2 py-2 text-right tabular-nums">
                       {formatMoney(r.pay)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {!selfView && (user.payoutHistory?.length ?? 0) > 0 && (
+        <section className="mt-4 rounded-xl border border-[var(--line)] bg-[var(--panel)] p-4">
+          <h2 className="mb-2 font-display text-lg">История выплат</h2>
+          <div className="data-table-shell overflow-x-auto">
+            <table className="data-table w-full min-w-[520px] text-sm">
+              <thead className="bg-[var(--table-head)] text-xs uppercase text-[var(--muted)]">
+                <tr>
+                  <th className="px-2 py-2 text-left">Период</th>
+                  <th className="px-2 py-2 text-left">Тип</th>
+                  <th className="px-2 py-2 text-right">Сумма</th>
+                  <th className="px-2 py-2 text-left">Когда</th>
+                  <th className="px-2 py-2 text-left">Кто отметил</th>
+                </tr>
+              </thead>
+              <tbody>
+                {user.payoutHistory!.map((r) => (
+                  <tr key={r.id} className="border-t border-[var(--line)]">
+                    <td className="px-2 py-2">
+                      {formatYearMonthLabel(parseYearMonth(r.periodYm))}
+                    </td>
+                    <td className="px-2 py-2">
+                      {r.kind === "STAFF_MONTH" ? "ЗП" : "Фрилансер"}
+                    </td>
+                    <td className="px-2 py-2 text-right tabular-nums">
+                      {formatMoney(r.amount)}
+                    </td>
+                    <td className="px-2 py-2 text-[var(--muted)]">
+                      {r.paidAt
+                        ? new Date(r.paidAt).toLocaleDateString("ru-RU")
+                        : "—"}
+                    </td>
+                    <td className="px-2 py-2 text-[var(--muted)]">
+                      {r.paidByName || "—"}
                     </td>
                   </tr>
                 ))}

@@ -14,7 +14,7 @@ export function uniqueBulkIds(ids: string[], actorId: string): string[] {
   return [...new Set(ids)].filter((id) => id !== actorId);
 }
 
-/** Keep at least one active admin if the batch would remove all of them. */
+/** Keep at least one active admin if the batch would deactivate or delete all of them. */
 export function lastAdminSkipIds(
   targets: UserBulkTarget[],
   activeAdminCount: number,

@@ -7,6 +7,7 @@ import {
   formatDaysWithDates,
   mountAssignments,
   normDayIndex,
+  peakItemQtyByWorkingDay,
   specialistDaysDiffer,
   staffCoverageLines,
   whoWorksView,
@@ -22,6 +23,32 @@ assert.equal(normDayIndex(null), null);
 assert.equal(normDayIndex(0), null);
 assert.equal(dayHeading(1), "(1 день)");
 
+const zonePeaks = peakItemQtyByWorkingDay(
+  [
+    { catalogItemId: "laptop", zoneId: "day-1", qty: 2 },
+    { catalogItemId: "laptop", zoneId: "days-2-4", qty: 4 },
+  ],
+  4,
+  [
+    { id: "day-1", workingDayIndexes: [1] },
+    { id: "days-2-4", workingDayIndexes: [2, 3, 4] },
+  ],
+);
+assert.equal(zonePeaks.get("laptop"), 4);
+
+const overlappingZonePeaks = peakItemQtyByWorkingDay(
+  [
+    { catalogItemId: "laptop", zoneId: "a", qty: 2 },
+    { catalogItemId: "laptop", zoneId: "b", qty: 4 },
+  ],
+  4,
+  [
+    { id: "a", workingDayIndexes: [1, 2] },
+    { id: "b", workingDayIndexes: [2, 3, 4] },
+  ],
+);
+assert.equal(overlappingZonePeaks.get("laptop"), 6);
+
 const sound = { id: "spec-s", name: "Звукооператор" };
 const video = { id: "spec-v", name: "Видеорежиссёр" };
 
@@ -30,6 +57,7 @@ function slot(partial: {
   kind?: "EVENT" | "MOUNT";
   dayIndex?: number | null;
   userId?: string | null;
+  zoneId?: string | null;
   specialty?: { id: string; name: string };
   isFreelancer?: boolean;
   freelancerName?: string;
@@ -123,13 +151,9 @@ const partial = staffCoverageLines(
   3,
   "25.08.2026",
 );
-assert.equal(partial.length, 2);
+assert.equal(partial.length, 1);
 assert.match(partial[0]!.text, /Сидоров/);
 assert.match(partial[0]!.text, /1 день/);
-assert.match(partial[1]!.text, /Нужно назначить/);
-assert.match(partial[1]!.text, /2, 3 день/);
-assert.match(partial[1]!.text, /26 авг/);
-assert.match(partial[1]!.text, /27 авг/);
 
 assert.equal(formatDaysWithDates([2, 3], "25.08.2026").includes("2, 3 день"), true);
 
@@ -156,5 +180,35 @@ assert.notEqual(
   dayRosterFingerprint([slot({ id: "a", userId: "u1" })]),
   dayRosterFingerprint([slot({ id: "b", userId: "u2" })]),
 );
+
+const zoneA = { id: "zone-a", workingDayIndexes: [1, 2] };
+const zoneCoverage = staffCoverageLines(
+  [
+    slot({
+      id: "za",
+      zoneId: "zone-a",
+      userId: null,
+    }),
+  ],
+  4,
+  "24.08.2026",
+  [zoneA],
+);
+assert.equal(zoneCoverage.length, 1);
+assert.match(zoneCoverage[0]!.text, /1, 2 день/);
+assert.doesNotMatch(zoneCoverage[0]!.text, /3 день/);
+
+const zoneInherited = effectiveEventAssignments(
+  [slot({ id: "za", zoneId: "zone-a", userId: "u1" })],
+  3,
+  { eventDays: 4, zones: [zoneA] },
+);
+assert.equal(zoneInherited.length, 0);
+const zoneDay1 = effectiveEventAssignments(
+  [slot({ id: "za", zoneId: "zone-a", userId: "u1" })],
+  1,
+  { eventDays: 4, zones: [zoneA] },
+);
+assert.equal(zoneDay1.length, 1);
 
 console.log("quote-assignment-days.test.ts: ok");

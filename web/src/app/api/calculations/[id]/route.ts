@@ -11,6 +11,7 @@ import { buildCalcLines, defaultLineOverride } from "@/lib/calc-lines";
 import { resolveLineEconomics } from "@/lib/calc-line-cost";
 import { calcBlock, blocksInActiveZones } from "@/lib/quote-calc";
 import { montageBudgetFromBlocks } from "@/lib/quote-assignment-slots";
+import { zoneDurationDays } from "@/lib/quote-assignment-days";
 import {
   amountsFromOverride,
   attachCogsToBreakdown,
@@ -152,6 +153,7 @@ function serialize(quote: NonNullable<Awaited<ReturnType<typeof loadQuote>>>) {
     expenses: [...extraMapped, ...freelancerExpenses],
     sharesCustom: quote.sharesCustom,
     customShares: quote.calcShares,
+    zones: quote.zones,
   });
 
   const overrideByBlock = new Map(
@@ -170,7 +172,7 @@ function serialize(quote: NonNullable<Awaited<ReturnType<typeof loadQuote>>>) {
           itemKind: b.catalogItem?.itemKind ?? null,
         },
         false,
-        quote.durationDays,
+        zoneDurationDays(b.zoneId, quote.durationDays, quote.zones),
       );
       const zone = b.zoneId ? zoneById.get(b.zoneId) : undefined;
       return {
@@ -461,6 +463,7 @@ export async function PATCH(
             lines,
             expenses: [],
             sharesCustom: false,
+            zones: existing.zones,
           });
           shares =
             auto.autoShares.length > 0

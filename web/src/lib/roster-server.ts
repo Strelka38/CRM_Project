@@ -5,9 +5,12 @@ import { notifyEmployeeOfAssignment } from "@/lib/notifications";
 import { addDays, formatDateKey, parseEventDate, startOfDay } from "@/lib/dates";
 import { eventDayIndexForDate, eventStartDate, planAssignmentMove, planAssignmentSpan } from "@/lib/roster";
 import { workingDayCount } from "@/lib/quote-assignment-days";
+import { ensureMountSpecialtyId } from "@/lib/quote-assignment-slots";
+import { mountDutyFlags } from "@/lib/quote-assignments";
 import {
   planMountDutyAssign,
   planMountDutyUnassign,
+  rowHasMountDuty,
   type MountDuty,
   type MountDutyOp,
 } from "@/lib/quote-mount-duty";
@@ -222,9 +225,92 @@ async function executeMountDutyOps(
   });
 }
 
+function alreadyOnDutyMessage(duty: MountDuty): string {
+  return duty === "mount"
+    ? "Этот сотрудник уже на монтаже в этот день"
+    : "Этот сотрудник уже на демонтаже в этот день";
+}
+
+async function applyOpenMountAssign(
+  slot: RosterSlotRef,
+  person: PersonFields,
+  ifAlready: "error" | "skip" = "error",
+) {
+  const duty = slotMountDuty(slot);
+  const quoteId = slot.quoteId;
+  if (!duty || !quoteId) throw new Error("Некорректный слот монтажа");
+  if (!person.userId && !person.isFreelancer) return;
+
+  const existing = person.userId
+    ? await prisma.quoteAssignment.findFirst({
+        where: { quoteId, kind: "MOUNT", userId: person.userId },
+      })
+    : await prisma.quoteAssignment.findFirst({
+        where: {
+          quoteId,
+          kind: "MOUNT",
+          isFreelancer: true,
+          freelancerName: person.freelancerName,
+        },
+      });
+  if (existing) {
+    if (rowHasMountDuty(existing, duty)) {
+      if (ifAlready === "skip") return;
+      throw new Error(alreadyOnDutyMessage(duty));
+    }
+    const flags = mountDutyFlags(existing);
+    await prisma.quoteAssignment.update({
+      where: { id: existing.id },
+      data: {
+        onMount: flags.onMount || duty === "mount",
+        onDemount: flags.onDemount || duty === "demount",
+      },
+    });
+    return;
+  }
+
+  const vacant = await prisma.quoteAssignment.findFirst({
+    where: {
+      quoteId,
+      kind: "MOUNT",
+      userId: null,
+      isFreelancer: false,
+    },
+    orderBy: { createdAt: "asc" },
+  });
+  if (vacant) {
+    await applyMountDutyPerson(
+      { ...slot, assignmentIds: [vacant.id], quoteId },
+      person,
+    );
+    return;
+  }
+
+  const specialtyId = await ensureMountSpecialtyId(prisma);
+  await prisma.quoteAssignment.create({
+    data: {
+      quoteId,
+      userId: person.userId,
+      isFreelancer: person.isFreelancer,
+      freelancerName: person.freelancerName,
+      owners: person.owners,
+      specialtyId,
+      kind: "MOUNT",
+      dayIndex: null,
+      payMode: "SHIFT",
+      onMount: duty === "mount",
+      onDemount: duty === "demount",
+    },
+  });
+}
+
 async function applyMountDutyPerson(slot: RosterSlotRef, person: PersonFields) {
   const duty = slotMountDuty(slot);
   const targetId = slot.assignmentIds[0];
+  if (duty && slot.quoteId && !targetId) {
+    await applyOpenMountAssign(slot, person);
+    return;
+  }
   if (!duty || !targetId || !slot.quoteId) {
     await applyPersonToQuotes(slot.assignmentIds, person);
     return;
@@ -256,10 +342,15 @@ async function applyMountDutyPerson(slot: RosterSlotRef, person: PersonFields) {
       quoteId: slot.quoteId,
       kind: "MOUNT",
       userId: person.userId,
-      specialtyId: target.specialtyId,
       NOT: { id: target.id },
     },
   });
+  if (
+    rowHasMountDuty(existing, duty) ||
+    (target.userId === person.userId && rowHasMountDuty(target, duty))
+  ) {
+    throw new Error(alreadyOnDutyMessage(duty));
+  }
   await executeMountDutyOps(
     planMountDutyAssign({
       duty,
@@ -376,6 +467,71 @@ async function assertUserSpecialty(
   }
 }
 
+async function assertFreelancerSpecialty(
+  freelancerId: string,
+  assignmentIds: string[],
+) {
+  if (assignmentIds.length === 0) return;
+  const row = await prisma.quoteAssignment.findFirst({
+    where: { id: { in: assignmentIds } },
+    select: { kind: true, specialtyId: true, specialty: { select: { name: true } } },
+  });
+  if (!row || row.kind === "MOUNT") return;
+  const has = await prisma.freelancerSpecialty.findUnique({
+    where: {
+      freelancerId_specialtyId: { freelancerId, specialtyId: row.specialtyId },
+    },
+    select: { freelancerId: true },
+  });
+  if (!has) {
+    const role = row.specialty?.name || "этой должности";
+    throw new Error(`У фрилансера нет специальности «${role}»`);
+  }
+}
+
+async function freelancerPerson(freelancerId: string): Promise<PersonFields> {
+  const freelancer = await prisma.freelancer.findFirst({
+    where: { id: freelancerId, active: true },
+    select: { name: true },
+  });
+  if (!freelancer) throw new Error("Фрилансер не найден");
+  return {
+    userId: null,
+    isFreelancer: true,
+    freelancerName: freelancer.name,
+    owners: [],
+  };
+}
+
+async function applyFreelancerRates(assignmentIds: string[], freelancerId: string) {
+  if (assignmentIds.length === 0) return;
+  const rows = await prisma.quoteAssignment.findMany({
+    where: { id: { in: assignmentIds } },
+    select: {
+      id: true,
+      specialtyId: true,
+      payMode: true,
+      rateOverride: true,
+    },
+  });
+  const specs = await prisma.freelancerSpecialty.findMany({
+    where: { freelancerId },
+    select: { specialtyId: true, hourlyRate: true, shiftRate: true },
+  });
+  const bySpec = new Map(specs.map((s) => [s.specialtyId, s]));
+  for (const row of rows) {
+    if (row.rateOverride != null && row.rateOverride > 0) continue;
+    const spec = bySpec.get(row.specialtyId);
+    if (!spec) continue;
+    const rate = row.payMode === "HOURLY" ? spec.hourlyRate : spec.shiftRate;
+    if (!(rate > 0)) continue;
+    await prisma.quoteAssignment.update({
+      where: { id: row.id },
+      data: { rateOverride: rate },
+    });
+  }
+}
+
 async function notifyIfNeeded(quoteId: string, userId: string | null) {
   if (!userId) return;
   const quote = await prisma.quote.findUnique({
@@ -407,8 +563,24 @@ export async function applyRosterAssignUser(
   const person = await staffPerson(userId);
   if (slot.source === "quote") {
     const quoteId = slot.quoteId;
-    if (!quoteId || slot.assignmentIds.length === 0) {
-      throw new Error("Некорректный слот");
+    if (!quoteId) throw new Error("Некорректный слот");
+    if (slot.assignmentIds.length === 0) {
+      if (!slotMountDuty(slot)) throw new Error("Некорректный слот");
+      const dayOffs = await quoteDayOffs(userId, quoteId);
+      if (dayOffs.length > 0) {
+        throw new Error(
+          `У сотрудника выходной: ${dayOffs.map((d) => d.date).join(", ")}`,
+        );
+      }
+      try {
+        await applyOpenMountAssign(slot, person);
+      } catch (e) {
+        const msg = uniqueErrorMessage(e);
+        if (msg) throw new Error(msg);
+        throw e;
+      }
+      await notifyIfNeeded(quoteId, userId);
+      return;
     }
     await assertUserSpecialty(userId, slot.assignmentIds);
     const dayOffs = await quoteDayOffs(userId, quoteId);
@@ -455,6 +627,40 @@ export async function applyRosterAssignUser(
   if (!current.includes(userId)) {
     await setEntryAssignees(entryId, [...current, userId]);
   }
+}
+
+export async function applyRosterAssignFreelancer(
+  slot: RosterSlotRef,
+  freelancerId: string,
+  forcePast = false,
+) {
+  await assertSlotNotPast(slot, forcePast);
+  if (slot.source !== "quote") {
+    throw new Error("Фрилансера можно назначить только на слот сметы");
+  }
+  const quoteId = slot.quoteId;
+  if (!quoteId) throw new Error("Некорректный слот");
+  const person = await freelancerPerson(freelancerId);
+  if (slot.assignmentIds.length === 0) {
+    if (!slotMountDuty(slot)) throw new Error("Некорректный слот");
+    try {
+      await applyOpenMountAssign(slot, person);
+    } catch (e) {
+      const msg = uniqueErrorMessage(e);
+      if (msg) throw new Error(msg);
+      throw e;
+    }
+    return;
+  }
+  await assertFreelancerSpecialty(freelancerId, slot.assignmentIds);
+  try {
+    await applyMountDutyPerson(slot, person);
+  } catch (e) {
+    const msg = uniqueErrorMessage(e);
+    if (msg) throw new Error(msg);
+    throw e;
+  }
+  await applyFreelancerRates(slot.assignmentIds, freelancerId);
 }
 
 export async function applyRosterUnassign(slot: RosterSlotRef, forcePast = false) {
@@ -512,6 +718,21 @@ export async function applyRosterSwap(
       slotMountDuty(a) &&
       slotMountDuty(b);
     if (sameRow) return;
+    if (
+      !slotMountDuty(a) &&
+      slotMountDuty(b) &&
+      (personA.userId || personA.isFreelancer)
+    ) {
+      try {
+        await applyOpenMountAssign(b, personA);
+      } catch (e) {
+        const msg = uniqueErrorMessage(e);
+        if (msg) throw new Error(msg);
+        throw e;
+      }
+      if (b.quoteId) await notifyIfNeeded(b.quoteId, personA.userId);
+      return;
+    }
     if (slotMountDuty(a) || slotMountDuty(b)) {
       try {
         await applyMountDutyPerson(a, emptyPerson());
@@ -813,6 +1034,7 @@ export async function applyRosterSpan(opts: {
   fromDay: number;
   toDay: number;
   forcePast?: boolean;
+  addDuties?: Array<"mount" | "demount">;
 }) {
   await assertQuoteNotPast(opts.quoteId, opts.forcePast);
   const quote = await prisma.quote.findUnique({
@@ -832,6 +1054,10 @@ export async function applyRosterSpan(opts: {
     throw new Error("Слот монтажа нельзя растянуть по дням шоу");
   }
 
+  const addDuties = [...new Set(opts.addDuties || [])].filter(
+    (d): d is "mount" | "demount" => d === "mount" || d === "demount",
+  );
+
   const plan = planAssignmentSpan({
     quoteId: quote.id,
     assignmentIds: assignments.map((a) => a.id),
@@ -840,9 +1066,11 @@ export async function applyRosterSpan(opts: {
     fromDay: opts.fromDay,
     toDay: opts.toDay,
   });
-  if (!plan) throw new Error("Нельзя растянуть слот за пределы мероприятия");
+  if (!plan && addDuties.length === 0) {
+    throw new Error("Нельзя растянуть слот за пределы мероприятия");
+  }
 
-  const template = assignments.find((a) => a.id === plan.createFromId) || assignments[0]!;
+  const template = assignments.find((a) => a.id === plan?.createFromId) || assignments[0]!;
   const emptyPersonData = {
     userId: null as string | null,
     isFreelancer: false,
@@ -851,7 +1079,7 @@ export async function applyRosterSpan(opts: {
   };
 
   try {
-    await prisma.$transaction(async (tx) => {
+    if (plan) await prisma.$transaction(async (tx) => {
       if (plan.vacateIds.length) {
         await tx.quoteAssignment.updateMany({
           where: { id: { in: plan.vacateIds } },
@@ -972,6 +1200,24 @@ export async function applyRosterSpan(opts: {
     if (msg) throw new Error(msg);
     throw e;
   }
+
+  if (addDuties.length) {
+    const person = await quoteSlotPerson(opts.assignmentIds);
+    if (person.userId || person.isFreelancer) {
+      for (const duty of addDuties) {
+        await applyOpenMountAssign(
+          {
+            source: "quote",
+            quoteId: opts.quoteId,
+            assignmentIds: [],
+            mountDuty: duty,
+          },
+          person,
+          "skip",
+        );
+      }
+    }
+  }
 }
 
 export function rosterErrorStatus(e: unknown): { status: number; error: string } {
@@ -979,6 +1225,8 @@ export function rosterErrorStatus(e: unknown): { status: number; error: string }
   const conflict =
     message.includes("выходной") ||
     message.includes("уже занят") ||
+    message.includes("уже на монтаж") ||
+    message.includes("уже на демонтаж") ||
     message.includes("вне дней") ||
     message.includes("прошедш") ||
     message.includes("специальности") ||

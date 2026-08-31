@@ -33,6 +33,7 @@ export type QuoteSnapshotPayload = {
     name: string;
     sortOrder: number;
     active: boolean;
+    workingDayIndexes?: number[];
   }>;
   blocks: Array<{
     id: string;
@@ -79,6 +80,7 @@ type QuoteBody = {
     name: string;
     sortOrder: number;
     active?: boolean;
+    workingDayIndexes?: number[];
   }>;
   blocks: Array<{
     id: string;
@@ -130,6 +132,9 @@ export function buildQuoteSnapshotPayload(quote: QuoteBody): QuoteSnapshotPayloa
         name: z.name,
         sortOrder: z.sortOrder,
         active: z.active !== false,
+        workingDayIndexes: Array.isArray(z.workingDayIndexes)
+          ? z.workingDayIndexes
+          : [],
       })),
     blocks: [...quote.blocks]
       .sort((a, b) => a.sortOrder - b.sortOrder)
@@ -305,6 +310,7 @@ export type QuoteSnapshotPatch = {
     name: string;
     sortOrder: number;
     active: boolean;
+    workingDayIndexes?: number[];
   }>;
   blocks: Array<{
     type: "SECTION" | "ITEM" | "NOTE" | "KIT_HEADER";
@@ -354,6 +360,9 @@ export function snapshotToQuotePatch(
       name: z.name,
       sortOrder: z.sortOrder,
       active: z.active !== false,
+      workingDayIndexes: Array.isArray(z.workingDayIndexes)
+        ? z.workingDayIndexes
+        : [],
     })),
     blocks: payload.blocks
       .filter((b) => SNAPSHOT_BLOCK_TYPES.has(String(b.type)))

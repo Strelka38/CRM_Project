@@ -103,7 +103,7 @@ export function canManageEventAttachments(
   return isManager(role) || role === "BRIGADIER";
 }
 
-/** Database section: catalog, kits, clients, venues, vehicles, users, rates. */
+/** Database section: catalog, kits, clients, venues, vehicles, users, rates, freelancers. */
 export function canAccessDatabase(role: string | null | undefined): boolean {
   return isManager(role) || role === "BRIGADIER";
 }

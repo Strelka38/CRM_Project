@@ -9,6 +9,7 @@ import {
   mountDutyFlags,
   serializeAssignmentPay,
 } from "@/lib/quote-assignments";
+import { ensureFreelancerByName } from "@/lib/freelancer-directory";
 import { quoteZoneIdOrNull } from "@/lib/quote-assignment-slots";
 import { normDayIndex } from "@/lib/quote-assignment-days";
 
@@ -180,6 +181,10 @@ export async function PATCH(
         zone: { select: { id: true, name: true } },
       },
     });
+
+    if (updated.isFreelancer) {
+      await ensureFreelancerByName(updated.freelancerName);
+    }
 
     const full = serializeAssignmentPay({
       ...updated,

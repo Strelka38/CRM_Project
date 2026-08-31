@@ -10,6 +10,8 @@ export type DatabaseBackupTables = {
   kits: unknown[];
   kitComponents: unknown[];
   clients: unknown[];
+  freelancers: unknown[];
+  freelancerSpecialties: unknown[];
   venues: unknown[];
   venuePhotos: unknown[];
   vehicles: unknown[];
@@ -44,6 +46,8 @@ export function emptyBackupCounts(): DatabaseBackupCounts {
     kits: 0,
     kitComponents: 0,
     clients: 0,
+    freelancers: 0,
+    freelancerSpecialties: 0,
     venues: 0,
     venuePhotos: 0,
     vehicles: 0,

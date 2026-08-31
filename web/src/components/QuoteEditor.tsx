@@ -4,6 +4,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type PickedCatalogItem } from "@/components/CatalogPicker";
+import { CatalogReplaceDropTarget } from "@/components/CatalogReplaceDropTarget";
 import { QuoteCatalogSidebar } from "@/components/QuoteCatalogSidebar";
 import { ClientQuickSearch } from "@/components/ClientQuickSearch";
 import { VenueQuickSearch } from "@/components/VenueQuickSearch";
@@ -55,7 +56,15 @@ import {
   BRIGADIER_QUOTE_PATCH_KEYS,
   isQuoteOwnerRole,
 } from "@/lib/roles";
-import { parseTemplatePayload } from "@/lib/quote-structure";
+import { parseEventDate } from "@/lib/dates";
+import {
+  rangeFromWorkingDayIndexes,
+  peakItemQtyByWorkingDay,
+  storedWorkingDayIndexes,
+  workingDayCount,
+  workingDayIndexesFromRange,
+  zoneDurationDays,
+} from "@/lib/quote-assignment-days";
 import {
   isCatalogDrag,
   nearestInsertGap,
@@ -175,6 +184,7 @@ export function QuoteEditor({
   canManageAttachments = false,
   initialZone = null,
   initialPane = null,
+  importUnmatched = null,
 }: {
   quoteId: string;
   isManager?: boolean;
@@ -185,6 +195,7 @@ export function QuoteEditor({
   canManageAttachments?: boolean;
   initialZone?: string | null;
   initialPane?: string | null;
+  importUnmatched?: number | null;
 }) {
   const router = useRouter();
   const viewQuote = isManager || canViewQuote || canEditSpec;
@@ -283,6 +294,9 @@ export function QuoteEditor({
           name: z.name,
           sortOrder: z.sortOrder,
           active: z.active !== false,
+          workingDayIndexes: Array.isArray(z.workingDayIndexes)
+            ? z.workingDayIndexes
+            : [],
         }),
       );
       setZones(loadedZones);
@@ -398,8 +412,22 @@ export function QuoteEditor({
 
   const activeZoneId = activeTab === "summary" ? null : activeTab;
   const insertZoneId = activeZoneId || zones[0]?.id || "";
-  const insertZoneName =
-    zones.find((z) => z.id === insertZoneId)?.name || "";
+  const insertZone = zones.find((z) => z.id === insertZoneId);
+  const insertZoneName = insertZone?.name || "";
+  const insertZoneSchedule = useMemo(() => {
+    if (!meta) {
+      return { date: "", durationDays: 1 };
+    }
+    const start = parseEventDate(meta.date);
+    if (!start || !insertZone) {
+      return { date: meta.date, durationDays: meta.durationDays };
+    }
+    return rangeFromWorkingDayIndexes(
+      start,
+      meta.durationDays,
+      insertZone.workingDayIndexes ?? [],
+    );
+  }, [meta, insertZone]);
 
   const zoneBlocks = useMemo(() => {
     if (!activeZoneId) return [];
@@ -422,10 +450,10 @@ export function QuoteEditor({
     return calcDocument(
       zoneBlocks,
       meta.cashless,
-      meta.durationDays,
+      zoneDurationDays(activeZoneId, meta.durationDays, zones),
       meta.cashlessPercent,
     );
-  }, [zoneBlocks, meta]);
+  }, [zoneBlocks, meta, activeZoneId, zones]);
 
   const blockTotals = useMemo(() => {
     if (activeTab === "summary") {
@@ -457,19 +485,19 @@ export function QuoteEditor({
   }, [zoneCalc.blocks, zoneBlocks]);
 
   const neededByItem = useMemo(() => {
-    const map = new Map<string, number>();
-    const activeIds = new Set(
-      zones.filter((z) => z.active !== false).map((z) => z.id),
+    const activeZones = zones.filter((zone) => zone.active !== false);
+    const activeIds = new Set(activeZones.map((zone) => zone.id));
+    return peakItemQtyByWorkingDay(
+      blocks.filter(
+        (block) =>
+          block.type === "ITEM" &&
+          Boolean(block.catalogItemId) &&
+          (!block.zoneId || activeIds.has(block.zoneId)),
+      ),
+      meta?.durationDays ?? 1,
+      activeZones,
     );
-    for (const b of blocks) {
-      if (b.type !== "ITEM" || !b.catalogItemId) continue;
-      if (b.zoneId && !activeIds.has(b.zoneId)) continue;
-      const q = Number(b.qty) || 0;
-      if (q <= 0) continue;
-      map.set(b.catalogItemId, (map.get(b.catalogItemId) || 0) + q);
-    }
-    return map;
-  }, [blocks, zones]);
+  }, [blocks, meta?.durationDays, zones]);
 
   const catalogIdsKey = useMemo(() => {
     const ids = [
@@ -553,6 +581,9 @@ export function QuoteEditor({
               name: z.name,
               sortOrder: i,
               active: z.active !== false,
+              workingDayIndexes: Array.isArray(z.workingDayIndexes)
+                ? z.workingDayIndexes
+                : [],
             })),
             blocks: nextBlocks.map((b, i) => ({
               type: b.type,
@@ -640,6 +671,7 @@ export function QuoteEditor({
       name: z.name,
       sortOrder: z.sortOrder ?? i,
       active: true,
+      workingDayIndexes: [],
     }));
     if (nextZones.length === 0) {
       throw new Error("В шаблоне нет зон");
@@ -877,6 +909,18 @@ export function QuoteEditor({
     };
   }
 
+  function replaceBlockFromCatalog(key: string, item: PickedCatalogItem) {
+    updateBlock(key, {
+      type: "ITEM",
+      name: item.name,
+      catalogItemId: item.id,
+      kitId: null,
+    });
+    setLineNotice(
+      `Позиция заменена на «${item.name}», количество и расчёт сохранены`,
+    );
+  }
+
   function insertFromCatalogAt(
     index: number,
     item: PickedCatalogItem,
@@ -952,7 +996,7 @@ export function QuoteEditor({
     return (
       <tr key={`gap-${index}`} className="relative h-0 border-0">
         <td
-          colSpan={canEditQuote ? 10 : 9}
+          colSpan={canEditQuote ? 11 : 9}
           className="relative h-0 p-0"
         >
           <div
@@ -972,13 +1016,30 @@ export function QuoteEditor({
     if (!name?.trim()) return;
     setZones((prev) => [
       ...prev,
-      { id, name: name.trim(), sortOrder: prev.length, active: true },
+      { id, name: name.trim(), sortOrder: prev.length, active: true, workingDayIndexes: [] },
     ]);
     setActiveTab(id);
   }
 
   function renameZone(id: string, name: string) {
     setZones((prev) => prev.map((z) => (z.id === id ? { ...z, name } : z)));
+  }
+
+  function setZoneWorkingDays(zoneId: string, workingDayIndexes: number[]) {
+    setZones((prev) =>
+      prev.map((z) => (z.id === zoneId ? { ...z, workingDayIndexes } : z)),
+    );
+  }
+
+  async function saveZoneWorkingDays(zoneId: string, indexes: number[]) {
+    if (!meta) return;
+    const next = storedWorkingDayIndexes(indexes, meta.durationDays);
+    setZoneWorkingDays(zoneId, next);
+    await fetch(`/api/quotes/${quoteId}/zones/${zoneId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ workingDayIndexes: next }),
+    });
   }
 
   function toggleZoneActive(id: string) {
@@ -1019,6 +1080,16 @@ export function QuoteEditor({
     );
   }
 
+  const quoteEventStart = parseEventDate(meta.date);
+  const activeZone = zones.find((z) => z.id === activeTab);
+  const activeZoneRange = quoteEventStart
+    ? rangeFromWorkingDayIndexes(
+        quoteEventStart,
+        meta.durationDays,
+        activeZone?.workingDayIndexes ?? [],
+      )
+    : null;
+
   return (
     <div className="mx-auto flex w-full max-w-[1920px] flex-col gap-3 px-2 py-3 md:px-3">
       <header className="flex flex-col gap-2">
@@ -1055,6 +1126,11 @@ export function QuoteEditor({
                 ? `Сохранено ${savedAt}`
                 : "Автосохранение"}
             {error ? ` · ${error}` : ""}
+            {importUnmatched
+              ? ` · импорт: ${importUnmatched} ${
+                  importUnmatched === 1 ? "позиция не найдена" : "позиций не найдены"
+                } в каталоге, оставлены как свободные строки`
+              : ""}
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-x-3 border-b border-[var(--line)]">
@@ -1553,6 +1629,8 @@ export function QuoteEditor({
               kind="EVENT"
               zones={zones}
               durationDays={meta.durationDays}
+              eventDate={meta.date}
+              onZoneWorkingDaysChange={setZoneWorkingDays}
               onChanged={() => setLaborKey((k) => k + 1)}
             />
             <QuoteAssignments
@@ -1572,8 +1650,8 @@ export function QuoteEditor({
           {isManager ? (
           <QuoteCatalogSidebar
             onPickItem={addFromCatalog}
-            eventDate={meta.date}
-            durationDays={meta.durationDays}
+            eventDate={insertZoneSchedule.date || meta.date}
+            durationDays={insertZoneSchedule.durationDays}
             zoneName={insertZoneName}
             currentQtyByItem={neededByItem}
           />
@@ -1588,7 +1666,42 @@ export function QuoteEditor({
         onDelete={deleteZone}
         onToggleActive={toggleZoneActive}
         canEdit={isManager}
+        eventDate={meta.date}
+        durationDays={meta.durationDays}
       />
+
+      {activeTab !== "summary" &&
+      isManager &&
+      workingDayCount(meta.durationDays) >= 2 ? (
+        <div className="max-w-sm">
+          {quoteEventStart && activeZoneRange ? (
+            <DateRangePicker
+              dense
+              label="Даты зоны"
+              emptyLabel="Выберите даты зоны…"
+              date={activeZoneRange.date}
+              durationDays={activeZoneRange.durationDays}
+              onChange={(date, durationDays) => {
+                const rangeStart = parseEventDate(date);
+                if (!rangeStart || !activeTab) return;
+                void saveZoneWorkingDays(
+                  activeTab,
+                  workingDayIndexesFromRange(
+                    quoteEventStart,
+                    meta.durationDays,
+                    rangeStart,
+                    durationDays,
+                  ),
+                );
+              }}
+            />
+          ) : (
+            <p className="text-xs text-[var(--muted)]">
+              Сначала укажите даты мероприятия — по ним зона попадёт в расчёт дней и календарь Сроста.
+            </p>
+          )}
+        </div>
+      ) : null}
 
       {activeTab === "summary" ? (
         <QuoteSummary
@@ -1631,6 +1744,7 @@ export function QuoteEditor({
               <colgroup>
                 <col />
                 <col className="w-14" />
+                {canEditQuote ? <col className="w-10" /> : null}
                 <col className="w-20" />
                 <col className="w-24" />
                 <col className="w-14" />
@@ -1644,6 +1758,14 @@ export function QuoteEditor({
                 <tr>
                   <th className="px-1.5 py-1.5 text-left">Тип / название</th>
                   <th className="px-1.5 py-1.5">Кол-во</th>
+                  {canEditQuote ? (
+                    <th
+                      className="px-1 py-1.5 text-center"
+                      title="Замена из каталога"
+                    >
+                      ⇄
+                    </th>
+                  ) : null}
                   <th className="px-1.5 py-1.5">Цена</th>
                   <th className="px-1.5 py-1.5">Режим дня</th>
                   <th className="px-1.5 py-1.5">Коэф</th>
@@ -1703,7 +1825,10 @@ export function QuoteEditor({
                           isDropTarget && "ring-2 ring-inset ring-[var(--accent)]",
                         )}
                       >
-                        <td className="px-1.5 py-1" colSpan={8}>
+                        <td
+                          className="px-1.5 py-1"
+                          colSpan={canEditQuote ? 9 : 8}
+                        >
                           <div
                             className={cn(
                               "flex items-center gap-2",
@@ -1845,6 +1970,21 @@ export function QuoteEditor({
                           }}
                         />
                       </td>
+                      {canEditQuote ? (
+                        <td className="px-1 py-1">
+                          <CatalogReplaceDropTarget
+                            disabled={block.type !== "ITEM"}
+                            onDragActiveChange={(active) => {
+                              if (!active) return;
+                              setCatalogOver(false);
+                              setCatalogGapIndex(null);
+                            }}
+                            onReplace={(item) =>
+                              replaceBlockFromCatalog(block.key, item)
+                            }
+                          />
+                        </td>
+                      ) : null}
                       <td className="px-1.5 py-1">
                         <PriceInput
                           className="w-full min-w-0"
@@ -1914,7 +2054,7 @@ export function QuoteEditor({
                 {zoneBlocks.length === 0 && (
                   <tr>
                     <td
-                      colSpan={canEditQuote ? 10 : 9}
+                      colSpan={canEditQuote ? 11 : 9}
                       className="px-4 py-8 text-center text-[var(--muted)]"
                     >
                       {canEditQuote

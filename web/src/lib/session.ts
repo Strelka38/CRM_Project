@@ -176,3 +176,16 @@ export async function requireWorkloadStats() {
   }
   return session;
 }
+
+/** Раздел «Оплаты»: флаг в карточке пользователя, включает админ. */
+export async function requirePaymentsAccess() {
+  const session = await requireSession();
+  const user = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { canAccessPayments: true },
+  });
+  if (!user?.canAccessPayments) {
+    throw jsonError("Forbidden", 403);
+  }
+  return session;
+}

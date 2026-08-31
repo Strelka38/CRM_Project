@@ -43,6 +43,7 @@ export default auth((req) => {
     pathname.startsWith("/clients") ||
     pathname.startsWith("/legal-entities") ||
     pathname.startsWith("/venues") ||
+    pathname.startsWith("/freelancers") ||
     pathname.startsWith("/vehicles") ||
     pathname.startsWith("/equipment") ||
     pathname.startsWith("/repairs") ||

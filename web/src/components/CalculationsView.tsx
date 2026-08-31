@@ -4,21 +4,31 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { formatMoney } from "@/lib/format";
 import { LIST_PERIODS, type ListPeriod } from "@/lib/period";
+import type { CatalogOwnerValue } from "@/lib/catalog-owner";
+import {
+  summaryEventFromCalcRow,
+  type SummaryPerson,
+} from "@/lib/export/calc-summary";
 import { Card, EmptyState, StatusBadge, type LifecycleStatus } from "@/components/ui";
 import {
   DirectoryCardLink,
   DirectoryCsvMenu,
+  DirectoryIconButton,
+  IconExcel,
   downloadCsvRows,
 } from "@/components/DirectoryToolbar";
 
 type Breakdown = {
-  company: string;
+  company: CatalogOwnerValue;
   short: string;
   label: string;
   percent: number;
   revenue: number;
   expenses: number;
   net: number;
+  cogs?: number;
+  agency?: number;
+  agencyCost?: number;
 };
 
 type Row = {
@@ -26,6 +36,7 @@ type Row = {
   proposalNumber: string;
   eventName: string;
   date: string;
+  eventDate?: string | null;
   client: string;
   lifecycle: string;
   paid: boolean;
@@ -37,6 +48,8 @@ type Row = {
   netTotal: number;
   unassignedRevenue: number;
   breakdown: Breakdown[];
+  extraByCompany?: Partial<Record<CatalogOwnerValue, number>>;
+  people?: SummaryPerson[];
 };
 
 export function CalculationsView() {
@@ -54,6 +67,8 @@ export function CalculationsView() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [exporting, setExporting] = useState(false);
+  const [exportHint, setExportHint] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -94,16 +109,38 @@ export function CalculationsView() {
   const allSelected = rows.length > 0 && rows.every((r) => selected.has(r.id));
 
   function toggleAll() {
+    setExportHint("");
     setSelected(allSelected ? new Set() : new Set(rows.map((r) => r.id)));
   }
 
   function toggleOne(id: string) {
+    setExportHint("");
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
+  }
+
+  async function exportExcel() {
+    const list = rows.filter((r) => selected.has(r.id));
+    if (list.length === 0) {
+      setExportHint("Отметьте калькуляции галочками");
+      return;
+    }
+    setExportHint("");
+    setExporting(true);
+    try {
+      const { exportCalcSummaryExcel } = await import(
+        "@/lib/export/calc-summary-excel"
+      );
+      await exportCalcSummaryExcel(list.map(summaryEventFromCalcRow));
+    } catch {
+      setExportHint("Не удалось собрать Excel");
+    } finally {
+      setExporting(false);
+    }
   }
 
   function exportCsv() {
@@ -181,8 +218,30 @@ export function CalculationsView() {
             <option value="all">Все (кроме отменённых)</option>
           </select>
         </label>
-        <DirectoryCsvMenu onExport={exportCsv} />
+        <DirectoryCsvMenu
+          onExport={exportCsv}
+          onExportExcel={() => void exportExcel()}
+          excelDisabled={selected.size === 0 || exporting}
+          excelHint="Отметьте калькуляции галочками"
+          busy={exporting}
+        />
+        <DirectoryIconButton
+          title={
+            selected.size === 0
+              ? "Отметьте калькуляции галочками"
+              : exporting
+                ? "Excel…"
+                : "Сводная Excel по выбранным"
+          }
+          disabled={selected.size === 0 || exporting}
+          onClick={() => void exportExcel()}
+        >
+          <IconExcel />
+        </DirectoryIconButton>
       </div>
+      {exportHint ? (
+        <p className="mb-3 text-sm text-[var(--danger)]">{exportHint}</p>
+      ) : null}
 
       {periodLabel ? (
         <p className="mb-4 text-sm text-[var(--muted)]">{periodLabel}</p>

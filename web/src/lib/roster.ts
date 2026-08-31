@@ -11,8 +11,13 @@ import {
   isVacantAssignment,
   mountDutyFlags,
 } from "@/lib/quote-assignments";
-import { normDayIndex, workingDayCount } from "@/lib/quote-assignment-days";
-import type { CatalogOwnerValue } from "@/lib/catalog-owner";
+import {
+  normDayIndex,
+  workingDayCount,
+  zoneWorkingDays,
+  type ZoneWorkingDays,
+} from "@/lib/quote-assignment-days";
+import { CATALOG_OWNERS, type CatalogOwnerValue } from "@/lib/catalog-owner";
 import { staffRoleLabel } from "@/lib/staff-slots";
 
 export type RosterKind = "EVENT" | "RENTAL" | "TASK";
@@ -44,6 +49,7 @@ export type RosterPerson = {
   monthEarned?: number;
   /** YYYY-MM-DD, когда человек уже занят. */
   busyDates?: string[];
+  kind?: "staff" | "freelancer";
 };
 
 export type RosterItem = {
@@ -74,6 +80,12 @@ export type RosterItem = {
   mountDuty: "mount" | "demount" | null;
   /** Индекс пустого слота той же роли в этот день — чтобы склеить ×N по дням. */
   slotOrdinal: number;
+  /** Фирмы менеджера, который завёл смету / запись. */
+  firmOwners: CatalogOwnerValue[];
+  mountStart: string | null;
+  mountEnd: string | null;
+  demountStart: string | null;
+  demountEnd: string | null;
 };
 
 export type RosterQuoteAssignmentInput = {
@@ -108,7 +120,10 @@ export type RosterQuoteInput = {
   mountDurationDays?: number | null;
   demountDate?: string | null;
   demountDurationDays?: number | null;
+  zones?: ZoneWorkingDays[] | null;
   assignments: RosterQuoteAssignmentInput[];
+  /** Фирмы менеджера-владельца сметы (ШМ / ДК / NE). */
+  firmOwners?: CatalogOwnerValue[] | null;
 };
 
 export type RosterEntryInput = {
@@ -132,6 +147,8 @@ export type RosterEntryInput = {
       lastName?: string;
     } | null;
   }>;
+  /** Фирмы менеджера, который завёл запись. */
+  firmOwners?: CatalogOwnerValue[] | null;
 };
 
 export function rosterPersonName(u: {
@@ -194,14 +211,35 @@ function rangeKeys(start: Date, end: Date): { start: string; end: string } {
   return { start: formatDateKey(start), end: formatDateKey(end) };
 }
 
-function atomicItem(partial: Omit<RosterItem, "color" | "slotOrdinal"> & {
-  slotOrdinal?: number;
-}): RosterItem {
+function atomicItem(
+  partial: Omit<
+    RosterItem,
+    | "color"
+    | "slotOrdinal"
+    | "firmOwners"
+    | "mountStart"
+    | "mountEnd"
+    | "demountStart"
+    | "demountEnd"
+  > & {
+    slotOrdinal?: number;
+    firmOwners?: CatalogOwnerValue[];
+    mountStart?: string | null;
+    mountEnd?: string | null;
+    demountStart?: string | null;
+    demountEnd?: string | null;
+  },
+): RosterItem {
   return {
     ...partial,
     specialtyId: partial.specialtyId ?? null,
     mountDuty: partial.mountDuty ?? null,
     slotOrdinal: partial.slotOrdinal ?? 0,
+    firmOwners: partial.firmOwners ?? [],
+    mountStart: partial.mountStart ?? null,
+    mountEnd: partial.mountEnd ?? null,
+    demountStart: partial.demountStart ?? null,
+    demountEnd: partial.demountEnd ?? null,
     color:
       partial.assignmentKind === "MOUNT" || partial.mountDuty
         ? ROSTER_MOUNT_COLOR
@@ -241,11 +279,15 @@ export function quoteAssignmentRange(
     const d = dateForEventDay(eventStart, day);
     return { start: d, end: d, dayIndexStart: day, dayIndexEnd: day };
   }
+  const zoneDays = zoneWorkingDays(a.zoneId, eventDays, q.zones);
+  const from = zoneDays[0] ?? 1;
+  const to = zoneDays[zoneDays.length - 1] ?? eventDays;
+  const subset = zoneDays.length > 0 && zoneDays.length < eventDays;
   return {
-    start: eventStart,
-    end: addDays(eventStart, eventDays - 1),
-    dayIndexStart: null,
-    dayIndexEnd: null,
+    start: dateForEventDay(eventStart, from),
+    end: dateForEventDay(eventStart, to),
+    dayIndexStart: subset ? from : null,
+    dayIndexEnd: subset ? to : null,
   };
 }
 
@@ -260,6 +302,31 @@ function dateWindowFromField(
   return { start, end: addDays(start, days - 1) };
 }
 
+export function quoteDutyWindows(
+  q: Pick<
+    RosterQuoteInput,
+    "mountDate" | "mountDurationDays" | "demountDate" | "demountDurationDays"
+  >,
+  eventStart: Date,
+  eventDays: number,
+): {
+  mount: { start: Date; end: Date };
+  demount: { start: Date; end: Date };
+} {
+  return {
+    mount: dateWindowFromField(
+      q.mountDate,
+      q.mountDurationDays,
+      addDays(eventStart, -1),
+    ),
+    demount: dateWindowFromField(
+      q.demountDate,
+      q.demountDurationDays,
+      addDays(eventStart, eventDays),
+    ),
+  };
+}
+
 export function quoteMountWindows(
   q: RosterQuoteInput,
   a: RosterQuoteAssignmentInput,
@@ -267,27 +334,10 @@ export function quoteMountWindows(
   eventDays: number,
 ): Array<{ duty: "mount" | "demount"; start: Date; end: Date }> {
   const flags = mountDutyFlags(a);
+  const windows = quoteDutyWindows(q, eventStart, eventDays);
   const out: Array<{ duty: "mount" | "demount"; start: Date; end: Date }> = [];
-  if (flags.onMount) {
-    out.push({
-      duty: "mount",
-      ...dateWindowFromField(
-        q.mountDate,
-        q.mountDurationDays,
-        addDays(eventStart, -1),
-      ),
-    });
-  }
-  if (flags.onDemount) {
-    out.push({
-      duty: "demount",
-      ...dateWindowFromField(
-        q.demountDate,
-        q.demountDurationDays,
-        addDays(eventStart, eventDays),
-      ),
-    });
-  }
+  if (flags.onMount) out.push({ duty: "mount", ...windows.mount });
+  if (flags.onDemount) out.push({ duty: "demount", ...windows.demount });
   return out;
 }
 
@@ -297,6 +347,19 @@ export function buildQuoteRosterItems(q: RosterQuoteInput): RosterItem[] {
   const title = quoteTitle(q);
   const eventDays = workingDayCount(q.durationDays);
   const eventStartKey = formatDateKey(eventStart);
+  const firmOwners = [...(q.firmOwners || [])];
+  const dutyWindows = quoteDutyWindows(q, eventStart, eventDays);
+  const mountKeys = rangeKeys(dutyWindows.mount.start, dutyWindows.mount.end);
+  const demountKeys = rangeKeys(
+    dutyWindows.demount.start,
+    dutyWindows.demount.end,
+  );
+  const dutyDates = {
+    mountStart: mountKeys.start,
+    mountEnd: mountKeys.end,
+    demountStart: demountKeys.start,
+    demountEnd: demountKeys.end,
+  };
   const items: RosterItem[] = [];
 
   for (const a of q.assignments) {
@@ -374,9 +437,43 @@ export function buildQuoteRosterItems(q: RosterQuoteInput): RosterItem[] {
           eventDays,
           resizable: !vacant && kind === "EVENT",
           specialtyId: a.specialtyId || a.specialty?.id || null,
+          firmOwners,
+          ...dutyDates,
         }),
       );
     }
+  }
+  for (const duty of ["mount", "demount"] as const) {
+    const keys = duty === "mount" ? mountKeys : demountKeys;
+    items.push(
+      atomicItem({
+        id: `qa:${q.id}:open:${duty}`,
+        source: "quote",
+        kind: "EVENT",
+        assignmentKind: "MOUNT",
+        quoteId: q.id,
+        entryId: null,
+        assignmentIds: [],
+        userId: null,
+        vacant: true,
+        freelancer: false,
+        name: "",
+        role: duty === "mount" ? "монтаж" : "демонтаж",
+        mountDuty: duty,
+        title,
+        subtitle: duty === "mount" ? "монтаж" : "демонтаж",
+        start: keys.start,
+        end: keys.end,
+        dayIndexStart: null,
+        dayIndexEnd: null,
+        eventStart: eventStartKey,
+        eventDays,
+        resizable: false,
+        specialtyId: null,
+        firmOwners,
+        ...dutyDates,
+      }),
+    );
   }
   const vacantOrd = new Map<string, number>();
   for (const item of items) {
@@ -397,6 +494,7 @@ export function buildEntryRosterItems(e: RosterEntryInput): RosterItem[] {
   const keys = rangeKeys(day, day);
   const kind: RosterKind = e.kind;
   const title = entryTitle(e);
+  const firmOwners = [...(e.firmOwners || [])];
   const items: RosterItem[] = [];
   const seen = new Set<string>();
 
@@ -429,6 +527,7 @@ export function buildEntryRosterItems(e: RosterEntryInput): RosterItem[] {
         eventDays: 1,
         resizable: false,
         specialtyId: null,
+        firmOwners,
       }),
     );
   }
@@ -463,6 +562,7 @@ export function buildEntryRosterItems(e: RosterEntryInput): RosterItem[] {
         eventDays: 1,
         resizable: false,
         specialtyId: null,
+        firmOwners,
       }),
     );
   }
@@ -492,6 +592,7 @@ export function buildEntryRosterItems(e: RosterEntryInput): RosterItem[] {
         eventDays: 1,
         resizable: false,
         specialtyId: null,
+        firmOwners,
       }),
     );
   }
@@ -506,7 +607,11 @@ function mergeKey(item: RosterItem): string {
     item.assignmentKind || item.kind,
     item.userId || (item.freelancer ? `fl:${item.name}` : "vacant"),
     item.role,
-    item.vacant ? `vac:${item.slotOrdinal}` : "filled",
+    item.vacant
+      ? item.assignmentIds.length === 0
+        ? "vac:open"
+        : `vac:${item.slotOrdinal}`
+      : "filled",
   ].join("\t");
 }
 
@@ -564,7 +669,7 @@ export function mergeRosterItems(items: RosterItem[]): RosterItem[] {
       const order: Record<RosterKind, number> = { EVENT: 0, RENTAL: 1, TASK: 2 };
       return order[a.kind] - order[b.kind];
     }
-    return (a.name || a.role).localeCompare(b.name || b.role, "ru");
+    return compareRosterLaneItems(a, b);
   });
 }
 
@@ -769,6 +874,42 @@ export function rosterItemPast(
 
 export const ROSTER_MOUNT_SPECIALTY_QUERY = "монтажник";
 
+export type RosterSpecialtyFilter = {
+  id: string | null;
+  name: string;
+};
+
+function specialtyKey(s: { id?: string | null; name?: string | null }): string {
+  const id = String(s.id || "").trim();
+  if (id) return `id:${id}`;
+  return `name:${normalizeRosterSearch(s.name || "")}`;
+}
+
+export function sameRosterSpecialtyFilter(
+  a: RosterSpecialtyFilter | null | undefined,
+  b: RosterSpecialtyFilter | null | undefined,
+): boolean {
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  return specialtyKey(a) === specialtyKey(b);
+}
+
+/** Фильтр специальности при клике на слот — не текст поиска. */
+export function rosterSpecialtyFilterForSlot(
+  item: Pick<
+    RosterItem,
+    "assignmentKind" | "mountDuty" | "specialtyId" | "role"
+  >,
+): RosterSpecialtyFilter | null {
+  if (item.assignmentKind === "MOUNT" || item.mountDuty) {
+    return { id: null, name: ROSTER_MOUNT_SPECIALTY_QUERY };
+  }
+  const name = String(item.role || "").trim();
+  const id = String(item.specialtyId || "").trim() || null;
+  if (!id && !name) return null;
+  return { id, name };
+}
+
 /** Текст в поиске сотрудников при клике на слот. */
 export function rosterPeopleQueryForSlot(
   item: Pick<RosterItem, "assignmentKind" | "mountDuty" | "role">,
@@ -788,19 +929,126 @@ export function personMatchesRosterOwners(
   return owners.some((o) => selected[o]);
 }
 
+export function rosterOwnersAllSelected(
+  selected: Record<CatalogOwnerValue, boolean>,
+): boolean {
+  return CATALOG_OWNERS.every((o) => selected[o.value]);
+}
+
+/** Мероприятие видно, если его завёл менеджер выбранной фирмы. */
+export function rosterItemMatchesFirms(
+  item: { firmOwners?: CatalogOwnerValue[] | null },
+  selected: Record<CatalogOwnerValue, boolean>,
+): boolean {
+  if (rosterOwnersAllSelected(selected)) return true;
+  if (CATALOG_OWNERS.every((o) => !selected[o.value])) return false;
+  const owners = item.firmOwners || [];
+  if (owners.length === 0) return false;
+  return owners.some((o) => selected[o]);
+}
+
+export function isOpenMountDropSlot(
+  item: Pick<RosterItem, "vacant" | "assignmentIds" | "mountDuty">,
+): boolean {
+  return item.vacant && item.assignmentIds.length === 0 && item.mountDuty != null;
+}
+
+export function isVacantInstallerSlot(
+  item: Pick<RosterItem, "vacant" | "assignmentKind" | "mountDuty" | "assignmentIds">,
+): boolean {
+  if (!item.vacant) return false;
+  if (isOpenMountDropSlot(item)) return false;
+  return item.assignmentKind === "MOUNT" || item.mountDuty != null;
+}
+
+export function dateInRosterResizeWindow(
+  item: Pick<
+    RosterItem,
+    | "eventStart"
+    | "eventDays"
+    | "mountStart"
+    | "mountEnd"
+    | "demountStart"
+    | "demountEnd"
+  >,
+  dayKey: string,
+): boolean {
+  if (item.eventStart && item.eventDays > 0) {
+    const start = parseEventDate(item.eventStart);
+    if (start) {
+      const end = formatDateKey(addDays(start, item.eventDays - 1));
+      if (item.eventStart <= dayKey && dayKey <= end) return true;
+    }
+  }
+  if (
+    item.mountStart &&
+    item.mountEnd &&
+    item.mountStart <= dayKey &&
+    dayKey <= item.mountEnd
+  ) {
+    return true;
+  }
+  if (
+    item.demountStart &&
+    item.demountEnd &&
+    item.demountStart <= dayKey &&
+    dayKey <= item.demountEnd
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function rangesOverlap(
+  aStart: string,
+  aEnd: string,
+  bStart: string | null,
+  bEnd: string | null,
+): boolean {
+  if (!bStart || !bEnd) return false;
+  return aStart <= bEnd && aEnd >= bStart;
+}
+
+export function rosterRangeDuties(
+  item: Pick<RosterItem, "mountStart" | "mountEnd" | "demountStart" | "demountEnd">,
+  startKey: string,
+  endKey: string,
+): Array<"mount" | "demount"> {
+  const out: Array<"mount" | "demount"> = [];
+  if (rangesOverlap(startKey, endKey, item.mountStart, item.mountEnd)) {
+    out.push("mount");
+  }
+  if (rangesOverlap(startKey, endKey, item.demountStart, item.demountEnd)) {
+    out.push("demount");
+  }
+  return out;
+}
+
 export function personHasRosterRole(
   person: { specialties?: Array<{ id?: string; name?: string }> },
   item: Pick<RosterItem, "assignmentKind" | "specialtyId" | "role">,
 ): boolean {
   if (item.assignmentKind === "MOUNT") return true;
   if (!item.specialtyId && !item.role) return true;
+  return personMatchesSpecialtyFilter(person, {
+    id: item.specialtyId || null,
+    name: item.role || "",
+  });
+}
+
+export function personMatchesSpecialtyFilter(
+  person: { specialties?: Array<{ id?: string | null; name?: string | null }> },
+  filter: RosterSpecialtyFilter | null | undefined,
+): boolean {
+  if (!filter) return true;
   const specs = person.specialties || [];
-  if (item.specialtyId && specs.some((s) => s.id === item.specialtyId)) {
-    return true;
-  }
-  const role = normalizeRosterSearch(item.role);
-  if (!role) return true;
-  return specs.some((s) => normalizeRosterSearch(s.name || "") === role);
+  if (filter.id && specs.some((s) => s.id === filter.id)) return true;
+  const q = normalizeRosterSearch(filter.name);
+  if (!q) return !filter.id;
+  return specs.some((s) => {
+    const n = normalizeRosterSearch(s.name || "");
+    return n === q || n.includes(q) || q.includes(n);
+  });
 }
 
 export function groupRosterByEvent(
@@ -846,6 +1094,62 @@ export function eachDateKey(start: string, end: string): string[] {
   return out;
 }
 
+/** Занятые слоты выше пустых: «Копняев» над свободным «демонтаж», не под ним. */
+export function compareRosterLaneItems(
+  a: Pick<RosterItem, "vacant" | "name" | "role" | "assignmentIds" | "mountDuty">,
+  b: Pick<RosterItem, "vacant" | "name" | "role" | "assignmentIds" | "mountDuty">,
+): number {
+  const aVac = a.vacant ? 1 : 0;
+  const bVac = b.vacant ? 1 : 0;
+  if (aVac !== bVac) return aVac - bVac;
+  const aOpen = isOpenMountDropSlot(a) ? 1 : 0;
+  const bOpen = isOpenMountDropSlot(b) ? 1 : 0;
+  if (aOpen !== bOpen) return aOpen - bOpen;
+  return (a.name || a.role).localeCompare(b.name || b.role, "ru");
+}
+
+/** Дорожка 0 сверху. Сначала длинные и занятые, пустое поле монтажа — снизу. */
+export function packRosterLanes<
+  T extends {
+    startCol: number;
+    span: number;
+    item: Pick<
+      RosterItem,
+      "vacant" | "name" | "role" | "assignmentIds" | "mountDuty"
+    >;
+  },
+>(segs: T[]): Array<T & { lane: number }> {
+  const sorted = [...segs].sort((a, b) => {
+    if (a.startCol !== b.startCol) return a.startCol - b.startCol;
+    if (a.span !== b.span) return b.span - a.span;
+    return compareRosterLaneItems(a.item, b.item);
+  });
+  const laneEnds: number[] = [];
+  return sorted.map((seg) => {
+    let lane = 0;
+    while (lane < laneEnds.length && laneEnds[lane]! > seg.startCol) lane += 1;
+    laneEnds[lane] = seg.startCol + seg.span;
+    return { ...seg, lane };
+  });
+}
+
+/** Смещения дорожек: группы в разных днях занимают верх колонки, а не лесенку. */
+export function packRosterGroupOffsets(
+  groups: Array<{ startCol: number; endExclusive: number; height: number }>,
+  colHeight: number[] = [],
+): number[] {
+  return groups.map((g) => {
+    let offset = 0;
+    for (let c = g.startCol; c < g.endExclusive; c++) {
+      offset = Math.max(offset, colHeight[c] ?? 0);
+    }
+    for (let c = g.startCol; c < g.endExclusive; c++) {
+      colHeight[c] = offset + g.height;
+    }
+    return offset;
+  });
+}
+
 export function collectBusyDates(
   items: Array<{
     userId?: string | null;
@@ -867,6 +1171,39 @@ export function collectBusyDates(
     for (const day of eachDateKey(item.start, item.end)) add(item.userId, day);
   }
   for (const row of extra || []) add(row.userId, row.date);
+  const out: Record<string, string[]> = {};
+  for (const [id, set] of map) out[id] = [...set].sort();
+  return out;
+}
+
+export function collectFreelancerBusyDates(
+  items: Array<{
+    freelancer?: boolean;
+    vacant?: boolean;
+    name: string;
+    start: string;
+    end: string;
+  }>,
+  freelancers: Array<{ id: string; name: string }>,
+): Record<string, string[]> {
+  const idByKey = new Map<string, string>();
+  for (const f of freelancers) {
+    const key = f.name.trim().replace(/\s+/g, " ").toLowerCase();
+    if (key) idByKey.set(key, f.id);
+  }
+  const map = new Map<string, Set<string>>();
+  function add(id: string, date: string) {
+    if (!id || !date) return;
+    const set = map.get(id) || new Set<string>();
+    set.add(date);
+    map.set(id, set);
+  }
+  for (const item of items) {
+    if (item.vacant || !item.freelancer) continue;
+    const id = idByKey.get(item.name.trim().replace(/\s+/g, " ").toLowerCase());
+    if (!id) continue;
+    for (const day of eachDateKey(item.start, item.end)) add(id, day);
+  }
   const out: Record<string, string[]> = {};
   for (const [id, set] of map) out[id] = [...set].sort();
   return out;
@@ -933,7 +1270,6 @@ export function rosterPersonMatchesQuery(
     person.name,
     person.firstName,
     person.lastName,
-    ...(person.specialties || []).map((s) => s.name),
   ]
     .map((s) => normalizeRosterSearch(String(s || "")))
     .filter(Boolean);

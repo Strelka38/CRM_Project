@@ -4,6 +4,11 @@ import {
   parseCsv,
   toCsv,
 } from "@/lib/catalog-csv";
+import {
+  CATALOG_OWNERS,
+  type CatalogOwnerValue,
+} from "@/lib/catalog-owner";
+import { parseOwnerCsv } from "@/lib/directory-csv";
 import { newQrToken } from "@/lib/uploads";
 
 export { catalogItemToCsvCells, parseCatalogCsv, toCsv };
@@ -15,6 +20,7 @@ export const WAREHOUSE_UNIT_HEADERS = [
   "Название",
   "№",
   "Метка",
+  "Склад",
   "QR-токен",
   "Активна",
   "В ремонте",
@@ -30,6 +36,7 @@ export type WarehouseUnitCsvRow = {
   itemName: string;
   unitNumber: number;
   label: string | null;
+  owner: CatalogOwnerValue | null;
   qrToken: string | null;
   active: boolean;
   inRepair: boolean;
@@ -83,11 +90,17 @@ export function detectWarehouseCsvKind(
   return "unknown";
 }
 
+function formatOwnerCsv(owner: CatalogOwnerValue | null | undefined) {
+  if (!owner) return "";
+  return CATALOG_OWNERS.find((o) => o.value === owner)?.short ?? owner;
+}
+
 export function warehouseUnitToCsvCells(unit: {
   id: string;
   catalogItemId: string;
   unitNumber: number;
   label: string | null;
+  owner?: CatalogOwnerValue | null;
   qrToken: string;
   active: boolean;
   inRepair: boolean;
@@ -105,6 +118,7 @@ export function warehouseUnitToCsvCells(unit: {
     unit.catalogItem.name,
     String(unit.unitNumber),
     unit.label ?? "",
+    formatOwnerCsv(unit.owner),
     unit.qrToken,
     unit.active ? "1" : "0",
     unit.inRepair ? "1" : "0",
@@ -168,6 +182,7 @@ export function parseWarehouseUnitsCsv(text: string): {
       itemName: cell(map, line, "Название", "name").trim(),
       unitNumber,
       label: cell(map, line, "Метка", "label").trim() || null,
+      owner: parseOwnerCsv(cell(map, line, "Склад", "owner", "owners")),
       qrToken: qrRaw || null,
       active: bool(cell(map, line, "Активна", "active"), true),
       inRepair: bool(cell(map, line, "В ремонте", "inRepair"), false),

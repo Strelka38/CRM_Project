@@ -9,6 +9,7 @@ const ITEMS = [
   { href: "/clients", label: "Клиенты" },
   { href: "/legal-entities", label: "Юрлица" },
   { href: "/venues", label: "Площадки" },
+  { href: "/freelancers", label: "Фрилансеры" },
   { href: "/users", label: "Пользователи" },
   { href: "/rates", label: "Ставки" },
 ] as const;
