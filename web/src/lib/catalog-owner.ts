@@ -1,4 +1,10 @@
-export type CatalogOwnerValue = "SHOW_MASTER" | "DIAKOM" | "NE_EVENT";
+export const CATALOG_OWNER_VALUES = [
+  "SHOW_MASTER",
+  "DIAKOM",
+  "NE_EVENT",
+] as const;
+
+export type CatalogOwnerValue = (typeof CATALOG_OWNER_VALUES)[number];
 
 export const CATALOG_OWNERS: Array<{
   value: CatalogOwnerValue;
@@ -9,6 +15,71 @@ export const CATALOG_OWNERS: Array<{
   { value: "DIAKOM", label: "Диаком", short: "ДК" },
   { value: "NE_EVENT", label: "НеИвент", short: "NE" },
 ];
+
+export function isCatalogOwnerValue(v: unknown): v is CatalogOwnerValue {
+  return (
+    typeof v === "string" &&
+    (CATALOG_OWNER_VALUES as readonly string[]).includes(v)
+  );
+}
+
+export function emptyOwnerAmounts(): Record<CatalogOwnerValue, number> {
+  const out = {} as Record<CatalogOwnerValue, number>;
+  for (const v of CATALOG_OWNER_VALUES) out[v] = 0;
+  return out;
+}
+
+export const OWNER_SHORT: Record<CatalogOwnerValue, string> = Object.fromEntries(
+  CATALOG_OWNERS.map((o) => [o.value, o.short]),
+) as Record<CatalogOwnerValue, string>;
+
+function buildOwnerAliases(): Record<string, CatalogOwnerValue> {
+  const out: Record<string, CatalogOwnerValue> = {};
+  for (const o of CATALOG_OWNERS) {
+    const keys = [
+      o.value,
+      o.short,
+      o.label,
+      o.label.replace(/-/g, " "),
+      o.label.replace(/[\s-]+/g, ""),
+    ];
+    for (const raw of keys) {
+      const key = raw.trim().toUpperCase();
+      if (key) out[key] = o.value;
+    }
+  }
+  return out;
+}
+
+export const OWNER_ALIASES = buildOwnerAliases();
+
+export function parseOwnerToken(raw: string): CatalogOwnerValue | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  return OWNER_ALIASES[trimmed.toUpperCase()] ?? OWNER_ALIASES[trimmed] ?? null;
+}
+
+export function parseOwnersCsv(raw: string): CatalogOwnerValue[] {
+  if (!raw.trim()) return [];
+  const out: CatalogOwnerValue[] = [];
+  for (const part of raw.split(/[;,+|]/)) {
+    const mapped = parseOwnerToken(part);
+    if (mapped && !out.includes(mapped)) out.push(mapped);
+  }
+  return out.slice(0, CATALOG_OWNER_VALUES.length);
+}
+
+export function parseOwnerCsv(raw: string): CatalogOwnerValue | null {
+  return parseOwnersCsv(raw)[0] ?? null;
+}
+
+export function formatOwnersCsv(
+  owners: Array<CatalogOwnerValue | string>,
+): string {
+  return owners
+    .map((o) => (isCatalogOwnerValue(o) ? OWNER_SHORT[o] : o))
+    .join(";");
+}
 
 export function normalizeOwners(
   owners: CatalogOwnerValue[] | null | undefined,
@@ -64,11 +135,7 @@ export function allocateLaborByEmployeeOwners(
   untagged: number;
   total: number;
 } {
-  const byCompany: Record<CatalogOwnerValue, number> = {
-    SHOW_MASTER: 0,
-    DIAKOM: 0,
-    NE_EVENT: 0,
-  };
+  const byCompany = emptyOwnerAmounts();
   let untagged = 0;
   let total = 0;
   for (const item of items) {
@@ -92,11 +159,7 @@ export function allocateByRevenueShare(
   amount: number,
   revenueByCompany: Partial<Record<CatalogOwnerValue, number>>,
 ): Record<CatalogOwnerValue, number> {
-  const out: Record<CatalogOwnerValue, number> = {
-    SHOW_MASTER: 0,
-    DIAKOM: 0,
-    NE_EVENT: 0,
-  };
+  const out = emptyOwnerAmounts();
   const value = Math.max(0, Number(amount) || 0);
   if (value === 0) return out;
   const sum = CATALOG_OWNERS.reduce(

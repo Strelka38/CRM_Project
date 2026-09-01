@@ -4,23 +4,20 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
-
-const ITEMS = [
-  { href: "/catalog", label: "Каталог" },
-  { href: "/repairs", label: "Ремонт" },
-  { href: "/kits", label: "Комплекты" },
-  { href: "/vehicles", label: "Транспорт" },
-] as const;
+import {
+  isNavItemActive,
+  navGroupIsActive,
+  navMenuItems,
+} from "@/lib/nav-sections";
 
 export function WarehouseMenu({
   variant = "sidebar",
 }: {
   variant?: "sidebar" | "top";
 }) {
+  const ITEMS = navMenuItems("warehouse");
   const pathname = usePathname();
-  const active = ITEMS.some(
-    (item) => pathname === item.href || pathname.startsWith(`${item.href}/`),
-  );
+  const active = navGroupIsActive(pathname, "warehouse");
   const [open, setOpen] = useState(variant === "sidebar" ? active : false);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -39,8 +36,7 @@ export function WarehouseMenu({
   }, [open, variant]);
 
   const links = ITEMS.map((item) => {
-    const isActive =
-      pathname === item.href || pathname.startsWith(`${item.href}/`);
+    const isActive = isNavItemActive(pathname, item.href, item.exactActive);
     return (
       <Link
         key={item.href}

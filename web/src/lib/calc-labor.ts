@@ -2,6 +2,7 @@ import {
   allocateByRevenueShare,
   allocateLaborByEmployeeOwners,
   CATALOG_OWNERS,
+  emptyOwnerAmounts,
   splitAmongOwners,
   type CatalogOwnerValue,
 } from "@/lib/catalog-owner";
@@ -70,11 +71,7 @@ export function allocateByEmployeeOwners(
   untagged: number;
   total: number;
 } {
-  const byCompany: Record<CatalogOwnerValue, number> = {
-    SHOW_MASTER: 0,
-    DIAKOM: 0,
-    NE_EVENT: 0,
-  };
+  const byCompany = emptyOwnerAmounts();
   let untagged = 0;
   let total = 0;
   for (const item of items) {

@@ -7,6 +7,12 @@ import type {
   Role,
 } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { isCatalogOwnerValue } from "@/lib/catalog-owner";
+import { DEFAULT_AGENCY_PERCENT } from "@/lib/calc-agency";
+import { DEFAULT_CASHLESS_PERCENT } from "@/lib/pricing";
+import { APP_ROLES } from "@/lib/roles";
+import { DEFAULT_TIMEZONE } from "@/lib/timezone";
+import { newQrToken } from "@/lib/uploads";
 import {
   DATABASE_BACKUP_KIND,
   DATABASE_BACKUP_VERSION,
@@ -15,7 +21,6 @@ import {
   type DatabaseBackupFile,
   type DatabaseBackupTables,
 } from "@/lib/database-backup-format";
-import { newQrToken } from "@/lib/uploads";
 
 export {
   DATABASE_BACKUP_KIND,
@@ -26,8 +31,7 @@ export {
   type DatabaseBackupTables,
 } from "@/lib/database-backup-format";
 
-const ROLES: Role[] = ["ADMIN", "MANAGER", "EMPLOYEE", "BRIGADIER"];
-const OWNERS: CatalogOwner[] = ["SHOW_MASTER", "DIAKOM", "NE_EVENT"];
+const ROLES: Role[] = [...APP_ROLES];
 const CATEGORY_KINDS: CategoryKind[] = ["EQUIPMENT", "PERSONNEL", "OTHER"];
 const ITEM_KINDS: ItemKind[] = [
   "EQUIPMENT",
@@ -94,14 +98,12 @@ function pickEnum<T extends string>(v: unknown, allowed: readonly T[], fallback:
 
 function ownersOf(v: unknown): CatalogOwner[] {
   if (!Array.isArray(v)) return [];
-  return v.filter((x): x is CatalogOwner =>
-    OWNERS.includes(x as CatalogOwner),
-  );
+  return v.filter((x): x is CatalogOwner => isCatalogOwnerValue(x));
 }
 
 function ownerOf(v: unknown): CatalogOwner | null {
-  if (typeof v === "string" && OWNERS.includes(v as CatalogOwner)) {
-    return v as CatalogOwner;
+  if (isCatalogOwnerValue(v)) {
+    return v;
   }
   return null;
 }
@@ -587,10 +589,10 @@ async function importUsers(
       role: pickEnum(rec.role, ROLES, "EMPLOYEE" as Role),
       active: bool(rec.active, true),
       monthlySalary: num(rec.monthlySalary, 0),
-      agencyPercent: num(rec.agencyPercent, 5),
+      agencyPercent: num(rec.agencyPercent, DEFAULT_AGENCY_PERCENT),
       canAccessPayments: bool(rec.canAccessPayments, false),
       owners: ownersOf(rec.owners),
-      timezone: str(rec.timezone, "Asia/Irkutsk") || "Asia/Irkutsk",
+      timezone: str(rec.timezone, DEFAULT_TIMEZONE) || DEFAULT_TIMEZONE,
       weatherPlace: pickEnum(
         rec.weatherPlace,
         ["IRKUTSK", "IRKUTSK_OBLAST"] as const,
@@ -1131,10 +1133,9 @@ async function importLegalEntities(
       continue;
     }
     const catalogOwnerRaw = rec.catalogOwner;
-    const catalogOwner =
-      typeof catalogOwnerRaw === "string" && OWNERS.includes(catalogOwnerRaw as CatalogOwner)
-        ? (catalogOwnerRaw as CatalogOwner)
-        : null;
+    const catalogOwner = isCatalogOwnerValue(catalogOwnerRaw)
+      ? catalogOwnerRaw
+      : null;
     const data = {
       shortName,
       fullName: str(rec.fullName),
@@ -1339,7 +1340,7 @@ async function importQuoteTemplates(
       ownerId,
       discountPercent: num(rec.discountPercent, 0),
       cashless: bool(rec.cashless, true),
-      cashlessPercent: num(rec.cashlessPercent, 10),
+      cashlessPercent: num(rec.cashlessPercent, DEFAULT_CASHLESS_PERCENT),
       notes: notesOf(rec.notes),
       payload: (rec.payload ?? {}) as Prisma.InputJsonValue,
     };

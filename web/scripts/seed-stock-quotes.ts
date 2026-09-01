@@ -3,6 +3,7 @@
  * Run: npx tsx scripts/seed-stock-quotes.ts
  */
 import { PrismaClient, QuoteLifecycle } from "@prisma/client";
+import { QUOTE_OWNER_ROLES } from "../src/lib/roles";
 
 const prisma = new PrismaClient();
 
@@ -39,7 +40,7 @@ const QUOTES = [
 
 async function main() {
   const manager = await prisma.user.findFirst({
-    where: { role: { in: ["ADMIN", "MANAGER"] }, active: true },
+    where: { role: { in: [...QUOTE_OWNER_ROLES] }, active: true },
   });
   if (!manager) throw new Error("No manager user");
 

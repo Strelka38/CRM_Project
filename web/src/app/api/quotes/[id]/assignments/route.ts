@@ -18,6 +18,7 @@ import {
   quoteZoneIdOrNull,
 } from "@/lib/quote-assignment-slots";
 import { normDayIndex } from "@/lib/quote-assignment-days";
+import { catalogOwnerZod } from "@/lib/zod-enums";
 
 async function getAccessibleQuote(id: string, userId: string, role: string) {
   const quote = await prisma.quote.findUnique({ where: { id } });
@@ -39,7 +40,7 @@ const userSelect = {
   owners: true,
 } as const;
 
-const companyEnum = z.enum(["SHOW_MASTER", "DIAKOM", "NE_EVENT"]);
+const companyEnum = catalogOwnerZod;
 
 function stripPay<T extends { pay: number }>(full: T) {
   return {

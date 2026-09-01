@@ -6,6 +6,7 @@ import {
   parseTemplatePayload,
 } from "@/lib/quote-clone";
 import { notifyManagersOfNewEvent } from "@/lib/notifications";
+import { QUOTE_OWNER_ROLES } from "@/lib/roles";
 import { requireManager } from "@/lib/session";
 
 const schema = z.object({
@@ -33,7 +34,7 @@ export async function POST(
 
     const ownerId = body.ownerId || template.ownerId || session.user.id;
     const owner = await prisma.user.findFirst({
-      where: { id: ownerId, role: { in: ["ADMIN", "MANAGER"] }, active: true },
+      where: { id: ownerId, role: { in: [...QUOTE_OWNER_ROLES] }, active: true },
       select: { id: true, name: true },
     });
     if (!owner) {

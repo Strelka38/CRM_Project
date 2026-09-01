@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useId, useRef, useState } from "react";
+import { lifecycleLabel } from "@/components/ui";
 
 export type StockInfo = {
   catalogItemId: string;
@@ -23,8 +24,6 @@ export type StockInfo = {
 };
 
 const LIFE: Record<string, string> = {
-  CONFIRMED: "Подтверждено",
-  COMPLETED: "Завершено",
   RENTAL: "Аренда",
 };
 
@@ -142,7 +141,7 @@ export function StockMarks({
                       </Link>
                     )}
                     <p className="text-[var(--muted)]">
-                      {r.date || "—"} · {LIFE[r.lifecycle] || r.lifecycle} ·{" "}
+                      {r.date || "—"} · {LIFE[r.lifecycle] || lifecycleLabel(r.lifecycle)} ·{" "}
                       занято {r.qty}
                     </p>
                   </li>

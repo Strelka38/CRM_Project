@@ -12,6 +12,7 @@ import {
 } from "@/lib/catalog-owner";
 import { formatMoney } from "@/lib/format";
 import { formatYearMonthLabel, parseYearMonth } from "@/lib/period";
+import { DEFAULT_AGENCY_PERCENT } from "@/lib/calc-agency";
 import {
   assignableRoles,
   canEditUserRole,
@@ -20,7 +21,7 @@ import {
   roleLabelRuTitle,
   type AppRole,
 } from "@/lib/roles";
-import { TIMEZONES } from "@/lib/timezone";
+import { DEFAULT_TIMEZONE, TIMEZONES } from "@/lib/timezone";
 
 type Specialty = {
   id: string;
@@ -97,7 +98,7 @@ export function EmployeeEditor({
   const [addSpecialtyId, setAddSpecialtyId] = useState("");
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
-  const [masterTimezone, setMasterTimezone] = useState("Asia/Irkutsk");
+  const [masterTimezone, setMasterTimezone] = useState(DEFAULT_TIMEZONE);
   const canAdmin = isManager;
   const canChangeAgency = canEditAgency ?? isManager;
   const canChangeRole = canEditUserRole(
@@ -120,9 +121,9 @@ export function EmployeeEditor({
       setUser({
         ...u,
         monthlySalary: u.monthlySalary ?? 0,
-        agencyPercent: u.agencyPercent ?? 5,
+        agencyPercent: u.agencyPercent ?? DEFAULT_AGENCY_PERCENT,
         owners: normalizeOwners(u.owners),
-        timezone: u.timezone || "Asia/Irkutsk",
+        timezone: u.timezone || DEFAULT_TIMEZONE,
         weatherPlace: u.weatherPlace || "IRKUTSK",
         canAccessPayments: Boolean(u.canAccessPayments),
       });

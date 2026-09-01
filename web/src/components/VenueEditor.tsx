@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { lifecycleLabel } from "@/components/ui";
 
 type VenuePhoto = {
   id: string;
@@ -31,13 +32,6 @@ type VenueDetail = {
   active: boolean;
   photos: VenuePhoto[];
   quotes: QuoteRow[];
-};
-
-const LIFE_LABEL: Record<string, string> = {
-  CALCULATED: "Посчитано",
-  CONFIRMED: "Подтверждено",
-  CANCELLED: "Отменено",
-  COMPLETED: "Завершено",
 };
 
 function photoSrc(venueId: string, photo: VenuePhoto) {
@@ -346,7 +340,7 @@ export function VenueEditor({ venueId }: { venueId: string }) {
                     <td className="px-2 py-2">{q.client || "—"}</td>
                     <td className="px-2 py-2">{q.date || "—"}</td>
                     <td className="px-2 py-2">
-                      {LIFE_LABEL[q.lifecycle] || q.lifecycle}
+                      {lifecycleLabel(q.lifecycle)}
                     </td>
                   </tr>
                 ))}

@@ -1,12 +1,7 @@
 import NextAuth from "next-auth";
 import { NextResponse } from "next/server";
 import { authConfig } from "@/lib/auth.config";
-import {
-  canAccessDatabase,
-  canAccessRoster,
-  canAccessWorkloadStats,
-  isManager,
-} from "@/lib/roles";
+import { allowsNavGate, navGateForPath } from "@/lib/nav-sections";
 
 const { auth } = NextAuth(authConfig);
 
@@ -36,40 +31,8 @@ export default auth((req) => {
       ? String(req.auth.user.role)
       : "";
 
-  const isDatabasePath =
-    pathname.startsWith("/catalog") ||
-    pathname.startsWith("/users") ||
-    pathname.startsWith("/kits") ||
-    pathname.startsWith("/clients") ||
-    pathname.startsWith("/legal-entities") ||
-    pathname.startsWith("/venues") ||
-    pathname.startsWith("/freelancers") ||
-    pathname.startsWith("/vehicles") ||
-    pathname.startsWith("/equipment") ||
-    pathname.startsWith("/repairs") ||
-    pathname.startsWith("/rates") ||
-    pathname.startsWith("/backup");
-
-  const isAccountingPath =
-    pathname.startsWith("/calculations") || pathname.startsWith("/unpaid");
-
-  if (isLoggedIn && isDatabasePath && !canAccessDatabase(role)) {
-    return NextResponse.redirect(new URL("/calendar", req.nextUrl.origin));
-  }
-
-  if (
-    isLoggedIn &&
-    pathname.startsWith("/statistics") &&
-    !canAccessWorkloadStats(role)
-  ) {
-    return NextResponse.redirect(new URL("/calendar", req.nextUrl.origin));
-  }
-
-  if (isLoggedIn && pathname.startsWith("/roster") && !canAccessRoster(role)) {
-    return NextResponse.redirect(new URL("/calendar", req.nextUrl.origin));
-  }
-
-  if (isLoggedIn && isAccountingPath && !isManager(role)) {
+  const gate = navGateForPath(pathname);
+  if (isLoggedIn && gate && !allowsNavGate(gate, role)) {
     return NextResponse.redirect(new URL("/calendar", req.nextUrl.origin));
   }
 

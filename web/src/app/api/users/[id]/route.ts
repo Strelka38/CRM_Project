@@ -6,6 +6,8 @@ import {
   normalizeOwners,
   type CatalogOwnerValue,
 } from "@/lib/catalog-owner";
+import { appRoleZod, catalogOwnerZod } from "@/lib/zod-enums";
+import { isStatsLifecycle } from "@/lib/lifecycle";
 import { calcAssignmentPay } from "@/lib/payroll";
 import { isAdmin, isManager } from "@/lib/roles";
 import {
@@ -16,7 +18,7 @@ import {
 } from "@/lib/session";
 import { isKnownTimezone } from "@/lib/timezone";
 
-const companyEnum = z.enum(["SHOW_MASTER", "DIAKOM", "NE_EVENT"]);
+const companyEnum = catalogOwnerZod;
 
 const userSelect = {
   id: true,
@@ -111,7 +113,7 @@ export async function GET(
     });
 
     const estimatedSalary = payrollRows
-      .filter((r) => ["CONFIRMED", "COMPLETED"].includes(r.quote.lifecycle))
+      .filter((r) => isStatsLifecycle(r.quote.lifecycle))
       .reduce((s, r) => s + r.pay, 0);
 
     const payoutHistory = dbAccess
@@ -151,7 +153,7 @@ const patchSchema = z.object({
   email: z.string().email().optional(),
   phone: z.string().optional(),
   comment: z.string().optional(),
-  role: z.enum(["ADMIN", "MANAGER", "EMPLOYEE", "BRIGADIER"]).optional(),
+  role: appRoleZod.optional(),
   active: z.boolean().optional(),
   monthlySalary: z.number().nonnegative().optional(),
   agencyPercent: z.number().min(0).max(100).optional(),

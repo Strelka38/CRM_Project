@@ -2,6 +2,7 @@ import { csvCell, csvHeaderIndex, csvNum } from "@/lib/csv";
 import { parseCsv, toCsv } from "@/lib/catalog-csv";
 import {
   CATALOG_OWNERS,
+  emptyOwnerAmounts,
   normalizeOwners,
   type CatalogOwnerValue,
 } from "@/lib/catalog-owner";
@@ -21,10 +22,8 @@ export const CALC_LINE_CSV_HEADERS = [
   "Закуп",
   "Владельцы",
   "Режим",
-  "ШМ",
-  "ДК",
-  "NE",
-] as const;
+  ...CATALOG_OWNERS.map((o) => o.short),
+];
 
 export const CALC_STAFF_CSV_HEADERS = [
   "ID",
@@ -125,9 +124,9 @@ export function calcLineToCsvCells(row: CalcLineCsvSource): string[] {
     String(Math.round(cost)),
     formatOwnersCsv(row.owners),
     modeLabel(row.mode),
-    String(Math.round(row.amounts.SHOW_MASTER || 0)),
-    String(Math.round(row.amounts.DIAKOM || 0)),
-    String(Math.round(row.amounts.NE_EVENT || 0)),
+    ...CATALOG_OWNERS.map((o) =>
+      String(Math.round(row.amounts[o.value] || 0)),
+    ),
   ];
 }
 
@@ -173,10 +172,15 @@ export function parseCalcLineCsv(text: string): {
     const costRaw = csvCell(map, row, "Закуп", "cost", "costOverride");
     const ownersRaw = csvCell(map, row, "Владельцы", "owners");
     const mode = parseMode(csvCell(map, row, "Режим", "mode"));
-    const sm = csvNum(csvCell(map, row, "ШМ", "SHOW_MASTER"));
-    const dk = csvNum(csvCell(map, row, "ДК", "DIAKOM"));
-    const ne = csvNum(csvCell(map, row, "NE", "NE_EVENT"));
-    const hasAmounts = sm != null || dk != null || ne != null;
+    const amounts = emptyOwnerAmounts();
+    let hasAmounts = false;
+    for (const o of CATALOG_OWNERS) {
+      const n = csvNum(csvCell(map, row, o.short, o.value));
+      if (n != null) {
+        hasAmounts = true;
+        amounts[o.value] = Math.max(0, n);
+      }
+    }
     rows.push({
       blockId,
       hasCost: costRaw.trim() !== "",
@@ -184,13 +188,7 @@ export function parseCalcLineCsv(text: string): {
       hasOwners: ownersRaw.trim() !== "",
       owners: parseOwnersCsv(ownersRaw),
       mode,
-      amounts: hasAmounts
-        ? {
-            SHOW_MASTER: Math.max(0, sm ?? 0),
-            DIAKOM: Math.max(0, dk ?? 0),
-            NE_EVENT: Math.max(0, ne ?? 0),
-          }
-        : null,
+      amounts: hasAmounts ? amounts : null,
     });
   });
   return { rows, errors };

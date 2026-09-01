@@ -10,6 +10,7 @@ import {
   requireDatabaseAccess,
   requireSession,
 } from "@/lib/session";
+import { appRoleZod } from "@/lib/zod-enums";
 
 export async function GET() {
   try {
@@ -60,7 +61,7 @@ const createSchema = z.object({
   patronymic: z.string().optional(),
   phone: z.string().optional(),
   password: z.string().min(6),
-  role: z.enum(["ADMIN", "MANAGER", "EMPLOYEE", "BRIGADIER"]).default("EMPLOYEE"),
+  role: appRoleZod.default("EMPLOYEE"),
 });
 
 export async function POST(req: NextRequest) {

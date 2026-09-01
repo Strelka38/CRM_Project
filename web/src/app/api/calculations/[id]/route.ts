@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { CATALOG_OWNERS, type CatalogOwnerValue } from "@/lib/catalog-owner";
+import { catalogOwnerAmountsZod, catalogOwnerZod } from "@/lib/zod-enums";
 import { applyManagerAgency } from "@/lib/calc-agency";
 import {
   buildFreelancerExpenseInputs,
@@ -20,18 +21,15 @@ import {
 } from "@/lib/quote-calculation";
 import { requireManager } from "@/lib/session";
 
-const companyEnum = z.enum(["SHOW_MASTER", "DIAKOM", "NE_EVENT"]);
+const companyEnum = catalogOwnerZod;
+const amountsZod = catalogOwnerAmountsZod();
 
 const lineOverrideSchema = z.object({
   blockId: z.string().min(1),
   mode: z.enum(["SHARE", "AMOUNT"]),
   ownersCustom: z.boolean(),
   owners: z.array(companyEnum),
-  amounts: z.object({
-    SHOW_MASTER: z.number().min(0),
-    DIAKOM: z.number().min(0),
-    NE_EVENT: z.number().min(0),
-  }),
+  amounts: amountsZod,
   costOverride: z.number().min(0).nullable().optional(),
 });
 
@@ -54,13 +52,7 @@ const patchSchema = z.object({
         mode: z.enum(["SHARE", "AMOUNT"]).optional(),
         company: companyEnum.nullable().optional(),
         owners: z.array(companyEnum).optional(),
-        amounts: z
-          .object({
-            SHOW_MASTER: z.number().min(0),
-            DIAKOM: z.number().min(0),
-            NE_EVENT: z.number().min(0),
-          })
-          .optional(),
+        amounts: amountsZod.optional(),
         sortOrder: z.number().int().optional(),
       }),
     )

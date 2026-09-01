@@ -12,8 +12,9 @@ import {
 import { ensureFreelancerByName } from "@/lib/freelancer-directory";
 import { quoteZoneIdOrNull } from "@/lib/quote-assignment-slots";
 import { normDayIndex } from "@/lib/quote-assignment-days";
+import { catalogOwnerZod } from "@/lib/zod-enums";
 
-const companyEnum = z.enum(["SHOW_MASTER", "DIAKOM", "NE_EVENT"]);
+const companyEnum = catalogOwnerZod;
 
 const patchSchema = z.object({
   payMode: z.enum(["SHIFT", "HOURLY"]).optional(),

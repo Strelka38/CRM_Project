@@ -7,6 +7,7 @@ import {
   CATALOG_OWNERS,
   type CatalogOwnerValue,
 } from "@/lib/catalog-owner";
+import { isStatsLifecycle, STATS_LIFECYCLES } from "@/lib/lifecycle";
 import { calcAssignmentPay } from "@/lib/payroll";
 import {
   formatPeriodLabel,
@@ -45,7 +46,7 @@ export async function GET(req: NextRequest) {
       prisma.quote.findMany({
         where: {
           ...dateFilter,
-          lifecycle: { in: ["CONFIRMED", "COMPLETED"] },
+          lifecycle: { in: [...STATS_LIFECYCLES] },
         },
         orderBy: [{ eventDate: "desc" }, { createdAt: "desc" }],
         include: {
@@ -336,7 +337,7 @@ export async function GET(req: NextRequest) {
       });
 
     const confirmedRows = payrollRows.filter((r) =>
-      ["CONFIRMED", "COMPLETED"].includes(r.quote.lifecycle),
+      isStatsLifecycle(r.quote.lifecycle),
     );
     const pendingRows = payrollRows.filter(
       (r) => r.quote.lifecycle === "CALCULATED",
@@ -366,7 +367,7 @@ export async function GET(req: NextRequest) {
         };
         byEmployeeMap.set(row.user.id, entry);
       }
-      if (["CONFIRMED", "COMPLETED"].includes(row.quote.lifecycle)) {
+      if (isStatsLifecycle(row.quote.lifecycle)) {
         entry.confirmed += row.pay;
         entry.confirmedShifts += 1;
       } else if (row.quote.lifecycle === "CALCULATED") {
@@ -544,7 +545,7 @@ async function buildWorkloadStats({
       };
       byEmployeeMap.set(row.user.id, entry);
     }
-    if (["CONFIRMED", "COMPLETED"].includes(row.quote.lifecycle)) {
+    if (isStatsLifecycle(row.quote.lifecycle)) {
       entry.confirmed += row.pay;
       entry.confirmedShifts += 1;
     } else if (row.quote.lifecycle === "CALCULATED") {
@@ -561,7 +562,7 @@ async function buildWorkloadStats({
   );
 
   const confirmedRows = rows.filter((r) =>
-    ["CONFIRMED", "COMPLETED"].includes(r.quote.lifecycle),
+    isStatsLifecycle(r.quote.lifecycle),
   );
   const pendingRows = rows.filter(
     (r) => r.quote.lifecycle === "CALCULATED",

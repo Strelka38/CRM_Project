@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatMoney } from "@/lib/format";
 import { LegalCardImport } from "@/components/LegalCardImport";
+import { lifecycleLabel } from "@/components/ui";
 
 type ProjectRow = {
   id: string;
@@ -39,13 +40,6 @@ type ClientDetail = {
     paidRevenue: number;
   };
   projects: ProjectRow[];
-};
-
-const LIFE_LABEL: Record<string, string> = {
-  CALCULATED: "Посчитано",
-  CONFIRMED: "Подтверждено",
-  CANCELLED: "Отменено",
-  COMPLETED: "Завершено",
 };
 
 export function ClientEditor({ clientId }: { clientId: string }) {
@@ -346,7 +340,7 @@ export function ClientEditor({ clientId }: { clientId: string }) {
                     <td className="px-2 py-2">{p.eventName || "—"}</td>
                     <td className="px-2 py-2">{p.date || "—"}</td>
                     <td className="px-2 py-2">
-                      {LIFE_LABEL[p.lifecycle] || p.lifecycle}
+                      {lifecycleLabel(p.lifecycle)}
                       {p.paid ? " · оплачено" : ""}
                     </td>
                     <td className="px-2 py-2 text-right tabular-nums">

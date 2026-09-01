@@ -1,5 +1,5 @@
 import ExcelJS from "exceljs";
-import type { CatalogOwnerValue } from "@/lib/catalog-owner";
+import { OWNER_SHORT, type CatalogOwnerValue } from "@/lib/catalog-owner";
 import { safeFilename } from "@/lib/format";
 import {
   buildSummarySheets,
@@ -26,12 +26,6 @@ const BORDER: Partial<ExcelJS.Borders> = {
 const MONEY_FMT = "#,##0";
 const DATE_FMT = "dd.mm.yyyy";
 const DATA_START = 5;
-
-const FIRM_SHORT: Record<CatalogOwnerValue, string> = {
-  NE_EVENT: "NE",
-  DIAKOM: "ДК",
-  SHOW_MASTER: "ШМ",
-};
 
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
@@ -181,7 +175,7 @@ function writeSheet(wb: ExcelJS.Workbook, model: SummarySheetModel) {
     const col = L.firms[company];
     ws.mergeCells(1, col, 3, col);
     paint(ws.getCell(1, col), {
-      value: FIRM_SHORT[company],
+      value: OWNER_SHORT[company],
       bold: true,
       align: "center",
       valign: "middle",

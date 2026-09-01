@@ -1,6 +1,7 @@
 import type { CatalogOwner, CalcLineMode } from "@prisma/client";
 import {
   CATALOG_OWNERS,
+  emptyOwnerAmounts,
   normalizeOwners,
   type CatalogOwnerValue,
 } from "@/lib/catalog-owner";
@@ -11,11 +12,7 @@ import {
   type ZoneWorkingDays,
 } from "@/lib/quote-assignment-days";
 
-export type LineAmountSplit = {
-  SHOW_MASTER: number;
-  DIAKOM: number;
-  NE_EVENT: number;
-};
+export type LineAmountSplit = Record<CatalogOwnerValue, number>;
 
 export type CalcExpenseInput = {
   id?: string;
@@ -84,7 +81,7 @@ export type QuoteCalculationResult = {
 };
 
 export function emptyAmounts(): LineAmountSplit {
-  return { SHOW_MASTER: 0, DIAKOM: 0, NE_EVENT: 0 };
+  return emptyOwnerAmounts();
 }
 
 export function amountsFromOverride(o: {

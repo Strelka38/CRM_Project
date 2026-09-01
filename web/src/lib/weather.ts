@@ -1,3 +1,5 @@
+import { DEFAULT_TIMEZONE } from "@/lib/timezone";
+
 export type WeatherPlaceId = "IRKUTSK" | "IRKUTSK_OBLAST";
 
 export const WEATHER_PLACES: Record<
@@ -58,7 +60,7 @@ export async function fetchWeather(
   const url =
     `https://api.open-meteo.com/v1/forecast?latitude=${loc.lat}` +
     `&longitude=${loc.lon}&current=temperature_2m,weather_code` +
-    `&timezone=Asia/Irkutsk`;
+    `&timezone=${encodeURIComponent(DEFAULT_TIMEZONE)}`;
   try {
     const res = await fetch(url);
     if (!res.ok) return hit?.data ?? null;

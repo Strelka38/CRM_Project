@@ -7,6 +7,7 @@ import {
   legalEntityInclude,
 } from "@/lib/legal-entity";
 import { requireDatabaseAccess, requireSession } from "@/lib/session";
+import { catalogOwnerZod } from "@/lib/zod-enums";
 
 export async function GET(req: NextRequest) {
   try {
@@ -47,7 +48,7 @@ const createSchema = z.object({
   actualAddress: z.string().optional(),
   phone: z.string().optional(),
   email: z.string().optional(),
-  catalogOwner: z.enum(["SHOW_MASTER", "DIAKOM", "NE_EVENT"]).nullable().optional(),
+  catalogOwner: catalogOwnerZod.nullable().optional(),
   signatoryName: z.string().optional(),
   active: z.boolean().optional(),
   accounts: z.array(accountSchema).optional(),

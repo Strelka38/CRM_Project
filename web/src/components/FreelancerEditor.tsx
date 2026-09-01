@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatMoney } from "@/lib/format";
+import { lifecycleLabel } from "@/components/ui";
 
 type PayoutRow = {
   assignmentId: string;
@@ -48,13 +49,6 @@ type FreelancerDetail = {
     showPay: boolean;
   };
   payouts: PayoutRow[];
-};
-
-const LIFE_LABEL: Record<string, string> = {
-  CALCULATED: "Посчитано",
-  CONFIRMED: "Подтверждено",
-  CANCELLED: "Отменено",
-  COMPLETED: "Завершено",
 };
 
 export function FreelancerEditor({ freelancerId }: { freelancerId: string }) {
@@ -438,7 +432,7 @@ export function FreelancerEditor({ freelancerId }: { freelancerId: string }) {
                         : p.specialtyName || "—"}
                     </td>
                     <td className="px-2 py-2">
-                      {LIFE_LABEL[p.lifecycle] || p.lifecycle}
+                      {lifecycleLabel(p.lifecycle)}
                       {p.paid ? " · выплачено" : ""}
                     </td>
                     {stats.showPay ? (

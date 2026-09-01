@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { DEFAULT_CASHLESS_PERCENT } from "./pricing";
 import {
   buildQuoteSnapshotPayload,
   snapshotIdsToPrune,
@@ -36,7 +37,7 @@ const payload = buildQuoteSnapshotPayload({
   managerName: "Менеджер",
   ownerId: "u1",
   cashless: true,
-  cashlessPercent: 10,
+  cashlessPercent: DEFAULT_CASHLESS_PERCENT,
   durationDays: 1,
   notes: [],
   brief: "",

@@ -7,6 +7,33 @@ export function mapCategoryKind(top: string, itemKind: ItemKind): CategoryKind {
   return "EQUIPMENT";
 }
 
+export function categoryPathChain(fullPath: string): string[] {
+  const parts = fullPath
+    .split("/")
+    .map((p) => p.trim())
+    .filter(Boolean);
+  const out: string[] = [];
+  let built = "";
+  for (const name of parts) {
+    built = built ? `${built}/${name}` : name;
+    out.push(built);
+  }
+  return out;
+}
+
+/** Включить раздел и всех предков (после импорта в скрытую ветку). */
+export async function reactivateCategoryPaths(paths: Iterable<string>) {
+  const all = new Set<string>();
+  for (const p of paths) {
+    for (const x of categoryPathChain(p)) all.add(x);
+  }
+  if (all.size === 0) return;
+  await prisma.catalogCategory.updateMany({
+    where: { path: { in: [...all] } },
+    data: { active: true },
+  });
+}
+
 /** Загрузить кэш path → id из БД. */
 export async function loadCategoryPathCache() {
   const cats = await prisma.catalogCategory.findMany({

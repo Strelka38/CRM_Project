@@ -24,7 +24,7 @@ import {
 } from "@/components/DirectoryToolbar";
 import { Button, Card, PageHeader, StatusBadge } from "@/components/ui";
 import type { LifecycleStatus } from "@/components/ui";
-import type { LineAmountSplit } from "@/lib/quote-calculation";
+import { emptyAmounts, type LineAmountSplit } from "@/lib/quote-calculation";
 
 type ShareRow = { company: CatalogOwnerValue; percent: number };
 
@@ -177,11 +177,7 @@ function seedAmounts(
   owners: CatalogOwnerValue[],
   lineTotal: number,
 ): LineAmountSplit {
-  const amounts: LineAmountSplit = {
-    SHOW_MASTER: 0,
-    DIAKOM: 0,
-    NE_EVENT: 0,
-  };
+  const amounts = emptyAmounts();
   const list = normalizeOwners(owners);
   if (list.length === 0 || lineTotal <= 0) return amounts;
   const base = Math.floor(lineTotal / list.length);
@@ -1428,11 +1424,7 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
                   mode: "SHARE",
                   company: null,
                   owners: [],
-                  amounts: {
-                    SHOW_MASTER: 0,
-                    DIAKOM: 0,
-                    NE_EVENT: 0,
-                  },
+                  amounts: emptyAmounts(),
                   sortOrder: prev.length,
                 },
               ])

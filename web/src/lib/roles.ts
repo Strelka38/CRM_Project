@@ -1,13 +1,13 @@
 /** Auth roles and permission helpers (safe for client + server). */
 
-export type AppRole = "ADMIN" | "MANAGER" | "EMPLOYEE" | "BRIGADIER";
-
-export const APP_ROLES: AppRole[] = [
+export const APP_ROLES = [
   "ADMIN",
   "MANAGER",
   "EMPLOYEE",
   "BRIGADIER",
-];
+] as const;
+
+export type AppRole = (typeof APP_ROLES)[number];
 
 /** Roles that can own a quote / act as project manager. */
 export const QUOTE_OWNER_ROLES: AppRole[] = ["ADMIN", "MANAGER"];

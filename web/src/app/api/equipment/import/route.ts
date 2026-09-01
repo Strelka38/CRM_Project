@@ -4,6 +4,7 @@ import { parseCatalogCsv } from "@/lib/catalog-csv";
 import {
   ensureCategoryPath,
   loadCategoryPathCache,
+  reactivateCategoryPaths,
 } from "@/lib/catalog-path";
 import { ensureEquipmentCode, syncEquipmentUnits } from "@/lib/equipment";
 import { requireDatabaseAccess } from "@/lib/session";
@@ -70,6 +71,7 @@ async function importItems(text: string) {
   let created = 0;
   let updated = 0;
   const rowErrors = [...errors];
+  const touchedPaths = new Set<string>();
 
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i];
@@ -83,6 +85,7 @@ async function importItems(text: string) {
         cache,
         "EQUIPMENT",
       );
+      touchedPaths.add(r.categoryPath);
       const data = {
         categoryId,
         name: r.name,
@@ -150,6 +153,8 @@ async function importItems(text: string) {
       rowErrors.push(`Строка ${i + 2}: ${msg}`);
     }
   }
+
+  await reactivateCategoryPaths(touchedPaths);
 
   return {
     kind: "items" as const,

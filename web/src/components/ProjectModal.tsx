@@ -10,6 +10,7 @@ import {
   useFileDrop,
 } from "@/components/FileDrop";
 import { SideDrawer } from "@/components/ui/SideDrawer";
+import { lifecycleLabel } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import {
   endDateFromDuration,
@@ -83,13 +84,6 @@ type Attachment = {
   createdAt: string;
   invoiceSent?: boolean;
   uploader: { id: string; name: string };
-};
-
-const LIFE_LABEL: Record<string, string> = {
-  CALCULATED: "Посчитано",
-  CONFIRMED: "Подтверждено",
-  CANCELLED: "Отменено",
-  COMPLETED: "Завершено",
 };
 
 function formatBytes(n: number) {
@@ -514,7 +508,7 @@ export function ProjectModal({
                     {project.time ? ` · ${project.time}` : ""}
                     {project.place ? ` · ${project.place}` : ""}
                     {" · "}
-                    {LIFE_LABEL[project.lifecycle] || project.lifecycle}
+                    {lifecycleLabel(project.lifecycle)}
                   </p>
                   <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 text-sm">
                     {periodLabel && (

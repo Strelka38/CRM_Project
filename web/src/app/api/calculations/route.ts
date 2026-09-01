@@ -7,6 +7,12 @@ import {
 } from "@/lib/calc-labor";
 import { buildCalcLines } from "@/lib/calc-lines";
 import type { CatalogOwnerValue } from "@/lib/catalog-owner";
+import {
+  isRosterLifecycle,
+  ROSTER_LIFECYCLES,
+  STATS_LIFECYCLES,
+  type RosterLifecycle,
+} from "@/lib/lifecycle";
 import { blocksInActiveZones } from "@/lib/quote-calc";
 import { montageBudgetFromBlocks } from "@/lib/quote-assignment-slots";
 import {
@@ -35,21 +41,12 @@ export async function GET(req: NextRequest) {
 
     const lifecycleWhere =
       lifecycle === "settlement"
-        ? { lifecycle: { in: ["CONFIRMED" as const, "COMPLETED" as const] } }
+        ? { lifecycle: { in: [...STATS_LIFECYCLES] } }
         : lifecycle === "all"
-          ? { lifecycle: { not: "CANCELLED" as const } }
-          : ["CALCULATED", "CONFIRMED", "COMPLETED"].includes(lifecycle)
-            ? {
-                lifecycle: lifecycle as
-                  | "CALCULATED"
-                  | "CONFIRMED"
-                  | "COMPLETED",
-              }
-            : {
-                lifecycle: {
-                  in: ["CONFIRMED" as const, "COMPLETED" as const],
-                },
-              };
+          ? { lifecycle: { in: [...ROSTER_LIFECYCLES] } }
+          : isRosterLifecycle(lifecycle)
+            ? { lifecycle: lifecycle as RosterLifecycle }
+            : { lifecycle: { in: [...STATS_LIFECYCLES] } };
 
     const periodRange =
       period === "all" ? null : getPeriodRange(period);

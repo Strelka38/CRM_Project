@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { calcAssignmentPay } from "@/lib/payroll";
+import { isStatsLifecycle } from "@/lib/lifecycle";
 import { calcByZones } from "@/lib/quote-calc";
 import { requireDatabaseAccess } from "@/lib/session";
 
@@ -97,7 +98,7 @@ export async function GET(
           })
         );
       }, 0);
-      const countsForStats = ["CONFIRMED", "COMPLETED"].includes(q.lifecycle);
+      const countsForStats = isStatsLifecycle(q.lifecycle);
       return {
         id: q.id,
         proposalNumber: q.proposalNumber,

@@ -1,6 +1,8 @@
 import type { CatalogOwner, DayMode, ItemKind } from "@prisma/client";
 import {
+  formatOwnersCsv,
   inferCatalogOwners,
+  parseOwnersCsv,
   type CatalogOwnerValue,
 } from "@/lib/catalog-owner";
 
@@ -71,19 +73,6 @@ const DAY_MODES = new Set<string>([
   "FIXED2",
 ]);
 
-const OWNER_ALIASES: Record<string, CatalogOwnerValue> = {
-  SHOW_MASTER: "SHOW_MASTER",
-  DIAKOM: "DIAKOM",
-  NE_EVENT: "NE_EVENT",
-  ШМ: "SHOW_MASTER",
-  ДК: "DIAKOM",
-  NE: "NE_EVENT",
-  НЕИВЕНТ: "NE_EVENT",
-  "ШОУ-МАСТЕР": "SHOW_MASTER",
-  "ШОУ МАСТЕР": "SHOW_MASTER",
-  ДИАКОМ: "DIAKOM",
-};
-
 export function mapItemKind(typeRaw: string): ItemKind {
   const t = typeRaw.toLowerCase().trim();
   if (!t) return "EQUIPMENT";
@@ -102,27 +91,6 @@ export function defaultDayMode(itemKind: ItemKind): DayMode {
   return itemKind === "PERSONNEL" || itemKind === "SERVICE"
     ? "FULL_DAYS"
     : "HALF_EXTRA";
-}
-
-function parseOwners(raw: string): CatalogOwnerValue[] {
-  if (!raw.trim()) return [];
-  const out: CatalogOwnerValue[] = [];
-  for (const part of raw.split(/[;,+|]/)) {
-    const key = part.trim().toUpperCase();
-    if (!key) continue;
-    const mapped = OWNER_ALIASES[key] || OWNER_ALIASES[part.trim()];
-    if (mapped && !out.includes(mapped)) out.push(mapped);
-  }
-  return out.slice(0, 3);
-}
-
-function formatOwners(owners: CatalogOwner[] | CatalogOwnerValue[]) {
-  const shorts: Record<string, string> = {
-    SHOW_MASTER: "ШМ",
-    DIAKOM: "ДК",
-    NE_EVENT: "NE",
-  };
-  return owners.map((o) => shorts[o] || o).join(";");
 }
 
 function num(v: string | undefined): number | null {
@@ -263,7 +231,7 @@ export function catalogItemToCsvCells(item: {
     item.weight == null ? "" : String(item.weight),
     item.comment ?? "",
     item.dayMode,
-    formatOwners(item.owners),
+    formatOwnersCsv(item.owners),
     item.equipmentCode == null ? "" : String(item.equipmentCode),
     item.active ? "1" : "0",
     item.showInCatalog !== false ? "1" : "0",
@@ -321,7 +289,7 @@ export function parseCatalogCsv(text: string): {
     ) as DayMode;
 
     const ownersRaw = cell(map, line, "Владельцы", "owners");
-    let owners = parseOwners(ownersRaw);
+    let owners = parseOwnersCsv(ownersRaw);
     if (owners.length === 0) {
       owners = inferCatalogOwners(categoryPath, name);
     }

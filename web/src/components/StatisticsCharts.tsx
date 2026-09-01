@@ -15,6 +15,7 @@ import {
   YAxis,
 } from "recharts";
 import { formatMoney } from "@/lib/format";
+import { isStatsLifecycle } from "@/lib/lifecycle";
 import { useTheme } from "@/components/ThemeProvider";
 
 function readChartColors() {
@@ -587,7 +588,7 @@ export function EmployeeShiftsDetailChart({
       name: shortLabel(r.quote.eventName || `КП №${r.quote.proposalNumber}`, 14),
       fullName: `${r.quote.eventName || `КП №${r.quote.proposalNumber}`} · ${r.specialty.name}`,
       Смены: 1,
-      fill: ["CONFIRMED", "COMPLETED"].includes(r.quote.lifecycle)
+      fill: isStatsLifecycle(r.quote.lifecycle)
         ? COLORS.confirmed
         : COLORS.pending,
     }));
@@ -814,7 +815,7 @@ export function EmployeeDetailChart({
       name: shortLabel(r.quote.eventName || `КП №${r.quote.proposalNumber}`, 14),
       fullName: `${r.quote.eventName || `КП №${r.quote.proposalNumber}`} · ${r.specialty.name}`,
       Сумма: Math.round(r.pay),
-      fill: ["CONFIRMED", "COMPLETED"].includes(r.quote.lifecycle)
+      fill: isStatsLifecycle(r.quote.lifecycle)
         ? COLORS.confirmed
         : COLORS.pending,
     }));

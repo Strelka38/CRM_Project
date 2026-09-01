@@ -2,6 +2,7 @@ import type { CatalogOwnerValue } from "@/lib/catalog-owner";
 import { parseEventDate } from "@/lib/dates";
 import { prisma } from "@/lib/db";
 import { ensureQuoteSchemaColumns } from "@/lib/ensure-schema";
+import { STATS_LIFECYCLES } from "@/lib/lifecycle";
 import {
   completedMonthsBack,
   dateToYmParam,
@@ -135,7 +136,7 @@ export async function buildPayoutBoard(opts?: {
     prisma.quoteAssignment.findMany({
       where: {
         quote: {
-          lifecycle: { in: ["CONFIRMED", "COMPLETED"] },
+          lifecycle: { in: [...STATS_LIFECYCLES] },
         },
       },
       include: {
@@ -171,7 +172,7 @@ export async function buildPayoutBoard(opts?: {
     prisma.quote.findMany({
       where: {
         ownerId: { not: "" },
-        lifecycle: { in: ["CONFIRMED", "COMPLETED"] },
+        lifecycle: { in: [...STATS_LIFECYCLES] },
         eventDate: { gte: lookbackFrom, lt: lookbackTo },
       },
       include: SETTLEMENT_INCLUDE,

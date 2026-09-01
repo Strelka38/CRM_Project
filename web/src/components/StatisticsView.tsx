@@ -12,7 +12,7 @@ import {
   ProfitStructureChart,
   ProjectsBarChart,
 } from "@/components/StatisticsCharts";
-import { Card, EmptyState, PageHeader, StatusBadge } from "@/components/ui";
+import { Card, EmptyState, PageHeader, StatusBadge, lifecycleLabel } from "@/components/ui";
 import type { LifecycleStatus } from "@/components/ui";
 import {
   DirectoryCardLink,
@@ -114,13 +114,6 @@ type StatsData = {
     }[];
     rows: PayrollRow[];
   };
-};
-
-const LIFE: Record<string, string> = {
-  CALCULATED: "Посчитано",
-  CONFIRMED: "Подтверждено",
-  COMPLETED: "Завершено",
-  CANCELLED: "Отменено",
 };
 
 type ProfitMode = "overall" | "companies";
@@ -916,7 +909,7 @@ export function StatisticsView() {
                               </td>
                               <td className="px-4 py-3">{r.specialty.name}</td>
                               <td className="px-4 py-3">
-                                {LIFE[r.quote.lifecycle] || r.quote.lifecycle}
+                                {lifecycleLabel(r.quote.lifecycle)}
                               </td>
                               <td className="px-4 py-3 text-xs text-[var(--muted)]">
                                 {r.rateOverride != null
@@ -1303,7 +1296,7 @@ function WorkloadRowsTable({
               <td className="px-4 py-3">{r.quote.place || "—"}</td>
               <td className="px-4 py-3">{r.specialty.name}</td>
               <td className="px-4 py-3">
-                {LIFE[r.quote.lifecycle] || r.quote.lifecycle}
+                {lifecycleLabel(r.quote.lifecycle)}
               </td>
               <td className="px-4 py-3 text-xs text-[var(--muted)]">
                 {r.payMode === "HOURLY"

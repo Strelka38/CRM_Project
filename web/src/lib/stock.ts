@@ -1,4 +1,5 @@
 import { prisma } from "./db";
+import { STATS_LIFECYCLES } from "./lifecycle";
 import { blocksInActiveZones } from "./quote-calc";
 import { addDays, formatDateKey, parseEventDate, startOfDay } from "./dates";
 import { zoneWorkingDays, type ZoneWorkingDays } from "./quote-assignment-days";
@@ -170,7 +171,7 @@ export async function getReservationDetails(
 
   const quotes = await prisma.quote.findMany({
     where: {
-      lifecycle: { in: ["CONFIRMED", "COMPLETED"] },
+      lifecycle: { in: [...STATS_LIFECYCLES] },
       eventDate: { not: null },
       ...(opts.excludeQuoteId ? { id: { not: opts.excludeQuoteId } } : {}),
       OR: [

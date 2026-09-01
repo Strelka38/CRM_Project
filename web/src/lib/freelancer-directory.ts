@@ -1,8 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { isStatsLifecycle } from "@/lib/lifecycle";
 import { calcAssignmentPay } from "@/lib/payroll";
-
-const STATS_LIFECYCLES = new Set(["CONFIRMED", "COMPLETED"]);
 
 export function normalizeFreelancerName(raw: string): string {
   return raw.trim().replace(/\s+/g, " ");
@@ -37,7 +36,7 @@ export function freelancerAssignmentPay(a: {
 }
 
 export function quoteCountsForFreelancerStats(lifecycle: string): boolean {
-  return STATS_LIFECYCLES.has(lifecycle);
+  return isStatsLifecycle(lifecycle);
 }
 
 type FreelancerDb = Pick<PrismaClient, "freelancer">;

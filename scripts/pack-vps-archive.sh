@@ -13,12 +13,17 @@ OUT_DIR="${OUT_DIR:-$ROOT/dist}"
 STAGE="$OUT_DIR/bsg-crm-vps-$STAMP"
 ARCHIVE="$OUT_DIR/bsg-crm-vps-$STAMP.tar.gz"
 IMAGE_TAR="${IMAGE_TAR:-$ROOT/crm-app.tar.gz}"
-
 if [[ ! -f "$IMAGE_TAR" ]]; then
-  echo "Нет образа: $IMAGE_TAR" >&2
-  echo "Сначала: DOCKER_BUILDKIT=1 docker build --platform linux/amd64 -t crm-app:latest -f Dockerfile ." >&2
-  echo "Потом:   docker save crm-app:latest | gzip -1 > crm-app.tar.gz" >&2
-  exit 1
+  FALLBACK="$(ls -t "$ROOT"/dist/bsg-crm-vps-*/crm-app.tar.gz 2>/dev/null | head -1 || true)"
+  if [[ -n "${FALLBACK:-}" && -f "$FALLBACK" ]]; then
+    IMAGE_TAR="$FALLBACK"
+    echo "Образ в корне не найден — беру $IMAGE_TAR"
+  else
+    echo "Нет образа: $IMAGE_TAR" >&2
+    echo "Сначала: DOCKER_BUILDKIT=1 docker build --platform linux/amd64 -t crm-app:latest -f Dockerfile ." >&2
+    echo "Потом:   docker save crm-app:latest | gzip -1 > crm-app.tar.gz" >&2
+    exit 1
+  fi
 fi
 
 rm -rf "$STAGE"
@@ -97,6 +102,13 @@ echo
 echo "Порты 80 и 443 должны быть свободны."
 echo "Домен должен указывать A/AAAA на этот сервер."
 echo
+
+if [[ -f "$ROOT/.env" ]]; then
+  echo "Найден .env — CRM уже установлена." >&2
+  echo "Для обновления запустите: ./update.sh" >&2
+  echo "deploy.sh создаёт новый .env и не должен запускаться поверх рабочей базы." >&2
+  exit 1
+fi
 
 if [[ ! -f "$ROOT/crm-app.tar.gz" ]]; then
   echo "Нет файла crm-app.tar.gz рядом с deploy.sh" >&2
@@ -193,38 +205,196 @@ echo "  ${COMPOSE[*]} logs -f app"
 echo "  ${COMPOSE[*]} down"
 echo
 EOF
-chmod +x "$STAGE/deploy.sh" "$STAGE/install.sh" "$STAGE/scripts/"*.sh
+
+# Update helper: load image + refresh compose/scripts, keep .env and data
+cat > "$STAGE/update.sh" <<'EOF'
+#!/usr/bin/env bash
+# Обновление уже стоящей CRM с предсобранного образа.
+# Не трогает .env, data/postgres, data/uploads, backups/.
+#
+#   cd /var/www/bsg-crm && ./update.sh          # архив распакован в каталог установки
+#   ./update.sh /var/www/bsg-crm                # архив распакован отдельно
+#   ./update.sh --skip-backup /var/www/bsg-crm
+set -euo pipefail
+
+PACK="$(cd "$(dirname "$0")" && pwd)"
+
+SKIP_BACKUP=0
+INSTALL=""
+for arg in "$@"; do
+  case "$arg" in
+    --skip-backup) SKIP_BACKUP=1 ;;
+    --help|-h)
+      echo "Usage: $0 [--skip-backup] [INSTALL_DIR]"
+      exit 0
+      ;;
+    *)
+      if [[ -n "$INSTALL" ]]; then
+        echo "Лишний аргумент: $arg" >&2
+        exit 1
+      fi
+      INSTALL="$arg"
+      ;;
+  esac
+done
+
+if [[ -z "$INSTALL" ]]; then
+  if [[ -f "$PACK/.env" ]]; then
+    INSTALL="$PACK"
+  elif [[ -f /var/www/bsg-crm/.env ]]; then
+    INSTALL="/var/www/bsg-crm"
+  else
+    echo "Не найден установленный инстанс (.env)." >&2
+    echo "Укажите каталог: $0 /var/www/bsg-crm" >&2
+    echo "Первая установка: ./deploy.sh" >&2
+    exit 1
+  fi
+fi
+
+if [[ ! -d "$INSTALL" ]]; then
+  echo "Нет каталога: $INSTALL" >&2
+  exit 1
+fi
+INSTALL="$(cd "$INSTALL" && pwd)"
+
+if [[ ! -f "$INSTALL/.env" ]]; then
+  echo "В $INSTALL нет .env — это не рабочая установка." >&2
+  echo "Первая установка: ./deploy.sh" >&2
+  exit 1
+fi
+
+if [[ ! -f "$PACK/crm-app.tar.gz" ]]; then
+  echo "Нет файла $PACK/crm-app.tar.gz" >&2
+  exit 1
+fi
+
+if ! command -v docker >/dev/null 2>&1; then
+  echo "Не найден Docker." >&2
+  exit 1
+fi
+if ! docker info >/dev/null 2>&1; then
+  echo "Docker не запущен или нет прав." >&2
+  exit 1
+fi
+
+if docker compose version >/dev/null 2>&1; then
+  COMPOSE=(docker compose)
+elif command -v docker-compose >/dev/null 2>&1; then
+  COMPOSE=(docker-compose)
+else
+  echo "Docker Compose не найден." >&2
+  exit 1
+fi
+
+echo "=========================================="
+echo "  Обновление BaikalStage CRM"
+echo "=========================================="
+echo "Пакет:      $PACK"
+echo "Установка:  $INSTALL"
+echo "Данные:     $INSTALL/data   (не трогаем)"
+echo ".env:       $INSTALL/.env   (не трогаем)"
+echo
+
+if [[ "$SKIP_BACKUP" -eq 0 && -x "$INSTALL/scripts/backup.sh" ]]; then
+  echo "==> Снимок перед обновлением..."
+  if (cd "$INSTALL" && ./scripts/backup.sh); then
+    echo "    OK"
+  else
+    echo "Снимок не удался. Исправьте или повторите с --skip-backup." >&2
+    exit 1
+  fi
+  echo
+elif [[ "$SKIP_BACKUP" -eq 1 ]]; then
+  echo "==> Снимок пропущен (--skip-backup)"
+  echo
+fi
+
+if [[ "$PACK" != "$INSTALL" ]]; then
+  echo "==> Копирую compose / Caddy / скрипты в установку"
+  cp -a "$PACK/docker-compose.yml" "$INSTALL/"
+  mkdir -p "$INSTALL/docker" "$INSTALL/scripts"
+  cp -a "$PACK/docker/." "$INSTALL/docker/"
+  cp -a "$PACK/scripts/." "$INSTALL/scripts/"
+  cp -a "$PACK/update.sh" "$INSTALL/update.sh"
+  [[ -f "$PACK/deploy.sh" ]] && cp -a "$PACK/deploy.sh" "$INSTALL/deploy.sh"
+  [[ -f "$PACK/install.sh" ]] && cp -a "$PACK/install.sh" "$INSTALL/install.sh"
+  [[ -f "$PACK/Dockerfile" ]] && cp -a "$PACK/Dockerfile" "$INSTALL/Dockerfile"
+  chmod +x "$INSTALL/update.sh" "$INSTALL/scripts/"*.sh 2>/dev/null || true
+  [[ -f "$INSTALL/deploy.sh" ]] && chmod +x "$INSTALL/deploy.sh"
+  [[ -f "$INSTALL/install.sh" ]] && chmod +x "$INSTALL/install.sh"
+fi
+
+echo "==> Загружаю Docker-образ crm-app:latest..."
+gunzip -c "$PACK/crm-app.tar.gz" | docker load
+
+echo
+echo "==> Перезапускаю app (без сборки на VPS)..."
+cd "$INSTALL"
+"${COMPOSE[@]}" up -d --no-build --force-recreate app
+"${COMPOSE[@]}" up -d --no-build
+
+echo
+echo "==> Статус:"
+"${COMPOSE[@]}" ps
+
+echo
+echo "=========================================="
+echo "  Обновление применено"
+echo "=========================================="
+echo "Миграции Prisma выполняются при старте контейнера app."
+echo "Логи:  ${COMPOSE[*]} logs -f app"
+echo
+EOF
+
+chmod +x "$STAGE/deploy.sh" "$STAGE/update.sh" "$STAGE/install.sh" "$STAGE/scripts/"*.sh
 
 cat > "$STAGE/КАК_РАЗВЕРНУТЬ.txt" <<EOF
 BaikalStage CRM — архив для VPS (образ linux/amd64)
 ====================================================
 
-1) На VPS нужны Docker и свободные порты 80/443.
-   Домен (A/AAAA) должен указывать на IP сервера.
+=== Обновление уже стоящей CRM ===
 
-2) Залейте этот каталог по SFTP, например в /var/www/bsg-crm
-   (или распакуйте .tar.gz на сервере).
+1) Залейте этот .tar.gz на VPS (SFTP), например в /tmp.
 
-3) На сервере:
+2) На сервере:
+
+   cd /tmp
+   tar -xzf bsg-crm-vps-*.tar.gz
+   cd bsg-crm-vps-*
+   chmod +x update.sh
+   ./update.sh /var/www/bsg-crm
+
+   Скрипт:
+   - сделает снимок БД+файлов (если есть scripts/backup.sh)
+   - загрузит образ crm-app:latest
+   - обновит compose/Caddy/скрипты
+   - перезапустит контейнер app
+   - НЕ трогает .env, data/postgres, data/uploads, backups/
+
+   Без снимка: ./update.sh --skip-backup /var/www/bsg-crm
+
+3) Проверьте сайт и логи:
 
    cd /var/www/bsg-crm
-   chmod +x deploy.sh install.sh scripts/*.sh
+   docker compose logs -f app
+
+Если архив распаковали прямо в /var/www/bsg-crm (поверх файлов,
+но не поверх data/ и .env):
+
+   cd /var/www/bsg-crm
+   ./update.sh
+
+=== Первая установка (пустой VPS) ===
+
+   cd /var/www/bsg-crm   # или распакованная папка
+   chmod +x deploy.sh
    ./deploy.sh
 
-   Скрипт загрузит образ crm-app:latest, спросит домен и
-   данные админа, создаст .env и запустит docker compose.
+   Спросит домен и админа, создаст .env, поднимет контейнеры.
+   Не запускайте deploy.sh на уже рабочей CRM — он отказается,
+   если .env уже есть.
 
-4) Откройте https://ВАШ_ДОМЕН и войдите под созданным админом.
-   Каталог в prod пустой — импортируйте CSV/JSON из «База данных».
-
-Альтернатива (сборка на сервере, медленно на слабом VPS):
-   ./install.sh
-
-Обновление образа позже:
-   gunzip -c crm-app.tar.gz | docker load
-   docker compose up -d
-
-Снимки БД+файлов: ./scripts/backup.sh / ./scripts/restore.sh
+Снимки: ./scripts/backup.sh / ./scripts/restore.sh
 EOF
 
 echo "==> Упаковываю $ARCHIVE"
@@ -238,5 +408,6 @@ echo "Готово:"
 echo "  Архив:  $ARCHIVE"
 echo "  Папка:  $STAGE"
 echo
-echo "Залейте по SFTP архив или содержимое папки, на VPS:"
-echo "  tar -xzf bsg-crm-vps-*.tar.gz && cd bsg-crm-vps-* && ./deploy.sh"
+echo "Залейте архив на VPS и обновите уже стоящую CRM:"
+echo "  tar -xzf bsg-crm-vps-*.tar.gz && cd bsg-crm-vps-* && ./update.sh /var/www/bsg-crm"
+echo "Первая установка: ./deploy.sh"

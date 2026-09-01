@@ -7,7 +7,7 @@ export const TIMEZONES: Array<{ id: string; label: string; offset: string }> = [
   { id: "Asia/Yekaterinburg", label: "Екатеринбург", offset: "UTC+5" },
   { id: "Asia/Omsk", label: "Омск", offset: "UTC+6" },
   { id: "Asia/Krasnoyarsk", label: "Красноярск", offset: "UTC+7" },
-  { id: "Asia/Irkutsk", label: "Иркутск", offset: "UTC+8" },
+  { id: DEFAULT_TIMEZONE, label: "Иркутск", offset: "UTC+8" },
   { id: "Asia/Yakutsk", label: "Якутск", offset: "UTC+9" },
   { id: "Asia/Vladivostok", label: "Владивосток", offset: "UTC+10" },
   { id: "Asia/Magadan", label: "Магадан", offset: "UTC+11" },
@@ -57,5 +57,8 @@ export function formatLocalTime(date: Date, timeZone: string): string {
 
 export function timezoneOffsetLabel(timeZone: string): string {
   const found = TIMEZONES.find((z) => z.id === timeZone);
-  return found ? found.offset : "UTC+8";
+  if (found) return found.offset;
+  return (
+    TIMEZONES.find((z) => z.id === DEFAULT_TIMEZONE)?.offset ?? "UTC+8"
+  );
 }

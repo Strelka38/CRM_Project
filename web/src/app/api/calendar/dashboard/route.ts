@@ -13,6 +13,7 @@ import {
   isManager,
   requireSession,
 } from "@/lib/session";
+import { OPEN_LIFECYCLES } from "@/lib/lifecycle";
 import {
   formatVacantRoles,
   vacantStaffLabels,
@@ -88,7 +89,7 @@ export async function GET() {
     const vacantRows = assigner
       ? await prisma.quote.findMany({
           where: {
-            lifecycle: { in: ["CALCULATED", "CONFIRMED"] },
+            lifecycle: { in: [...OPEN_LIFECYCLES] },
             assignments: {
               some: {
                 userId: null,

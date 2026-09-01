@@ -4,12 +4,11 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
-
-function isItemActive(pathname: string, href: string) {
-  // Редактор сметы открывается из календаря — подсвечиваем «Сметы» только на списке.
-  if (href === "/quotes") return pathname === "/quotes";
-  return pathname === href || pathname.startsWith(`${href}/`);
-}
+import {
+  isNavItemActive,
+  navGroupIsActive,
+  navMenuItems,
+} from "@/lib/nav-sections";
 
 export function AccountingMenu({
   variant = "sidebar",
@@ -18,17 +17,9 @@ export function AccountingMenu({
   variant?: "sidebar" | "top";
   showPayouts?: boolean;
 }) {
-  const ITEMS = [
-    { href: "/quotes", label: "Сметы" },
-    { href: "/roster", label: "Срост" },
-    { href: "/payroll", label: "Моя ЗП" },
-    ...(showPayouts ? [{ href: "/payouts", label: "Оплаты" }] : []),
-    { href: "/unpaid", label: "Неоплаченные" },
-    { href: "/statistics", label: "Статистика" },
-    { href: "/calculations", label: "Калькуляции" },
-  ];
+  const ITEMS = navMenuItems("accounting", { showPayouts });
   const pathname = usePathname();
-  const active = ITEMS.some((item) => isItemActive(pathname, item.href));
+  const active = navGroupIsActive(pathname, "accounting", { showPayouts });
   const [open, setOpen] = useState(variant === "sidebar" ? active : false);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -47,7 +38,7 @@ export function AccountingMenu({
   }, [open, variant]);
 
   const links = ITEMS.map((item) => {
-    const isActive = isItemActive(pathname, item.href);
+    const isActive = isNavItemActive(pathname, item.href, item.exactActive);
     return (
       <Link
         key={item.href}

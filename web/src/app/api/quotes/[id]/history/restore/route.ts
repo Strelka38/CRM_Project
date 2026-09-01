@@ -11,6 +11,7 @@ import {
 } from "@/lib/quote-history";
 import { linesFromRevision, writeSpecRevision } from "@/lib/spec-revision";
 import { requireSpecEditor } from "@/lib/session";
+import { quoteLifecycleZod } from "@/lib/zod-enums";
 
 let ensureOnce: Promise<void> | null = null;
 
@@ -23,8 +24,6 @@ function ensureSchemaOnce() {
   }
   return ensureOnce;
 }
-
-const LIFE = ["CALCULATED", "CONFIRMED", "CANCELLED", "COMPLETED"] as const;
 
 const bodySchema = z.object({
   snapshotId: z.string().min(1),
@@ -98,8 +97,9 @@ export async function POST(
       );
     }
 
-    const lifecycle = LIFE.includes(patch.lifecycle as (typeof LIFE)[number])
-      ? (patch.lifecycle as (typeof LIFE)[number])
+    const parsedLife = quoteLifecycleZod.safeParse(patch.lifecycle);
+    const lifecycle = parsedLife.success
+      ? parsedLife.data
       : existing.lifecycle;
     const eventDate = parseEventDate(patch.date);
 

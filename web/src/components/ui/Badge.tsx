@@ -1,10 +1,15 @@
 import { cn } from "@/lib/cn";
+import {
+  LIFECYCLE_LABELS,
+  type LifecycleStatus,
+} from "@/lib/lifecycle";
 
-export type LifecycleStatus =
-  | "CALCULATED"
-  | "CONFIRMED"
-  | "CANCELLED"
-  | "COMPLETED";
+export {
+  LIFECYCLE_LABELS,
+  LIFECYCLE_STATUSES,
+  lifecycleLabel,
+  type LifecycleStatus,
+} from "@/lib/lifecycle";
 
 const lifecycleStyles: Record<LifecycleStatus, string> = {
   CALCULATED:
@@ -22,13 +27,6 @@ const lifecycleColors: Record<LifecycleStatus, string> = {
   CONFIRMED: "var(--lifecycle-confirmed)",
   CANCELLED: "var(--lifecycle-cancelled)",
   COMPLETED: "var(--lifecycle-completed)",
-};
-
-export const LIFECYCLE_LABELS: Record<LifecycleStatus, string> = {
-  CALCULATED: "Посчитано",
-  CONFIRMED: "Подтверждено",
-  CANCELLED: "Отменено",
-  COMPLETED: "Завершено",
 };
 
 export function StatusBadge({

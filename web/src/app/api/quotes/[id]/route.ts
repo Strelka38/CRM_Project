@@ -26,6 +26,9 @@ import {
   notifyBrigadiersOfConfirmedMount,
 } from "@/lib/notifications";
 import { ensureQuoteSchemaColumns } from "@/lib/ensure-schema";
+import { quoteLifecycleZod } from "@/lib/zod-enums";
+import { isStatsLifecycle } from "@/lib/lifecycle";
+import { QUOTE_OWNER_ROLES } from "@/lib/roles";
 
 let ensureOnce: Promise<void> | null = null;
 
@@ -109,9 +112,7 @@ const patchSchema = z.object({
   notes: z.array(z.string()).optional(),
   brief: z.string().max(8000).optional(),
   discountPercent: z.number().min(0).max(100).optional(),
-  lifecycle: z
-    .enum(["CALCULATED", "CONFIRMED", "CANCELLED", "COMPLETED"])
-    .optional(),
+  lifecycle: quoteLifecycleZod.optional(),
   invoiceRequired: z.boolean().optional(),
   invoiceSent: z.boolean().optional(),
   paid: z.boolean().optional(),
@@ -207,10 +208,7 @@ export async function PATCH(
     const nextVenueId =
       meta.venueId !== undefined ? meta.venueId : existing.venueId;
 
-    if (
-      (nextLifecycle === "CONFIRMED" || nextLifecycle === "COMPLETED") &&
-      !nextVenueId
-    ) {
+    if (isStatsLifecycle(nextLifecycle) && !nextVenueId) {
       return NextResponse.json(
         { error: "Выберите площадку из справочника" },
         { status: 400 },
@@ -219,7 +217,7 @@ export async function PATCH(
 
     if (meta.ownerId) {
       const manager = await prisma.user.findFirst({
-        where: { id: meta.ownerId, role: { in: ["ADMIN", "MANAGER"] }, active: true },
+        where: { id: meta.ownerId, role: { in: [...QUOTE_OWNER_ROLES] }, active: true },
         select: { id: true, name: true },
       });
       if (!manager) {

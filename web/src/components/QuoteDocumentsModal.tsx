@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ZoneTab } from "@/components/QuoteZoneTabs";
 import { customerWarnings, type LegalDocInput } from "@/lib/legal-docs";
 import { formatMoney } from "@/lib/format";
+import { ownerShorts, type CatalogOwnerValue } from "@/lib/catalog-owner";
 import type { QuoteBlockInput } from "@/lib/quote-calc";
 import type { ExportMeta } from "@/lib/export/quote-zones";
 
@@ -397,7 +398,7 @@ export function QuoteDocumentsPanel({
                 <option key={e.id} value={e.id}>
                   {e.shortName}
                   {e.catalogOwner
-                    ? ` (${e.catalogOwner === "NE_EVENT" ? "NE" : e.catalogOwner === "SHOW_MASTER" ? "ШМ" : "ДК"})`
+                    ? ` (${ownerShorts([e.catalogOwner as CatalogOwnerValue])})`
                     : ""}
                 </option>
               ))}

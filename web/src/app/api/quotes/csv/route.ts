@@ -7,6 +7,7 @@ import {
   parseQuoteCsv,
   quoteToCsvCells,
 } from "@/lib/directory-csv";
+import { DEFAULT_CASHLESS_PERCENT } from "@/lib/pricing";
 import { defaultQuoteZones } from "@/lib/quote-defaults";
 import {
   defaultDemountDate,
@@ -131,7 +132,7 @@ export async function POST(req: NextRequest) {
             proposalNumber,
             lifecycle: "CALCULATED",
             discountPercent: 0,
-            cashlessPercent: 10,
+            cashlessPercent: DEFAULT_CASHLESS_PERCENT,
             zones: {
               create: defaultQuoteZones().map((z) => ({
                 name: z.name,

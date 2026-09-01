@@ -12,6 +12,7 @@ import {
   collectFreelancerBusyDates,
 } from "@/lib/roster";
 import { requireAssignmentManager } from "@/lib/session";
+import { ROSTER_LIFECYCLES } from "@/lib/lifecycle";
 
 function dateOnlyUtc(d: Date): Date {
   return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
@@ -153,7 +154,7 @@ export async function GET(req: NextRequest) {
           isFreelancer: false,
           quote: {
             eventDate: { gte: monthRange.from, lt: monthRange.to },
-            lifecycle: { in: ["CALCULATED", "CONFIRMED", "COMPLETED"] },
+            lifecycle: { in: [...ROSTER_LIFECYCLES] },
           },
         },
         select: {
@@ -192,7 +193,7 @@ export async function GET(req: NextRequest) {
           freelancerName: { not: "" },
           quote: {
             eventDate: { gte: monthRange.from, lt: monthRange.to },
-            lifecycle: { in: ["CALCULATED", "CONFIRMED", "COMPLETED"] },
+            lifecycle: { in: [...ROSTER_LIFECYCLES] },
           },
         },
         select: {

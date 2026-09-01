@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { parseEventDate } from "@/lib/dates";
+import { DEFAULT_QUOTE_NOTES } from "@/lib/commercial-terms";
+import { DEFAULT_CASHLESS_PERCENT } from "@/lib/pricing";
 import { defaultQuoteZones } from "@/lib/quote-defaults";
 import {
   defaultDemountDate,
@@ -138,11 +140,8 @@ export async function POST(req: NextRequest) {
         demountDate: date ? defaultDemountDate(date, 1) : "",
         lifecycle: "CALCULATED",
         discountPercent: 0,
-        cashlessPercent: 10,
-        notes: [
-          "Внимание: данное предложение не является офертой. Бронирование оборудования на вашу дату производится только после заключения договора или внесения предоплаты",
-          "* Первый день - 100% стоимости оборудования, 2-й и последующий, а также отдельный день для репетиций тарифицируются по 50% от стоимости оборудования",
-        ],
+        cashlessPercent: DEFAULT_CASHLESS_PERCENT,
+        notes: [...DEFAULT_QUOTE_NOTES],
         zones: {
           create: defaultQuoteZones().map((z) => ({
             name: z.name,

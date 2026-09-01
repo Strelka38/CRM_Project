@@ -1,4 +1,5 @@
 import type { CatalogOwner } from "@prisma/client";
+import { isCatalogOwnerValue } from "@/lib/catalog-owner";
 
 export const legalEntityInclude = {
   bankAccounts: { orderBy: { sortOrder: "asc" as const } },
@@ -23,6 +24,6 @@ export function catalogOwnerOrNull(
   v: unknown,
 ): CatalogOwner | null {
   if (v === null || v === "" || v === undefined) return null;
-  if (v === "SHOW_MASTER" || v === "DIAKOM" || v === "NE_EVENT") return v;
+  if (isCatalogOwnerValue(v)) return v;
   return null;
 }

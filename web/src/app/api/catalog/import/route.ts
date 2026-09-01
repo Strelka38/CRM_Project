@@ -5,6 +5,7 @@ import {
   ensureCategoryPath,
   loadCategoryPathCache,
   mapCategoryKind,
+  reactivateCategoryPaths,
 } from "@/lib/catalog-path";
 import { requireDatabaseAccess } from "@/lib/session";
 
@@ -42,6 +43,7 @@ export async function POST(req: NextRequest) {
     let created = 0;
     let updated = 0;
     const rowErrors = [...errors];
+    const touchedPaths = new Set<string>();
 
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i];
@@ -53,6 +55,7 @@ export async function POST(req: NextRequest) {
           cache,
           kind,
         );
+        touchedPaths.add(r.categoryPath);
 
         const data = {
           categoryId,
@@ -125,6 +128,8 @@ export async function POST(req: NextRequest) {
         rowErrors.push(`Строка ${i + 2}: ${msg}`);
       }
     }
+
+    await reactivateCategoryPaths(touchedPaths);
 
     return NextResponse.json({
       created,

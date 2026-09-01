@@ -6,7 +6,14 @@ import {
   csvNum,
   parseCsv,
 } from "@/lib/csv";
-import type { CatalogOwnerValue } from "@/lib/catalog-owner";
+import { DEFAULT_AGENCY_PERCENT } from "@/lib/calc-agency";
+import {
+  formatOwnersCsv,
+  OWNER_SHORT,
+  parseOwnerCsv,
+  parseOwnersCsv,
+  type CatalogOwnerValue,
+} from "@/lib/catalog-owner";
 import type { AppRole } from "@/lib/roles";
 import { APP_ROLES } from "@/lib/roles";
 
@@ -33,25 +40,6 @@ function parseTable(text: string, required: string[]): {
   return { rows: table.slice(1), map, errors: [] };
 }
 
-const OWNER_ALIASES: Record<string, CatalogOwnerValue> = {
-  SHOW_MASTER: "SHOW_MASTER",
-  DIAKOM: "DIAKOM",
-  NE_EVENT: "NE_EVENT",
-  ШМ: "SHOW_MASTER",
-  ДК: "DIAKOM",
-  NE: "NE_EVENT",
-  НЕИВЕНТ: "NE_EVENT",
-  "ШОУ-МАСТЕР": "SHOW_MASTER",
-  "ШОУ МАСТЕР": "SHOW_MASTER",
-  ДИАКОМ: "DIAKOM",
-};
-
-const OWNER_SHORT: Record<string, string> = {
-  SHOW_MASTER: "ШМ",
-  DIAKOM: "ДК",
-  NE_EVENT: "NE",
-};
-
 const ROLE_ALIASES: Record<string, AppRole> = {
   ADMIN: "ADMIN",
   MANAGER: "MANAGER",
@@ -64,26 +52,7 @@ const ROLE_ALIASES: Record<string, AppRole> = {
   БРИГАДИР: "BRIGADIER",
 };
 
-export function formatOwnersCsv(owners: CatalogOwner[] | CatalogOwnerValue[]) {
-  return owners.map((o) => OWNER_SHORT[o] || o).join(";");
-}
-
-export function parseOwnersCsv(raw: string): CatalogOwnerValue[] {
-  if (!raw.trim()) return [];
-  const out: CatalogOwnerValue[] = [];
-  for (const part of raw.split(/[;,+|]/)) {
-    const key = part.trim().toUpperCase();
-    if (!key) continue;
-    const mapped = OWNER_ALIASES[key] || OWNER_ALIASES[part.trim()];
-    if (mapped && !out.includes(mapped)) out.push(mapped);
-  }
-  return out.slice(0, 3);
-}
-
-export function parseOwnerCsv(raw: string): CatalogOwner | null {
-  const list = parseOwnersCsv(raw);
-  return list[0] ?? null;
-}
+export { formatOwnersCsv, parseOwnerCsv, parseOwnersCsv };
 
 export function parseRoleCsv(raw: string): AppRole | null {
   const key = raw.trim().toUpperCase();
@@ -466,7 +435,7 @@ export function userToCsvCells(u: {
     u.phone,
     u.role,
     String(u.monthlySalary ?? 0),
-    String(u.agencyPercent ?? 5),
+    String(u.agencyPercent ?? DEFAULT_AGENCY_PERCENT),
     formatOwnersCsv(u.owners),
     u.comment ?? "",
     u.active ? "1" : "0",
@@ -512,7 +481,7 @@ export function parseUserCsv(text: string): {
       monthlySalary: Math.max(0, csvNum(csvCell(map, line, "Оклад", "monthlySalary")) ?? 0),
       agencyPercent: Math.min(
         100,
-        Math.max(0, csvNum(csvCell(map, line, "Агентство %", "agencyPercent")) ?? 5),
+        Math.max(0, csvNum(csvCell(map, line, "Агентство %", "agencyPercent")) ?? DEFAULT_AGENCY_PERCENT),
       ),
       owners: parseOwnersCsv(csvCell(map, line, "Фирмы", "owners")),
       comment: csvCell(map, line, "Комментарий", "comment").trim(),

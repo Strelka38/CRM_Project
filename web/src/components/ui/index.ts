@@ -2,6 +2,8 @@ export { Button, buttonVariants } from "./Button";
 export {
   StatusBadge,
   LIFECYCLE_LABELS,
+  LIFECYCLE_STATUSES,
+  lifecycleLabel,
   lifecycleColor,
   type LifecycleStatus,
 } from "./Badge";

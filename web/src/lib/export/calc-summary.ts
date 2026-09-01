@@ -1,6 +1,8 @@
 import {
   allocateByRevenueShare,
   CATALOG_OWNERS,
+  emptyOwnerAmounts,
+  OWNER_SHORT,
   splitAmongOwners,
   type CatalogOwnerValue,
 } from "@/lib/catalog-owner";
@@ -14,24 +16,29 @@ export const FIRM_COLUMN_ORDER: CatalogOwnerValue[] = [
   "SHOW_MASTER",
 ];
 
+/** Заголовок листа Excel, если отличается от CATALOG_OWNERS.label. */
+const FIRM_SHEET_TITLES: Partial<Record<CatalogOwnerValue, string>> = {
+  NE_EVENT: "NeEvent",
+};
+
 export const FIRM_SHEETS: Array<{
   company: CatalogOwnerValue;
   sheetName: string;
   titleFirm: string;
   short: string;
-}> = [
-  { company: "NE_EVENT", sheetName: "NE", titleFirm: "NeEvent", short: "NE" },
-  { company: "DIAKOM", sheetName: "ДК", titleFirm: "Диаком", short: "ДК" },
-  {
-    company: "SHOW_MASTER",
-    sheetName: "ШМ",
-    titleFirm: "Шоу-Мастер",
-    short: "ШМ",
-  },
-];
+}> = FIRM_COLUMN_ORDER.map((company) => {
+  const meta = CATALOG_OWNERS.find((o) => o.value === company);
+  const short = meta?.short ?? OWNER_SHORT[company] ?? company;
+  return {
+    company,
+    sheetName: short,
+    titleFirm: FIRM_SHEET_TITLES[company] ?? meta?.label ?? company,
+    short,
+  };
+});
 
 export function emptyCompanyAmounts(): Record<CatalogOwnerValue, number> {
-  return { SHOW_MASTER: 0, DIAKOM: 0, NE_EVENT: 0 };
+  return emptyOwnerAmounts();
 }
 
 export function allocateAmountByOwners(

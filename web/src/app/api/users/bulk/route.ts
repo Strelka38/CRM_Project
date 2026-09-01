@@ -8,6 +8,7 @@ import {
   uniqueBulkIds,
 } from "@/lib/user-bulk";
 import { canAssignRole } from "@/lib/roles";
+import { appRoleZod } from "@/lib/zod-enums";
 
 const bodySchema = z.object({
   action: z.enum([
@@ -18,7 +19,7 @@ const bodySchema = z.object({
     "addSpecialty",
   ]),
   ids: z.array(z.string()).min(1),
-  role: z.enum(["ADMIN", "MANAGER", "EMPLOYEE", "BRIGADIER"]).optional(),
+  role: appRoleZod.optional(),
   specialtyId: z.string().min(1).optional(),
 });
 

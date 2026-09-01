@@ -27,6 +27,7 @@ import { ProjectModal } from "@/components/ProjectModal";
 import { Button, SideDrawer } from "@/components/ui";
 import {
   LIFECYCLE_LABELS,
+  LIFECYCLE_STATUSES,
   lifecycleColor,
   type LifecycleStatus,
 } from "@/components/ui/Badge";
@@ -146,12 +147,7 @@ const DENSITY_TIMETREE_DESKTOP: CalendarDensity = {
   overflowRow: 14,
 };
 
-const LIFE_FILTERS = [
-  "CALCULATED",
-  "CONFIRMED",
-  "CANCELLED",
-  "COMPLETED",
-] as const satisfies readonly LifecycleStatus[];
+const LIFE_FILTERS = LIFECYCLE_STATUSES;
 
 const KIND_FILTERS = ["RENTAL", "TASK", "DAY_OFF"] as const satisfies readonly CalendarEntryKind[];
 

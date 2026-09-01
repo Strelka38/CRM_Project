@@ -544,8 +544,9 @@ export function CatalogAdmin() {
     try {
       const fd = new FormData();
       fd.set("file", file);
-      // Сначала пробуем импорт склада (типы/единицы), иначе — каталог
-      let res = await fetch("/api/equipment/import", {
+      // Полный CSV каталога (услуги + оборудование) — не склад: складской
+      // импорт пропускает услуги и не включает скрытые разделы.
+      let res = await fetch("/api/catalog/import", {
         method: "POST",
         credentials: "same-origin",
         body: fd,
@@ -554,7 +555,7 @@ export function CatalogAdmin() {
       if (!res.ok) {
         const fd2 = new FormData();
         fd2.set("file", file);
-        res = await fetch("/api/catalog/import", {
+        res = await fetch("/api/equipment/import", {
           method: "POST",
           credentials: "same-origin",
           body: fd2,

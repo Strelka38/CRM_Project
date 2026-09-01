@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { extractStructure } from "@/lib/quote-clone";
 import { getAccessibleQuote } from "@/lib/quote-access";
+import { QUOTE_OWNER_ROLES } from "@/lib/roles";
 import { requireManager } from "@/lib/session";
 
 export async function GET() {
@@ -46,7 +47,7 @@ export async function POST(req: NextRequest) {
 
     const ownerId = body.ownerId || session.user.id;
     const owner = await prisma.user.findFirst({
-      where: { id: ownerId, role: { in: ["ADMIN", "MANAGER"] }, active: true },
+      where: { id: ownerId, role: { in: [...QUOTE_OWNER_ROLES] }, active: true },
       select: { id: true },
     });
     if (!owner) {

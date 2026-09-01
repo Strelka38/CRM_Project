@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { parseEventDate } from "@/lib/dates";
 import { ensureQuoteSchemaColumns } from "@/lib/ensure-schema";
 import { requireDatabaseAccess, requireSession } from "@/lib/session";
+import { catalogOwnerZod } from "@/lib/zod-enums";
 import { getAvailability } from "@/lib/stock";
 
 let ensureOnce: Promise<void> | null = null;
@@ -119,7 +120,7 @@ const createSchema = z.object({
     ])
     .default("EQUIPMENT"),
   owners: z
-    .array(z.enum(["SHOW_MASTER", "DIAKOM", "NE_EVENT"]))
+    .array(catalogOwnerZod)
     .max(3)
     .optional(),
   showInCatalog: z.boolean().optional(),

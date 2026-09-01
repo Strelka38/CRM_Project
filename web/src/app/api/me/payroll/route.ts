@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import type { CatalogOwnerValue } from "@/lib/catalog-owner";
+import { isStatsLifecycle, ROSTER_LIFECYCLES } from "@/lib/lifecycle";
 import { calcAssignmentPay } from "@/lib/payroll";
 import {
   formatPeriodLabel,
@@ -39,7 +40,7 @@ export async function GET(req: NextRequest) {
           userId,
           quote: {
             ...eventDateFilter,
-            lifecycle: { in: ["CALCULATED", "CONFIRMED", "COMPLETED"] },
+            lifecycle: { in: [...ROSTER_LIFECYCLES] },
           },
         },
         include: {
@@ -67,7 +68,7 @@ export async function GET(req: NextRequest) {
         where: {
           ownerId: userId,
           ...eventDateFilter,
-          lifecycle: { in: ["CALCULATED", "CONFIRMED", "COMPLETED"] },
+          lifecycle: { in: [...ROSTER_LIFECYCLES] },
         },
         orderBy: [{ eventDate: "desc" }, { createdAt: "desc" }],
         include: {
@@ -155,7 +156,7 @@ export async function GET(req: NextRequest) {
     });
 
     const confirmed = rows.filter((r) =>
-      ["CONFIRMED", "COMPLETED"].includes(r.quote.lifecycle),
+      isStatsLifecycle(r.quote.lifecycle),
     );
     const pending = rows.filter((r) => r.quote.lifecycle === "CALCULATED");
 
@@ -201,7 +202,7 @@ export async function GET(req: NextRequest) {
     });
 
     const confirmedAgency = agencyRows.filter((r) =>
-      ["CONFIRMED", "COMPLETED"].includes(r.quote.lifecycle),
+      isStatsLifecycle(r.quote.lifecycle),
     );
     const pendingAgency = agencyRows.filter(
       (r) => r.quote.lifecycle === "CALCULATED",

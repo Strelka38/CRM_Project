@@ -3,6 +3,8 @@ import { prisma } from "@/lib/db";
 import { parseEventDate } from "@/lib/dates";
 import { nextProposalNumber } from "@/lib/proposal-number";
 import { toPrismaDayMode } from "@/lib/quote-calc";
+import { DEFAULT_QUOTE_NOTES } from "@/lib/commercial-terms";
+import { DEFAULT_CASHLESS_PERCENT } from "@/lib/pricing";
 import { defaultQuoteZones } from "@/lib/quote-defaults";
 import {
   defaultDemountDate,
@@ -128,15 +130,10 @@ export async function createQuoteFromStructure(
       clientId: input.clientId ?? null,
       requestContact: input.requestContact || "",
       cashless: input.cashless ?? true,
-      cashlessPercent: input.cashlessPercent ?? 10,
+      cashlessPercent: input.cashlessPercent ?? DEFAULT_CASHLESS_PERCENT,
       durationDays,
       discountPercent: input.discountPercent ?? 0,
-      notes: input.notes?.length
-        ? input.notes
-        : [
-            "Внимание: данное предложение не является офертой. Бронирование оборудования на вашу дату производится только после заключения договора или внесения предоплаты",
-            "* Первый день - 100% стоимости оборудования, 2-й и последующий, а также отдельный день для репетиций тарифицируются по 50% от стоимости оборудования",
-          ],
+      notes: input.notes?.length ? input.notes : [...DEFAULT_QUOTE_NOTES],
       lifecycle: "CALCULATED",
       zones: {
         create: zones.map((z, i) => ({

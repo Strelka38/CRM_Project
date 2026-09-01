@@ -1,4 +1,7 @@
 import { prisma } from "@/lib/db";
+import { DEFAULT_AGENCY_PERCENT } from "@/lib/calc-agency";
+import { DEFAULT_CASHLESS_PERCENT } from "@/lib/pricing";
+import { DEFAULT_TIMEZONE } from "@/lib/timezone";
 
 /**
  * Idempotent ALTER TABLEs for prod drift (migrate history may claim
@@ -106,9 +109,9 @@ export async function ensureQuoteSchemaColumns() {
     `CREATE UNIQUE INDEX IF NOT EXISTS "EquipmentUnit_qrToken_key" ON "EquipmentUnit"("qrToken")`,
     `CREATE UNIQUE INDEX IF NOT EXISTS "EquipmentUnit_catalogItemId_unitNumber_key" ON "EquipmentUnit"("catalogItemId", "unitNumber")`,
     `CREATE INDEX IF NOT EXISTS "EquipmentUnit_inRepair_idx" ON "EquipmentUnit"("inRepair")`,
-    `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "agencyPercent" DOUBLE PRECISION NOT NULL DEFAULT 5`,
-    `ALTER TABLE "Quote" ADD COLUMN IF NOT EXISTS "cashlessPercent" DOUBLE PRECISION NOT NULL DEFAULT 10`,
-    `ALTER TABLE "QuoteTemplate" ADD COLUMN IF NOT EXISTS "cashlessPercent" DOUBLE PRECISION NOT NULL DEFAULT 10`,
+    `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "agencyPercent" DOUBLE PRECISION NOT NULL DEFAULT ${DEFAULT_AGENCY_PERCENT}`,
+    `ALTER TABLE "Quote" ADD COLUMN IF NOT EXISTS "cashlessPercent" DOUBLE PRECISION NOT NULL DEFAULT ${DEFAULT_CASHLESS_PERCENT}`,
+    `ALTER TABLE "QuoteTemplate" ADD COLUMN IF NOT EXISTS "cashlessPercent" DOUBLE PRECISION NOT NULL DEFAULT ${DEFAULT_CASHLESS_PERCENT}`,
     `ALTER TYPE "Role" ADD VALUE IF NOT EXISTS 'ADMIN'`,
     `UPDATE "User" SET "role" = 'ADMIN' WHERE id = (SELECT id FROM "User" ORDER BY "createdAt" ASC, id ASC LIMIT 1) AND NOT EXISTS (SELECT 1 FROM "User" WHERE "role" = 'ADMIN')`,
     `ALTER TABLE "QuoteZone" ADD COLUMN IF NOT EXISTS "active" BOOLEAN NOT NULL DEFAULT true`,
@@ -218,7 +221,7 @@ export async function ensureQuoteSchemaColumns() {
     `DO $$ BEGIN ALTER TABLE "LegalEntityBankAccount" ADD CONSTRAINT "LegalEntityBankAccount_legalEntityId_fkey" FOREIGN KEY ("legalEntityId") REFERENCES "LegalEntity"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
     `DO $$ BEGIN CREATE TYPE "WeatherPlace" AS ENUM ('IRKUTSK', 'IRKUTSK_OBLAST'); EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
     `ALTER TYPE "NotificationType" ADD VALUE IF NOT EXISTS 'TASK_OPEN'`,
-    `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "timezone" TEXT NOT NULL DEFAULT 'Asia/Irkutsk'`,
+    `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "timezone" TEXT NOT NULL DEFAULT '${DEFAULT_TIMEZONE}'`,
     `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "weatherPlace" "WeatherPlace" NOT NULL DEFAULT 'IRKUTSK'`,
     `ALTER TABLE "CalendarEntry" ADD COLUMN IF NOT EXISTS "completedAt" TIMESTAMP(3)`,
     `ALTER TABLE "CalendarEntry" ADD COLUMN IF NOT EXISTS "completedById" TEXT`,
@@ -228,7 +231,7 @@ export async function ensureQuoteSchemaColumns() {
       "value" TEXT NOT NULL,
       CONSTRAINT "AppSetting_pkey" PRIMARY KEY ("key")
     )`,
-    `INSERT INTO "AppSetting" ("key", "value") VALUES ('masterTimezone', 'Asia/Irkutsk') ON CONFLICT ("key") DO NOTHING`,
+    `INSERT INTO "AppSetting" ("key", "value") VALUES ('masterTimezone', '${DEFAULT_TIMEZONE}') ON CONFLICT ("key") DO NOTHING`,
     `CREATE INDEX IF NOT EXISTS "CalendarEntry_completedById_idx" ON "CalendarEntry"("completedById")`,
     `CREATE INDEX IF NOT EXISTS "Notification_calendarEntryId_idx" ON "Notification"("calendarEntryId")`,
     `DO $$ BEGIN ALTER TABLE "CalendarEntry" ADD CONSTRAINT "CalendarEntry_completedById_fkey" FOREIGN KEY ("completedById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$`,

@@ -50,12 +50,19 @@ import {
   quoteTimeOptions,
 } from "@/lib/quote-schedule";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { PaymentFlags } from "@/components/ui";
+import {
+  LIFECYCLE_LABELS,
+  LIFECYCLE_STATUSES,
+  PaymentFlags,
+  type LifecycleStatus,
+} from "@/components/ui";
 import { cn } from "@/lib/cn";
 import {
   BRIGADIER_QUOTE_PATCH_KEYS,
   isQuoteOwnerRole,
 } from "@/lib/roles";
+import { DEFAULT_CASHLESS_PERCENT } from "@/lib/pricing";
+import { isStatsLifecycle } from "@/lib/lifecycle";
 import { parseEventDate } from "@/lib/dates";
 import {
   rangeFromWorkingDayIndexes,
@@ -72,7 +79,7 @@ import {
   relatedTargetStillInside,
 } from "@/lib/catalog-dnd";
 
-type Lifecycle = "CALCULATED" | "CONFIRMED" | "CANCELLED" | "COMPLETED";
+type Lifecycle = LifecycleStatus;
 
 type ManagerOption = { id: string; name: string; phone: string };
 
@@ -120,12 +127,11 @@ function newId() {
   return `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
 }
 
-const LIFE_OPTS: { value: Lifecycle; label: string }[] = [
-  { value: "CALCULATED", label: "Посчитано" },
-  { value: "CONFIRMED", label: "Подтверждено" },
-  { value: "CANCELLED", label: "Отменено" },
-  { value: "COMPLETED", label: "Завершено" },
-];
+const LIFE_OPTS: { value: Lifecycle; label: string }[] =
+  LIFECYCLE_STATUSES.map((value) => ({
+    value,
+    label: LIFECYCLE_LABELS[value],
+  }));
 
 const ACTION_BTN =
   "inline-flex shrink-0 items-center justify-center rounded-md border border-[var(--line)] px-2 py-1.5 disabled:opacity-40";
@@ -276,7 +282,9 @@ export function QuoteEditor({
         ownerId: data.ownerId || data.owner?.id || "",
         cashless: data.cashless,
         cashlessPercent:
-          data.cashlessPercent == null ? 10 : Number(data.cashlessPercent),
+          data.cashlessPercent == null
+            ? DEFAULT_CASHLESS_PERCENT
+            : Number(data.cashlessPercent),
         durationDays: data.durationDays,
         notes: data.notes,
         lifecycle: data.lifecycle,
@@ -538,8 +546,7 @@ export function QuoteEditor({
     ): Promise<boolean> => {
       if (
         canEditQuote &&
-        (nextMeta.lifecycle === "CONFIRMED" ||
-          nextMeta.lifecycle === "COMPLETED") &&
+        isStatsLifecycle(nextMeta.lifecycle) &&
         !nextMeta.venueId
       ) {
         setError("Выберите площадку из справочника");

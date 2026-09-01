@@ -4,15 +4,11 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
-
-const ITEMS = [
-  { href: "/clients", label: "Клиенты" },
-  { href: "/legal-entities", label: "Юрлица" },
-  { href: "/venues", label: "Площадки" },
-  { href: "/freelancers", label: "Фрилансеры" },
-  { href: "/users", label: "Пользователи" },
-  { href: "/rates", label: "Ставки" },
-] as const;
+import {
+  isNavItemActive,
+  navGroupIsActive,
+  navMenuItems,
+} from "@/lib/nav-sections";
 
 export function DatabaseMenu({
   showBackup = false,
@@ -22,13 +18,9 @@ export function DatabaseMenu({
   variant?: "sidebar" | "top";
 }) {
   const pathname = usePathname();
-  const items = showBackup
-    ? [...ITEMS, { href: "/backup", label: "Экспорт / импорт" }]
-    : ITEMS;
+  const items = navMenuItems("database", { showBackup });
 
-  const active = items.some(
-    (item) => pathname === item.href || pathname.startsWith(`${item.href}/`),
-  );
+  const active = navGroupIsActive(pathname, "database", { showBackup });
   const [open, setOpen] = useState(variant === "sidebar" ? active : false);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -47,8 +39,7 @@ export function DatabaseMenu({
   }, [open, variant]);
 
   const links = items.map((item) => {
-    const isActive =
-      pathname === item.href || pathname.startsWith(`${item.href}/`);
+    const isActive = isNavItemActive(pathname, item.href, item.exactActive);
     return (
       <Link
         key={item.href}
