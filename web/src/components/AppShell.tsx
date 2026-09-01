@@ -19,13 +19,21 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
   let role = session?.user?.role;
   let payoutsAccess = false;
   if (session?.user?.id) {
-    const dbUser = await prisma.user.findUnique({
-      where: { id: session.user.id },
-      select: { role: true, canAccessPayments: true },
-    });
-    if (dbUser) {
-      role = dbUser.role;
-      payoutsAccess = dbUser.canAccessPayments;
+    try {
+      const dbUser = await prisma.user.findUnique({
+        where: { id: session.user.id },
+        select: { role: true, canAccessPayments: true },
+      });
+      if (dbUser) {
+        role = dbUser.role;
+        payoutsAccess = dbUser.canAccessPayments;
+      }
+    } catch {
+      const dbUser = await prisma.user.findUnique({
+        where: { id: session.user.id },
+        select: { role: true },
+      });
+      if (dbUser) role = dbUser.role;
     }
   }
   const manager = isManager(role);

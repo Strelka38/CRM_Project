@@ -45,6 +45,7 @@ cp -a \
   scripts/restore.sh \
   scripts/migrate-volumes-to-data.sh \
   scripts/fix-prod-db-columns.sh \
+  scripts/rescue-named-volumes.sh \
   "$STAGE/scripts/"
 
 # Prebuilt image (rename to stable name inside archive)
@@ -310,18 +311,12 @@ elif [[ "$SKIP_BACKUP" -eq 1 ]]; then
 fi
 
 if [[ "$PACK" != "$INSTALL" ]]; then
-  echo "==> Копирую compose / Caddy / скрипты в установку"
-  cp -a "$PACK/docker-compose.yml" "$INSTALL/"
+  echo "==> Копирую Caddy и скрипты (compose НЕ трогаю — иначе слетят тома pgdata)"
   mkdir -p "$INSTALL/docker" "$INSTALL/scripts"
-  cp -a "$PACK/docker/." "$INSTALL/docker/"
+  [[ -f "$PACK/docker/Caddyfile" ]] && cp -a "$PACK/docker/Caddyfile" "$INSTALL/docker/"
   cp -a "$PACK/scripts/." "$INSTALL/scripts/"
   cp -a "$PACK/update.sh" "$INSTALL/update.sh"
-  [[ -f "$PACK/deploy.sh" ]] && cp -a "$PACK/deploy.sh" "$INSTALL/deploy.sh"
-  [[ -f "$PACK/install.sh" ]] && cp -a "$PACK/install.sh" "$INSTALL/install.sh"
-  [[ -f "$PACK/Dockerfile" ]] && cp -a "$PACK/Dockerfile" "$INSTALL/Dockerfile"
   chmod +x "$INSTALL/update.sh" "$INSTALL/scripts/"*.sh 2>/dev/null || true
-  [[ -f "$INSTALL/deploy.sh" ]] && chmod +x "$INSTALL/deploy.sh"
-  [[ -f "$INSTALL/install.sh" ]] && chmod +x "$INSTALL/install.sh"
 fi
 
 echo "==> Загружаю Docker-образ crm-app:latest..."
@@ -367,9 +362,16 @@ BaikalStage CRM — архив для VPS (образ linux/amd64)
    Скрипт:
    - сделает снимок БД+файлов (если есть scripts/backup.sh)
    - загрузит образ crm-app:latest
-   - обновит compose/Caddy/скрипты
+   - обновит Caddy/скрипты
    - перезапустит контейнер app
-   - НЕ трогает .env, data/postgres, data/uploads, backups/
+   - НЕ трогает .env, docker-compose.yml, data/, backups/
+
+   Если после прошлого апдейта пропали сметы/каталог — база скорее
+   осталась в Docker-томе pgdata:
+
+   cd /var/www/bsg-crm
+   ./scripts/rescue-named-volumes.sh
+   ./scripts/rescue-named-volumes.sh --yes
 
    Без снимка: ./update.sh --skip-backup /var/www/bsg-crm
 

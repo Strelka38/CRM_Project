@@ -9,6 +9,7 @@ import { DEFAULT_TIMEZONE } from "@/lib/timezone";
  */
 export async function ensureQuoteSchemaColumns() {
   const statements = [
+    `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "canAccessPayments" BOOLEAN NOT NULL DEFAULT false`,
     `ALTER TABLE "Quote" ADD COLUMN IF NOT EXISTS "mountDate" TEXT NOT NULL DEFAULT ''`,
     `ALTER TABLE "Quote" ADD COLUMN IF NOT EXISTS "mountDurationDays" INTEGER NOT NULL DEFAULT 1`,
     `ALTER TABLE "Quote" ADD COLUMN IF NOT EXISTS "demountDate" TEXT NOT NULL DEFAULT ''`,
@@ -306,14 +307,39 @@ export async function ensureQuoteSchemaColumns() {
     `CREATE INDEX IF NOT EXISTS "Payout_paidAt_idx" ON "Payout"("paidAt")`,
     `DO $$ BEGIN ALTER TABLE "Payout" ADD CONSTRAINT "Payout_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
     `DO $$ BEGIN ALTER TABLE "Payout" ADD CONSTRAINT "Payout_paidById_fkey" FOREIGN KEY ("paidById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+    `DO $$
+BEGIN
+  IF to_regclass('public."CatalogCategory"') IS NULL
+     OR to_regclass('public."CatalogItem"') IS NULL THEN
+    RETURN;
+  END IF;
+  IF (
+    (SELECT COUNT(*) FROM "CatalogCategory" WHERE active = true AND "parentId" IS NULL) = 0
+    AND (SELECT COUNT(*) FROM "CatalogItem" WHERE active = true) > 0
+  ) THEN
+    UPDATE "CatalogCategory" AS c
+    SET active = true
+    WHERE c.active = false
+      AND EXISTS (
+        SELECT 1
+        FROM "CatalogItem" i
+        JOIN "CatalogCategory" ic ON ic.id = i."categoryId"
+        WHERE i.active = true
+          AND (ic.path = c.path OR starts_with(ic.path, c.path || '/'))
+      );
+    UPDATE "CatalogItem"
+    SET active = true
+    WHERE active = false
+      AND "itemKind" IN ('SERVICE', 'CONSUMABLE', 'PERSONNEL', 'OTHER');
+  END IF;
+END $$`,
   ];
 
   for (const sql of statements) {
     try {
       await prisma.$executeRawUnsafe(sql);
     } catch (e) {
-      console.error("ensureQuoteSchemaColumns failed:", sql, e);
-      throw e;
+      console.error("ensureQuoteSchemaColumns skipped:", sql, e);
     }
   }
 }

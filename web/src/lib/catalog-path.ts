@@ -1,24 +1,16 @@
 import type { CategoryKind, ItemKind } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import {
+  categoryPathChain,
+  shouldRepairHiddenCatalogTree,
+} from "@/lib/catalog-path-logic";
+
+export { categoryPathChain, shouldRepairHiddenCatalogTree };
 
 export function mapCategoryKind(top: string, itemKind: ItemKind): CategoryKind {
   if (itemKind === "PERSONNEL" || top === "Услуги") return "PERSONNEL";
   if (top === "Разное") return "OTHER";
   return "EQUIPMENT";
-}
-
-export function categoryPathChain(fullPath: string): string[] {
-  const parts = fullPath
-    .split("/")
-    .map((p) => p.trim())
-    .filter(Boolean);
-  const out: string[] = [];
-  let built = "";
-  for (const name of parts) {
-    built = built ? `${built}/${name}` : name;
-    out.push(built);
-  }
-  return out;
 }
 
 /** Включить раздел и всех предков (после импорта в скрытую ветку). */
@@ -32,6 +24,35 @@ export async function reactivateCategoryPaths(paths: Iterable<string>) {
     where: { path: { in: [...all] } },
     data: { active: true },
   });
+}
+
+/**
+ * Если все корневые разделы скрыты, а позиции на месте — включить папки
+ * с живыми позициями и услуги, которые складской импорт пропускал.
+ */
+export async function repairHiddenCatalogTree(): Promise<boolean> {
+  const [activeRoots, liveItems] = await Promise.all([
+    prisma.catalogCategory.count({
+      where: { active: true, parentId: null },
+    }),
+    prisma.catalogItem.count({ where: { active: true } }),
+  ]);
+  if (!shouldRepairHiddenCatalogTree(activeRoots, liveItems)) return false;
+
+  const withLiveItems = await prisma.catalogCategory.findMany({
+    where: { items: { some: { active: true } } },
+    select: { path: true },
+  });
+  await reactivateCategoryPaths(withLiveItems.map((c) => c.path));
+
+  await prisma.catalogItem.updateMany({
+    where: {
+      active: false,
+      itemKind: { in: ["SERVICE", "CONSUMABLE", "PERSONNEL", "OTHER"] },
+    },
+    data: { active: true },
+  });
+  return true;
 }
 
 /** Загрузить кэш path → id из БД. */
@@ -70,11 +91,17 @@ export async function ensureCategoryPath(
 
     const existing = await prisma.catalogCategory.findUnique({
       where: { path: built },
-      select: { id: true },
+      select: { id: true, active: true },
     });
     if (existing) {
       cache.set(built, existing.id);
       parentId = existing.id;
+      if (!existing.active) {
+        await prisma.catalogCategory.update({
+          where: { id: existing.id },
+          data: { active: true },
+        });
+      }
       continue;
     }
 

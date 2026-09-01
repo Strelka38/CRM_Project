@@ -408,7 +408,8 @@ export function CatalogAdmin() {
 
   async function loadCats() {
     const res = await fetch("/api/catalog/categories?tree=1");
-    setCategories(await res.json());
+    const data: unknown = await res.json().catch(() => null);
+    setCategories(Array.isArray(data) ? (data as Category[]) : []);
   }
 
   async function loadItems() {
@@ -544,24 +545,12 @@ export function CatalogAdmin() {
     try {
       const fd = new FormData();
       fd.set("file", file);
-      // Полный CSV каталога (услуги + оборудование) — не склад: складской
-      // импорт пропускает услуги и не включает скрытые разделы.
-      let res = await fetch("/api/catalog/import", {
+      const res = await fetch("/api/catalog/import", {
         method: "POST",
         credentials: "same-origin",
         body: fd,
       });
-      let data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        const fd2 = new FormData();
-        fd2.set("file", file);
-        res = await fetch("/api/equipment/import", {
-          method: "POST",
-          credentials: "same-origin",
-          body: fd2,
-        });
-        data = await res.json().catch(() => ({}));
-      }
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setCsvMessage(data.error || "Не удалось импортировать");
         return;

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
+import { repairHiddenCatalogTree } from "@/lib/catalog-path";
 import { requireDatabaseAccess, requireSession } from "@/lib/session";
 
 export async function GET(req: NextRequest) {
@@ -12,6 +13,13 @@ export async function GET(req: NextRequest) {
     const parentId = req.nextUrl.searchParams.get("parentId");
 
     if (tree) {
+      if (!includeInactive) {
+        try {
+          await repairHiddenCatalogTree();
+        } catch (err) {
+          console.error("[GET /api/catalog/categories] tree repair", err);
+        }
+      }
       let categories = await prisma.catalogCategory.findMany({
         where: includeInactive ? {} : { active: true },
         orderBy: [{ sortOrder: "asc" }, { name: "asc" }],

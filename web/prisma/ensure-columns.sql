@@ -251,3 +251,31 @@ CREATE UNIQUE INDEX IF NOT EXISTS "QuoteAssignment_filled_quote_user_spec_kind_z
 CREATE UNIQUE INDEX IF NOT EXISTS "QuoteAssignment_filled_quote_user_spec_kind_zone_alldays_key"
   ON "QuoteAssignment" ("quoteId", "userId", "specialtyId", "kind", (COALESCE("zoneId", '')))
   WHERE "userId" IS NOT NULL AND "dayIndex" IS NULL;
+
+-- Catalog tree empty after warehouse CSV: all folders hidden, items still live.
+DO $$
+BEGIN
+  IF to_regclass('public."CatalogCategory"') IS NULL
+     OR to_regclass('public."CatalogItem"') IS NULL THEN
+    RETURN;
+  END IF;
+  IF (
+    (SELECT COUNT(*) FROM "CatalogCategory" WHERE active = true AND "parentId" IS NULL) = 0
+    AND (SELECT COUNT(*) FROM "CatalogItem" WHERE active = true) > 0
+  ) THEN
+    UPDATE "CatalogCategory" AS c
+    SET active = true
+    WHERE c.active = false
+      AND EXISTS (
+        SELECT 1
+        FROM "CatalogItem" i
+        JOIN "CatalogCategory" ic ON ic.id = i."categoryId"
+        WHERE i.active = true
+          AND (ic.path = c.path OR starts_with(ic.path, c.path || '/'))
+      );
+    UPDATE "CatalogItem"
+    SET active = true
+    WHERE active = false
+      AND "itemKind" IN ('SERVICE', 'CONSUMABLE', 'PERSONNEL', 'OTHER');
+  END IF;
+END $$;
