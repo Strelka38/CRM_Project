@@ -63,6 +63,8 @@ export function mountAssignments(assignments: DayAssignmentLike[]): DayAssignmen
 
 export type ZoneWorkingDays = {
   id: string;
+  name?: string | null;
+  sortOrder?: number | null;
   workingDayIndexes?: number[] | null;
 };
 

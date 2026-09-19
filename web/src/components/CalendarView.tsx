@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   type MouseEvent,
+  type Ref,
 } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -44,7 +45,8 @@ import {
   parseEventDate,
   startOfDay,
 } from "@/lib/dates";
-import { lanesThatFit } from "@/lib/calendar-lanes";
+import { laneHeightToFit, lanesThatFit } from "@/lib/calendar-lanes";
+import { swipeMonthDelta } from "@/lib/calendar-swipe";
 import { canOpenCalendarCreateMenu } from "@/lib/roles";
 import {
   persistCalendarView,
@@ -140,15 +142,18 @@ type CalendarDensity = {
 
 const DENSITY_TIMETREE: CalendarDensity = {
   maxLanes: 6,
-  laneHeight: 15,
-  laneGap: 2,
-  dayNumHeight: 28,
-  overflowRow: 16,
+  laneHeight: 14,
+  laneGap: 1,
+  dayNumHeight: 20,
+  overflowRow: 0,
 };
+
+const MOBILE_LANE_MIN = 12;
+const MOBILE_LANE_MAX = 18;
 
 const DENSITY_TIMETREE_DESKTOP: CalendarDensity = {
   maxLanes: 6,
-  laneHeight: 16,
+  laneHeight: 20,
   laneGap: 3,
   dayNumHeight: 30,
   overflowRow: 18,
@@ -229,27 +234,40 @@ function FilterChip({
   color,
   active,
   onToggle,
+  showLabel,
 }: {
   label: string;
   color: string;
   active: boolean;
   onToggle: () => void;
+  showLabel: boolean;
 }) {
   return (
     <button
       type="button"
       aria-pressed={active}
+      aria-label={showLabel ? undefined : label}
+      title={label}
       onClick={onToggle}
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full px-1 py-0.5 text-caption transition-opacity hover:text-[var(--ink)]",
+        "inline-flex items-center justify-center rounded-full transition-opacity hover:text-[var(--ink)]",
+        showLabel ? "gap-1.5 px-1 py-0.5 text-caption" : "size-7",
         active ? "text-[var(--muted)]" : "text-[var(--muted)]/40 opacity-50",
       )}
     >
       <span
-        className="inline-block size-2.5 shrink-0 rounded-full"
-        style={{ background: color }}
+        className={cn(
+          "inline-block shrink-0 rounded-full",
+          showLabel ? "size-2.5" : "size-3",
+        )}
+        // Без подписи заливка/обводка — единственный признак включённого фильтра.
+        style={
+          showLabel || active
+            ? { background: color }
+            : { boxShadow: `inset 0 0 0 1.5px ${color}` }
+        }
       />
-      {label}
+      {showLabel ? label : null}
     </button>
   );
 }
@@ -270,6 +288,13 @@ function weekLaneStats(d: CalendarDensity, segs: EventSeg[]) {
       shown * (d.laneHeight + d.laneGap) +
       (overflow ? d.overflowRow : 6),
   };
+}
+
+/** Оплаченный счёт = завершённый проект. Отмена важнее оплаты. */
+function calendarQuoteStatus(q: Pick<Quote, "lifecycle" | "paid">): LifecycleStatus {
+  if (q.lifecycle === "CANCELLED") return "CANCELLED";
+  if (q.paid || q.lifecycle === "COMPLETED") return "COMPLETED";
+  return q.lifecycle;
 }
 
 function quoteLabel(q: Quote) {
@@ -303,7 +328,9 @@ function entryLabel(e: CalendarEntryRow) {
   return bits.length ? `Аренда · ${bits.join(" · ")}` : "Аренда";
 }
 
-/** Full weeks including leading/trailing days of adjacent months. */
+const CALENDAR_WEEK_ROWS = 6;
+
+/** Full weeks including leading/trailing days of adjacent months. Always 6 rows so swipe density does not jump. */
 function buildWeeks(year: number, month: number): Date[][] {
   const first = startOfDay(new Date(year, month, 1));
   const firstDow = (first.getDay() + 6) % 7;
@@ -320,6 +347,10 @@ function buildWeeks(year: number, month: number): Date[][] {
   const weeks: Date[][] = [];
   for (let i = 0; i < cells.length; i += 7) {
     weeks.push(cells.slice(i, i + 7));
+  }
+  while (weeks.length < CALENDAR_WEEK_ROWS) {
+    const last = weeks[weeks.length - 1]![6]!;
+    weeks.push([0, 1, 2, 3, 4, 5, 6].map((i) => addDays(last, i + 1)));
   }
   return weeks;
 }
@@ -454,7 +485,7 @@ function CalendarMonthYearJump({
 
   return (
     <div ref={boxRef} className="relative flex flex-wrap items-baseline gap-x-2">
-      <h1 className="font-display flex flex-wrap items-baseline gap-x-2 text-2xl tracking-tight text-[var(--ink)]">
+      <h1 className="font-display flex flex-wrap items-baseline gap-x-2 text-lg tracking-tight text-[var(--ink)] md:text-2xl">
         <button
           type="button"
           className="capitalize underline-offset-4 hover:underline"
@@ -587,7 +618,7 @@ function DayAgenda({
           <button
             type="button"
             onClick={onClose}
-            className="flex size-8 shrink-0 items-center justify-center rounded-full text-lg leading-none text-[var(--muted)] hover:bg-[var(--ink)]/10 hover:text-[var(--ink)]"
+            className="drawer-close flex size-8 shrink-0 items-center justify-center rounded-[var(--radius-sm)] text-lg leading-none text-[var(--muted)] hover:bg-[var(--ink)]/10 hover:text-[var(--ink)]"
             aria-label="Закрыть"
           >
             ×
@@ -652,6 +683,178 @@ function DayAgenda({
   );
 }
 
+function MonthWeeks({
+  layouts,
+  month,
+  density,
+  showingDesktop,
+  todayKey,
+  selectedKey,
+  barFont,
+  weeksRef,
+  onDayClick,
+  onOpenItem,
+}: {
+  layouts: { week: Date[]; segs: EventSeg[] }[];
+  month: number;
+  density: CalendarDensity;
+  showingDesktop: boolean;
+  todayKey: string;
+  selectedKey: string;
+  barFont: number;
+  weeksRef?: Ref<HTMLDivElement>;
+  onDayClick: (day: Date) => void;
+  onOpenItem: (item: CalItem, day: Date) => void;
+}) {
+  return (
+    <div ref={weeksRef} className="cal-tt-weeks">
+      {layouts.map(({ week, segs }, weekIdx) => {
+        const visibleSegs = segs.filter((s) => s.lane < density.maxLanes);
+        const { shown } = weekLaneStats(density, segs);
+        return (
+          <div
+            key={weekIdx}
+            className="cal-tt-week is-fill relative grid grid-cols-7"
+          >
+            {week.map((day, col) => {
+              const key = formatDateKey(day);
+              const isToday = key === todayKey;
+              const isSelected = key === selectedKey;
+              const outside = day.getMonth() !== month;
+              const weekend = day.getDay() === 0 || day.getDay() === 6;
+              const hiddenOnDay = segs.filter(
+                (s) =>
+                  s.lane >= density.maxLanes &&
+                  col >= s.startCol &&
+                  col < s.startCol + s.span,
+              ).length;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => onDayClick(day)}
+                  className={cn(
+                    "cal-tt-cell relative flex flex-col items-center pt-0.5",
+                    isSelected && "is-selected",
+                    outside && "is-outside",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "relative z-10 flex items-center justify-center rounded-full tabular-nums",
+                      showingDesktop
+                        ? "size-[1.7rem] text-[13px]"
+                        : "size-5 text-[11px]",
+                      isToday &&
+                        "bg-[var(--ink)] font-semibold text-[var(--panel)]",
+                      !isToday &&
+                        isSelected &&
+                        "font-semibold text-[var(--ink)]",
+                      !isToday &&
+                        !isSelected &&
+                        outside &&
+                        "text-[var(--muted)]/40",
+                      !isToday &&
+                        !isSelected &&
+                        !outside &&
+                        weekend &&
+                        "text-rose-400",
+                      !isToday &&
+                        !isSelected &&
+                        !outside &&
+                        !weekend &&
+                        "text-[var(--ink)]",
+                    )}
+                  >
+                    {day.getDate()}
+                  </span>
+                  {hiddenOnDay > 0 ? (
+                    <span
+                      className={cn(
+                        "cal-tt-more",
+                        !showingDesktop && "is-corner",
+                      )}
+                    >
+                      +{hiddenOnDay}
+                    </span>
+                  ) : null}
+                </button>
+              );
+            })}
+
+            <div
+              className="pointer-events-none absolute inset-x-0"
+              style={{
+                top: density.dayNumHeight,
+                height: shown * (density.laneHeight + density.laneGap),
+              }}
+            >
+              {visibleSegs.map((seg) => {
+                const left = `calc(${(seg.startCol / 7) * 100}% + 2px)`;
+                const width = `calc(${(seg.span / 7) * 100}% - 4px)`;
+                const top = seg.lane * (density.laneHeight + density.laneGap);
+                const radiusLeft = seg.continuesLeft ? "4px" : "6px";
+                const radiusRight = seg.continuesRight ? "4px" : "6px";
+                const vacant =
+                  seg.item.type === "quote" &&
+                  (seg.item.quote.staffVacantCount ?? 0) > 0;
+                const staffHint =
+                  seg.item.type === "quote"
+                    ? quoteStaffHint(seg.item.quote)
+                    : "";
+                const startOutside = week[seg.startCol]!.getMonth() !== month;
+                const endOutside =
+                  week[seg.startCol + seg.span - 1]!.getMonth() !== month;
+                const segKey = `${seg.item.type}-${seg.item.id}-${weekIdx}-${seg.startCol}`;
+                const segClass = `absolute truncate px-1.5 text-left font-medium text-white${vacant ? " cal-event-vacant" : ""}`;
+                const segStyle = {
+                  left,
+                  width,
+                  top,
+                  height: density.laneHeight,
+                  lineHeight: `${density.laneHeight}px`,
+                  fontSize: barFont,
+                  background: seg.item.color,
+                  borderRadius: `${radiusLeft} ${radiusRight} ${radiusRight} ${radiusLeft}`,
+                  opacity: startOutside && endOutside ? 0.45 : 1,
+                };
+                const segTitle = `${seg.item.subtitle} · ${seg.item.label}${staffHint ? ` · ${staffHint}` : ""}`;
+                if (!showingDesktop) {
+                  return (
+                    <span
+                      key={segKey}
+                      className={segClass}
+                      style={segStyle}
+                      title={segTitle}
+                    >
+                      {seg.item.label}
+                    </span>
+                  );
+                }
+                return (
+                  <button
+                    key={segKey}
+                    type="button"
+                    className={`pointer-events-auto ${segClass}`}
+                    style={segStyle}
+                    title={segTitle}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onOpenItem(seg.item, startOfDay(week[seg.startCol]!));
+                    }}
+                  >
+                    {seg.item.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function CalendarView() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -660,7 +863,14 @@ export function CalendarView() {
   const canCreate = canOpenCalendarCreateMenu(role);
   const { showingDesktop } = useLayoutDensity();
   const weeksRef = useRef<HTMLDivElement>(null);
+  const swipeRef = useRef<HTMLDivElement>(null);
+  const swipeTxRef = useRef(0);
+  const [swipeTx, setSwipeTx] = useState(0);
+  const [swipeSettle, setSwipeSettle] = useState(false);
   const [fitLanes, setFitLanes] = useState(DENSITY_TIMETREE_DESKTOP.maxLanes);
+  const [mobileLaneHeight, setMobileLaneHeight] = useState(
+    DENSITY_TIMETREE.laneHeight,
+  );
 
   const [cursor, setCursor] = useState(() => {
     const d = new Date();
@@ -738,10 +948,10 @@ export function CalendarView() {
   }
 
   const from = formatDateKey(
-    addDays(new Date(cursor.getFullYear(), cursor.getMonth(), 1), -14),
+    addDays(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1), -7),
   );
   const to = formatDateKey(
-    addDays(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0), 14),
+    addDays(new Date(cursor.getFullYear(), cursor.getMonth() + 2, 0), 7),
   );
 
   function reload() {
@@ -805,10 +1015,9 @@ export function CalendarView() {
   }, [from, to, viewReady]);
 
   useEffect(() => {
-    if (!showingDesktop) return;
     document.documentElement.classList.add("cal-lock-x");
     return () => document.documentElement.classList.remove("cal-lock-x");
-  }, [showingDesktop]);
+  }, []);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -829,12 +1038,11 @@ export function CalendarView() {
   const year = cursor.getFullYear();
   const month = cursor.getMonth();
 
-  const weeks = useMemo(() => buildWeeks(year, month), [year, month]);
-
   const items = useMemo<CalItem[]>(() => {
     const list: CalItem[] = [];
     for (const q of quotes) {
-      if (!filters.lifecycles[q.lifecycle]) continue;
+      const status = calendarQuoteStatus(q);
+      if (!filters.lifecycles[status]) continue;
       const eventStart = q.eventDate
         ? startOfDay(new Date(q.eventDate))
         : parseEventDate(q.date);
@@ -866,8 +1074,8 @@ export function CalendarView() {
         start,
         end,
         label: quoteLabel(q),
-        color: lifecycleColor(q.lifecycle),
-        subtitle: [LIFECYCLE_LABELS[q.lifecycle], quoteStaffHint(q)]
+        color: lifecycleColor(status),
+        subtitle: [LIFECYCLE_LABELS[status], quoteStaffHint(q)]
           .filter(Boolean)
           .join(" · "),
       });
@@ -892,12 +1100,24 @@ export function CalendarView() {
     return list;
   }, [quotes, entries, filters]);
 
-  const weekLayouts = useMemo(() => {
-    return weeks.map((week) => {
-      const segs = segmentsForWeek(week, items);
-      return { week, segs };
+  const pages = useMemo(() => {
+    return [-1, 0, 1].map((delta) => {
+      const d = new Date(year, month + delta, 1);
+      const y = d.getFullYear();
+      const m = d.getMonth();
+      const monthWeeks = buildWeeks(y, m);
+      return {
+        key: `${y}-${m}`,
+        year: y,
+        month: m,
+        layouts: monthWeeks.map((week) => ({
+          week,
+          segs: segmentsForWeek(week, items),
+        })),
+      };
     });
-  }, [weeks, items]);
+  }, [year, month, items]);
+  const weeks = pages[1]?.layouts.map((p) => p.week) ?? [];
 
   const todayKey = formatDateKey(new Date());
   const selectedKey = formatDateKey(selectedDay);
@@ -923,6 +1143,8 @@ export function CalendarView() {
   function shiftMonth(delta: number) {
     jumpTo(year, month + delta);
   }
+  const shiftMonthRef = useRef(shiftMonth);
+  shiftMonthRef.current = shiftMonth;
 
   function goToday() {
     const t = startOfDay(new Date());
@@ -1032,25 +1254,34 @@ export function CalendarView() {
   const tt = showingDesktop ? DENSITY_TIMETREE_DESKTOP : DENSITY_TIMETREE;
   const density: CalendarDensity = showingDesktop
     ? { ...tt, maxLanes: fitLanes }
-    : tt;
-  const barFont = showingDesktop ? 11 : 10;
+    : { ...tt, maxLanes: 6, laneHeight: mobileLaneHeight };
+  const barFont = showingDesktop ? 12 : mobileLaneHeight >= 16 ? 11 : 10;
 
   useLayoutEffect(() => {
-    if (!showingDesktop) {
-      setFitLanes(DENSITY_TIMETREE.maxLanes);
-      return;
-    }
-    const el = weeksRef.current;
-    if (!el) return;
-    const weekCount = weeks.length;
+    const grid = weeksRef.current;
+    if (!grid) return;
+    const weekCount = CALENDAR_WEEK_ROWS;
+    const laneDensity = showingDesktop
+      ? DENSITY_TIMETREE_DESKTOP
+      : DENSITY_TIMETREE;
     function measure() {
-      const h = el.clientHeight;
+      const h = grid!.clientHeight;
       if (weekCount <= 0 || h <= 0) return;
-      setFitLanes(lanesThatFit(h / weekCount, DENSITY_TIMETREE_DESKTOP));
+      const cell = h / weekCount;
+      if (showingDesktop) {
+        setFitLanes(lanesThatFit(cell, laneDensity));
+        return;
+      }
+      setMobileLaneHeight(
+        laneHeightToFit(cell, laneDensity, 6, {
+          min: MOBILE_LANE_MIN,
+          max: MOBILE_LANE_MAX,
+        }),
+      );
     }
     measure();
     const ro = new ResizeObserver(measure);
-    ro.observe(el);
+    ro.observe(grid);
     const vv = window.visualViewport;
     vv?.addEventListener("resize", measure);
     window.addEventListener("resize", measure);
@@ -1059,7 +1290,114 @@ export function CalendarView() {
       vv?.removeEventListener("resize", measure);
       window.removeEventListener("resize", measure);
     };
-  }, [showingDesktop, weeks.length]);
+  }, [showingDesktop]);
+
+  useEffect(() => {
+    const pane = swipeRef.current;
+    if (!pane) return;
+    const start = { x: 0, y: 0, t: 0, id: 0 };
+    let axis: "x" | "y" | null = null;
+    let dragging = false;
+    let pending = 0;
+    let ignoreClick = false;
+
+    function setTx(next: number) {
+      swipeTxRef.current = next;
+      setSwipeTx(next);
+    }
+
+    function onDown(e: PointerEvent) {
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+      if (pending) return;
+      start.x = e.clientX;
+      start.y = e.clientY;
+      start.t = e.timeStamp;
+      start.id = e.pointerId;
+      axis = null;
+      dragging = true;
+      ignoreClick = false;
+      setSwipeSettle(false);
+    }
+
+    function onMove(e: PointerEvent) {
+      if (!dragging || e.pointerId !== start.id) return;
+      const dx = e.clientX - start.x;
+      const dy = e.clientY - start.y;
+      if (!axis) {
+        if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+        axis = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
+        if (axis === "x") {
+          ignoreClick = true;
+          pane!.setPointerCapture(e.pointerId);
+        }
+      }
+      if (axis !== "x") return;
+      e.preventDefault();
+      setTx(dx);
+    }
+
+    function finish(e: PointerEvent) {
+      if (!dragging || e.pointerId !== start.id) return;
+      dragging = false;
+      if (axis !== "x") {
+        axis = null;
+        return;
+      }
+      const dx = e.clientX - start.x;
+      const dt = Math.max(1, e.timeStamp - start.t);
+      const width = pane!.clientWidth || 1;
+      const delta = swipeMonthDelta(dx, width, dx / dt);
+      axis = null;
+      if (delta === 0) {
+        setSwipeSettle(true);
+        setTx(0);
+        return;
+      }
+      pending = delta;
+      setSwipeSettle(true);
+      setTx(-delta * width);
+    }
+
+    function onEnd(e: PointerEvent) {
+      finish(e);
+    }
+
+    function onTransitionEnd(e: TransitionEvent) {
+      if (e.propertyName !== "transform") return;
+      if (!pending) {
+        setSwipeSettle(false);
+        return;
+      }
+      const dir = pending;
+      pending = 0;
+      setSwipeSettle(false);
+      setTx(0);
+      shiftMonthRef.current(dir);
+    }
+
+    function onClick(e: Event) {
+      if (!ignoreClick) return;
+      ignoreClick = false;
+      e.preventDefault();
+      e.stopPropagation();
+    }
+
+    pane.addEventListener("pointerdown", onDown);
+    pane.addEventListener("pointermove", onMove, { passive: false });
+    pane.addEventListener("pointerup", onEnd);
+    pane.addEventListener("pointercancel", onEnd);
+    pane.addEventListener("transitionend", onTransitionEnd);
+    pane.addEventListener("click", onClick, true);
+    return () => {
+      pane.removeEventListener("pointerdown", onDown);
+      pane.removeEventListener("pointermove", onMove);
+      pane.removeEventListener("pointerup", onEnd);
+      pane.removeEventListener("pointercancel", onEnd);
+      pane.removeEventListener("transitionend", onTransitionEnd);
+      pane.removeEventListener("click", onClick, true);
+    };
+  }, []);
+
   const weekdayLabels = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
   const desktopPeekOpen =
     showingDesktop && (dayPanelOpen || !!openQuoteId || !!openEntryId);
@@ -1137,16 +1475,11 @@ export function CalendarView() {
   );
 
   return (
-    <div
-      className={cn(
-        "w-full",
-        showingDesktop ? "cal-page" : "px-0 pb-20 pt-1",
-      )}
-    >
+    <div className="cal-page w-full">
       <header
         className={cn(
-          "flex items-center justify-between gap-2 py-2",
-          showingDesktop ? "px-1" : "px-4",
+          "flex shrink-0 items-center justify-between gap-2 py-1 md:py-2",
+          showingDesktop ? "px-1" : "px-3",
         )}
       >
         <CalendarMonthYearJump year={year} month={month} onJump={jumpTo} />
@@ -1155,8 +1488,8 @@ export function CalendarView() {
 
       <div
         className={cn(
-          "flex flex-wrap items-center gap-x-3 gap-y-1 pb-1.5",
-          showingDesktop ? "px-1" : "px-3",
+          "cal-filters flex shrink-0 items-center gap-y-1",
+          showingDesktop ? "flex-wrap gap-x-3 px-1 pb-1.5" : "gap-x-1 px-2 pb-1",
         )}
         role="group"
         aria-label="Фильтры календаря"
@@ -1168,6 +1501,7 @@ export function CalendarView() {
             color={lifecycleColor(status)}
             active={filters.lifecycles[status]}
             onToggle={() => toggleLifecycle(status)}
+            showLabel={showingDesktop}
           />
         ))}
         {KIND_FILTERS.map((kind) => (
@@ -1177,6 +1511,7 @@ export function CalendarView() {
             color={ENTRY_KIND_COLORS[kind]}
             active={filters.kinds[kind]}
             onToggle={() => toggleKind(kind)}
+            showLabel={showingDesktop}
           />
         ))}
       </div>
@@ -1230,7 +1565,8 @@ export function CalendarView() {
             <div
               key={d}
               className={cn(
-                "py-1.5 text-center text-caption font-medium uppercase tracking-wider",
+                showingDesktop ? "py-1.5" : "py-0.5",
+                "text-center text-caption font-medium uppercase tracking-wider",
                 i >= 5 ? "text-rose-400" : "text-[var(--muted)]",
               )}
             >
@@ -1239,133 +1575,36 @@ export function CalendarView() {
           ))}
         </div>
 
-        <div ref={weeksRef} className="cal-tt-weeks">
-        {weekLayouts.map(({ week, segs }, weekIdx) => {
-          const visibleSegs = segs.filter((s) => s.lane < density.maxLanes);
-          const { shown, height: rowH } = weekLaneStats(density, segs);
-          return (
-            <div
-              key={weekIdx}
-              className={cn(
-                "cal-tt-week relative grid grid-cols-7",
-                showingDesktop && "is-fill",
-              )}
-              style={showingDesktop ? undefined : { height: rowH }}
-            >
-              {week.map((day, col) => {
-                const key = formatDateKey(day);
-                const isToday = key === todayKey;
-                const isSelected = key === selectedKey;
-                const outside = day.getMonth() !== month;
-                const weekend = day.getDay() === 0 || day.getDay() === 6;
-                const hiddenOnDay = segs.filter(
-                  (s) =>
-                    s.lane >= density.maxLanes &&
-                    col >= s.startCol &&
-                    col < s.startCol + s.span,
-                ).length;
-                return (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() => onDayClick(day)}
-                    className={cn(
-                      "cal-tt-cell relative flex flex-col items-center pt-0.5",
-                      isSelected && "is-selected",
-                      outside && "is-outside",
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        "relative z-10 flex items-center justify-center rounded-full tabular-nums",
-                        showingDesktop
-                          ? "size-[1.7rem] text-[13px]"
-                          : "size-[1.45rem] text-xs",
-                        isToday &&
-                          "bg-[var(--ink)] font-semibold text-[var(--panel)]",
-                        !isToday &&
-                          isSelected &&
-                          "font-semibold text-[var(--ink)]",
-                        !isToday &&
-                          !isSelected &&
-                          outside &&
-                          "text-[var(--muted)]/40",
-                        !isToday &&
-                          !isSelected &&
-                          !outside &&
-                          weekend &&
-                          "text-rose-400",
-                        !isToday &&
-                          !isSelected &&
-                          !outside &&
-                          !weekend &&
-                          "text-[var(--ink)]",
-                      )}
-                    >
-                      {day.getDate()}
-                    </span>
-                    {hiddenOnDay > 0 ? (
-                      <span className="cal-tt-more">+{hiddenOnDay}</span>
-                    ) : null}
-                  </button>
-                );
-              })}
-
-              <div
-                className="pointer-events-none absolute inset-x-0"
-                style={{
-                  top: density.dayNumHeight,
-                  height: shown * (density.laneHeight + density.laneGap),
-                }}
-              >
-                {visibleSegs.map((seg) => {
-                  const left = `calc(${(seg.startCol / 7) * 100}% + 2px)`;
-                  const width = `calc(${(seg.span / 7) * 100}% - 4px)`;
-                  const top = seg.lane * (density.laneHeight + density.laneGap);
-                  const radiusLeft = seg.continuesLeft ? "4px" : "6px";
-                  const radiusRight = seg.continuesRight ? "4px" : "6px";
-                  const vacant =
-                    seg.item.type === "quote" &&
-                    (seg.item.quote.staffVacantCount ?? 0) > 0;
-                  const staffHint =
-                    seg.item.type === "quote"
-                      ? quoteStaffHint(seg.item.quote)
-                      : "";
-                  const startOutside =
-                    week[seg.startCol]!.getMonth() !== month;
-                  const endOutside =
-                    week[seg.startCol + seg.span - 1]!.getMonth() !== month;
-                  return (
-                    <button
-                      key={`${seg.item.type}-${seg.item.id}-${weekIdx}-${seg.startCol}`}
-                      type="button"
-                      className={`pointer-events-auto absolute truncate px-1.5 text-left font-medium text-white${vacant ? " cal-event-vacant" : ""}`}
-                      style={{
-                        left,
-                        width,
-                        top,
-                        height: density.laneHeight,
-                        lineHeight: `${density.laneHeight}px`,
-                        fontSize: barFont,
-                        background: seg.item.color,
-                        borderRadius: `${radiusLeft} ${radiusRight} ${radiusRight} ${radiusLeft}`,
-                        opacity: startOutside && endOutside ? 0.45 : 1,
-                      }}
-                      title={`${seg.item.subtitle} · ${seg.item.label}${staffHint ? ` · ${staffHint}` : ""}`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setSelectedDay(startOfDay(week[seg.startCol]!));
-                        openItem(seg.item);
-                      }}
-                    >
-                      {seg.item.label}
-                    </button>
-                  );
-                })}
+        <div
+          ref={swipeRef}
+          className="cal-tt-swipe"
+        >
+          <div
+            className={cn("cal-tt-swipe-track", swipeSettle && "is-settle")}
+            style={{
+              transform: `translate3d(calc(-33.333333% + ${swipeTx}px), 0, 0)`,
+            }}
+          >
+            {pages.map((page) => (
+              <div key={page.key} className="cal-tt-swipe-page">
+                <MonthWeeks
+                  layouts={page.layouts}
+                  month={page.month}
+                  density={density}
+                  showingDesktop={showingDesktop}
+                  todayKey={todayKey}
+                  selectedKey={selectedKey}
+                  barFont={barFont}
+                  weeksRef={page.month === month && page.year === year ? weeksRef : undefined}
+                  onDayClick={onDayClick}
+                  onOpenItem={(item, day) => {
+                    setSelectedDay(day);
+                    openItem(item);
+                  }}
+                />
               </div>
-            </div>
-          );
-        })}
+            ))}
+          </div>
         </div>
         </div>
 

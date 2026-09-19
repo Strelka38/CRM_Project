@@ -90,6 +90,8 @@ async function ensureAdmin() {
   const useDemoProfile = email === "manager@local.test";
   await prisma.user.upsert({
     where: { email },
+    // active обязателен и в update: выключенный админ иначе остаётся без входа
+    // даже после пересева, а авторизация отвечает тем же «неверный пароль».
     update: useDemoProfile
       ? {
           name,
@@ -98,8 +100,9 @@ async function ensureAdmin() {
           patronymic: "Романович",
           passwordHash,
           role: Role.ADMIN,
+          active: true,
         }
-      : { name, passwordHash, role: Role.ADMIN },
+      : { name, passwordHash, role: Role.ADMIN, active: true },
     create: {
       email,
       name,
@@ -129,6 +132,7 @@ async function ensureSpecialtiesAndEmployee() {
       lastName: "Петров",
       patronymic: "Сергеевич",
       phone: "+79001234567",
+      active: true,
     },
     create: {
       email,

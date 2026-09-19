@@ -488,6 +488,38 @@ export function CatalogAdmin() {
     }
   }
 
+  function patchItemFields(
+    itemId: string,
+    patch: Partial<Pick<Item, "stockQty" | "equipmentCode">>,
+  ) {
+    const apply = (it: Item) => (it.id === itemId ? { ...it, ...patch } : it);
+    setItems((prev) => prev.map(apply));
+    setItemsByCat((prev) => {
+      const next = { ...prev };
+      for (const [cid, list] of Object.entries(next)) {
+        next[cid] = list.map(apply);
+      }
+      return next;
+    });
+  }
+
+  function applyEquipmentItemPayload(
+    itemId: string,
+    data: {
+      equipmentUnits?: EquipUnit[];
+      stockQty?: number;
+      equipmentCode?: number | null;
+    },
+  ) {
+    if (Array.isArray(data.equipmentUnits)) {
+      setUnitsByItem((prev) => ({ ...prev, [itemId]: data.equipmentUnits! }));
+    }
+    const patch: Partial<Pick<Item, "stockQty" | "equipmentCode">> = {};
+    if (typeof data.stockQty === "number") patch.stockQty = data.stockQty;
+    if (data.equipmentCode != null) patch.equipmentCode = data.equipmentCode;
+    if (Object.keys(patch).length) patchItemFields(itemId, patch);
+  }
+
   async function ensureItemUnits(itemId: string, force = false) {
     if (!force && unitsByItem[itemId]) return;
     const res = await fetch(`/api/equipment/items/${itemId}`);
@@ -496,25 +528,110 @@ export function CatalogAdmin() {
       return;
     }
     const data = await res.json();
-    const units = Array.isArray(data.equipmentUnits)
-      ? (data.equipmentUnits as EquipUnit[])
-      : [];
-    setUnitsByItem((prev) => ({ ...prev, [itemId]: units }));
-    if (data.equipmentCode != null) {
-      setItems((prev) =>
-        prev.map((it) =>
-          it.id === itemId ? { ...it, equipmentCode: data.equipmentCode } : it,
-        ),
-      );
-      setItemsByCat((prev) => {
-        const next = { ...prev };
-        for (const [cid, list] of Object.entries(next)) {
-          next[cid] = list.map((it) =>
-            it.id === itemId ? { ...it, equipmentCode: data.equipmentCode } : it,
-          );
-        }
-        return next;
+    applyEquipmentItemPayload(itemId, data);
+    if (!Array.isArray(data.equipmentUnits)) {
+      setUnitsByItem((prev) => ({ ...prev, [itemId]: [] }));
+    }
+  }
+
+  async function addUnitToSelectedItem() {
+    if (!selectedItemId) return;
+    setBulkBusy(true);
+    setCsvMessage("");
+    try {
+      const res = await fetch(`/api/equipment/items/${selectedItemId}`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ addUnit: true }),
       });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setCsvMessage(data.error || "Не удалось добавить единицу");
+        return;
+      }
+      const item = data.item ?? data;
+      applyEquipmentItemPayload(selectedItemId, item);
+      if (!Array.isArray(item.equipmentUnits)) {
+        await ensureItemUnits(selectedItemId, true);
+      }
+    } catch {
+      setCsvMessage("Не удалось добавить единицу");
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
+  async function syncSelectedItemUnits() {
+    if (!selectedItemId) return;
+    setBulkBusy(true);
+    setCsvMessage("");
+    try {
+      const res = await fetch(`/api/equipment/items/${selectedItemId}`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sync: true }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setCsvMessage(data.error || "Не удалось догнать единицы");
+        return;
+      }
+      const item = data.item ?? data;
+      applyEquipmentItemPayload(selectedItemId, item);
+      if (!Array.isArray(item.equipmentUnits)) {
+        await ensureItemUnits(selectedItemId, true);
+      }
+    } catch {
+      setCsvMessage("Не удалось догнать единицы");
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
+  async function removeSelectedItemUnit(unit: EquipUnit) {
+    const label = unit.label || `№${unit.unitNumber}`;
+    if (!confirm(`Убрать единицу ${label} со склада?`)) return;
+    setBulkBusy(true);
+    setCsvMessage("");
+    try {
+      const res = await fetch(`/api/equipment/units/${unit.id}`, {
+        method: "DELETE",
+        credentials: "same-origin",
+      });
+      if (res.status === 403) {
+        setSelectedUnitIds(new Set([unit.id]));
+        setWriteOffReason("DAMAGED");
+        setWriteOffComment("");
+        setWriteOffError("");
+        setWriteOffOpen(true);
+        return;
+      }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setCsvMessage(data.error || "Не удалось убрать единицу");
+        return;
+      }
+      if (selectedItemId) {
+        setUnitsByItem((prev) => ({
+          ...prev,
+          [selectedItemId]: (prev[selectedItemId] ?? []).filter(
+            (u) => u.id !== unit.id,
+          ),
+        }));
+        setSelectedUnitIds((prev) => {
+          if (!prev.has(unit.id)) return prev;
+          const next = new Set(prev);
+          next.delete(unit.id);
+          return next;
+        });
+        void loadItems();
+      }
+    } catch {
+      setCsvMessage("Не удалось убрать единицу");
+    } finally {
+      setBulkBusy(false);
     }
   }
 
@@ -580,6 +697,34 @@ export function CatalogAdmin() {
       await loadKits();
     } catch {
       setCsvMessage("Не удалось импортировать");
+    } finally {
+      setCsvBusy(false);
+    }
+  }
+
+  async function syncAllUnitsToStock() {
+    setCsvBusy(true);
+    setCsvMessage("");
+    try {
+      const res = await fetch("/api/equipment", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ syncAll: true }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setCsvMessage(data.error || "Не удалось догнать единицы");
+        return;
+      }
+      setCsvMessage(
+        `Догнать до склада: позиций ${data.items}, новых ID ${data.codesAssigned}, новых единиц ${data.unitsCreated}`,
+      );
+      if (selectedItemId) void ensureItemUnits(selectedItemId, true);
+      void loadItems();
+      void loadCats();
+    } catch {
+      setCsvMessage("Не удалось догнать единицы");
     } finally {
       setCsvBusy(false);
     }
@@ -691,6 +836,16 @@ export function CatalogAdmin() {
     setSelectedKitIds(new Set());
     setSelectedUnitIds(new Set());
     setSelectedCategoryIds(new Set());
+  }
+
+  function openItemEditor(item: Item) {
+    setTreeOpen(false);
+    selectItem(item);
+    if (item.itemKind === "EQUIPMENT" || !item.itemKind) {
+      setCardItemId(item.id);
+    } else {
+      setDrawer(item);
+    }
   }
 
   function selectKit(kit: CatalogKit) {
@@ -1391,7 +1546,6 @@ export function CatalogAdmin() {
     ancestorContinue: boolean[],
   ) {
     const isSelected = selectedItemId === item.id;
-    const isEquipment = item.itemKind === "EQUIPMENT" || !item.itemKind;
 
     return (
       <div key={`item-${item.id}`} className="relative">
@@ -1410,7 +1564,7 @@ export function CatalogAdmin() {
           <span className="w-5 shrink-0" aria-hidden />
           <button
             type="button"
-            onClick={() => (isEquipment ? selectItem(item) : setDrawer(item))}
+            onClick={() => openItemEditor(item)}
             className="flex min-w-0 flex-1 items-center gap-1.5 py-1 pr-1 text-left text-xs font-medium text-[var(--ink)]"
             title={item.name}
           >
@@ -1644,6 +1798,13 @@ export function CatalogAdmin() {
   const selectedUnits = selectedItemId
     ? (unitsByItem[selectedItemId] ?? []).filter((u) => u.active !== false)
     : [];
+  const viewingEquipmentUnits = Boolean(
+    selectedItem &&
+      selectedItemId &&
+      !selectedKitId &&
+      !q.trim() &&
+      (selectedItem.itemKind === "EQUIPMENT" || !selectedItem.itemKind),
+  );
   const childFolders = selectedCategory
     ? (byParent.get(selectedCategory.id) ?? [])
     : roots;
@@ -1910,10 +2071,20 @@ export function CatalogAdmin() {
         ),
         meta: article,
         actions: (
-          <CardProfileButton
-            label="Карточка"
-            onClick={() => setCardItemId(item.id)}
-          />
+          <>
+            <button
+              type="button"
+              disabled={bulkBusy}
+              className="text-sm text-[var(--danger)] disabled:opacity-50"
+              onClick={() => void removeSelectedItemUnit(unit)}
+            >
+              Убрать
+            </button>
+            <CardProfileButton
+              label="Карточка"
+              onClick={() => setCardItemId(item.id)}
+            />
+          </>
         ),
       });
     }
@@ -1971,7 +2142,7 @@ export function CatalogAdmin() {
         <button
           type="button"
           className="text-left font-semibold text-[var(--ink)]"
-          onClick={() => (isEquipment ? selectItem(item) : setDrawer(item))}
+          onClick={() => openItemEditor(item)}
         >
           {item.name}
           <FirmTag owners={item.owners} owner={item.owner} />
@@ -2121,6 +2292,26 @@ export function CatalogAdmin() {
               <>
                 {" / "}
                 <span className="text-[var(--ink)]">{selectedItem.name}</span>
+                {viewingEquipmentUnits ? (
+                  <>
+                    <button
+                      type="button"
+                      disabled={bulkBusy}
+                      className="ml-2 normal-case tracking-normal text-[var(--accent)] hover:underline disabled:opacity-50"
+                      onClick={() => void addUnitToSelectedItem()}
+                    >
+                      + Единица
+                    </button>
+                    <button
+                      type="button"
+                      disabled={bulkBusy}
+                      className="ml-2 normal-case tracking-normal text-[var(--muted)] hover:text-[var(--accent)] hover:underline disabled:opacity-50"
+                      onClick={() => void syncSelectedItemUnits()}
+                    >
+                      Догнать
+                    </button>
+                  </>
+                ) : null}
               </>
             ) : null}
             {selectedKit ? (
@@ -2170,9 +2361,28 @@ export function CatalogAdmin() {
                 …
               </Button>
             </div>
-            <Button onClick={() => setAddSheetOpen(true)} className="w-full">
-              Добавить в каталог
-            </Button>
+            {viewingEquipmentUnits ? (
+              <div className="flex gap-2">
+                <Button
+                  onClick={() => void addUnitToSelectedItem()}
+                  disabled={bulkBusy}
+                  className="flex-1"
+                >
+                  + Единица
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => setAddSheetOpen(true)}
+                  className="shrink-0 px-3"
+                >
+                  …
+                </Button>
+              </div>
+            ) : (
+              <Button onClick={() => setAddSheetOpen(true)} className="w-full">
+                Добавить в каталог
+              </Button>
+            )}
             {selectedCount > 0 ? (
               <p className="text-caption text-[var(--muted)]">
                 Выбрано: {selectedCount} — действия в меню «…»
@@ -2181,7 +2391,15 @@ export function CatalogAdmin() {
           </div>
 
           <div className="hidden w-full items-center gap-2 border-b border-[var(--line)] px-4 py-3 md:flex">
-            <CatalogAddToolbar onAction={onAddAction} />
+            <CatalogAddToolbar
+              onAction={onAddAction}
+              disabled={bulkBusy}
+              onAddUnit={
+                viewingEquipmentUnits
+                  ? () => void addUnitToSelectedItem()
+                  : undefined
+              }
+            />
             <div className="ml-auto flex items-center gap-1">
               <CatalogSelectionActions
                 count={selectedCount}
@@ -2199,6 +2417,7 @@ export function CatalogAdmin() {
                 onExportCsv={() => void exportCsv()}
                 onImportCsv={() => csvImportRef.current?.click()}
                 onExportWarehouse={() => void exportWarehouseCsv()}
+                onSyncUnits={() => void syncAllUnitsToStock()}
               />
             </div>
           </div>
@@ -2274,7 +2493,30 @@ export function CatalogAdmin() {
           <ul className="divide-y divide-[var(--line)] md:hidden">
             {sortedTableRows.length === 0 ? (
               <li className="px-4 py-10 text-center text-sm text-[var(--muted)]">
-                Нет позиций в этом разделе
+                {viewingEquipmentUnits ? (
+                  <div className="flex flex-col items-center gap-3">
+                    <p>Нет единиц у этой позиции</p>
+                    <div className="flex flex-wrap justify-center gap-2">
+                      <Button
+                        size="sm"
+                        disabled={bulkBusy}
+                        onClick={() => void addUnitToSelectedItem()}
+                      >
+                        + Единица
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={bulkBusy}
+                        onClick={() => void syncSelectedItemUnits()}
+                      >
+                        Догнать до склада
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  "Нет позиций в этом разделе"
+                )}
               </li>
             ) : (
               sortedTableRows.map((row) => renderMobileRow(row))
@@ -2350,7 +2592,30 @@ export function CatalogAdmin() {
                       colSpan={6}
                       className="px-3 py-10 text-center text-sm text-[var(--muted)]"
                     >
-                      Нет позиций в этом разделе
+                      {viewingEquipmentUnits ? (
+                        <div className="flex flex-col items-center gap-3">
+                          <p>Нет единиц у этой позиции</p>
+                          <div className="flex flex-wrap justify-center gap-2">
+                            <Button
+                              size="sm"
+                              disabled={bulkBusy}
+                              onClick={() => void addUnitToSelectedItem()}
+                            >
+                              + Единица
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              disabled={bulkBusy}
+                              onClick={() => void syncSelectedItemUnits()}
+                            >
+                              Догнать до склада
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        "Нет позиций в этом разделе"
+                      )}
                     </td>
                   </tr>
                 ) : (
@@ -2495,6 +2760,14 @@ export function CatalogAdmin() {
                             1
                           </td>
                           <td className="px-2 py-2 text-right">
+                            <button
+                              type="button"
+                              disabled={bulkBusy}
+                              className="mr-2 text-sm text-[var(--danger)] hover:underline disabled:opacity-50"
+                              onClick={() => void removeSelectedItemUnit(unit)}
+                            >
+                              Убрать
+                            </button>
                             <CardProfileButton
                               label="Карточка"
                               onClick={() => setCardItemId(item.id)}
@@ -2616,11 +2889,7 @@ export function CatalogAdmin() {
                           <button
                             type="button"
                             className="inline-flex max-w-full items-center gap-2 text-left font-semibold text-[var(--ink)] hover:underline"
-                            onClick={() =>
-                              item.itemKind === "EQUIPMENT" || !item.itemKind
-                                ? selectItem(item)
-                                : setDrawer(item)
-                            }
+                            onClick={() => openItemEditor(item)}
                           >
                             <TypeGlyph kind={item.itemKind || "EQUIPMENT"} />
                             <span className="min-w-0">
@@ -2677,10 +2946,24 @@ export function CatalogAdmin() {
         title="Добавить в каталог"
         groups={[
           {
-            items: CATALOG_ADD_ACTIONS.map((a) => ({
-              label: a.title.replace(/^\+\s*/, ""),
-              onSelect: () => onAddAction(a.id),
-            })),
+            items: [
+              ...(viewingEquipmentUnits
+                ? [
+                    {
+                      label: "Единица",
+                      onSelect: () => void addUnitToSelectedItem(),
+                    },
+                    {
+                      label: "Догнать до склада",
+                      onSelect: () => void syncSelectedItemUnits(),
+                    },
+                  ]
+                : []),
+              ...CATALOG_ADD_ACTIONS.map((a) => ({
+                label: a.title.replace(/^\+\s*/, ""),
+                onSelect: () => onAddAction(a.id),
+              })),
+            ],
           },
         ]}
       />
@@ -2752,6 +3035,11 @@ export function CatalogAdmin() {
                 disabled: csvBusy,
                 onSelect: () => void exportWarehouseCsv(),
               },
+              {
+                label: "Догнать до склада",
+                disabled: csvBusy,
+                onSelect: () => void syncAllUnitsToStock(),
+              },
             ],
           },
         ]}
@@ -2766,6 +3054,7 @@ export function CatalogAdmin() {
         onSave={saveDrawerItem}
         onPhotoChange={applyPhotoChange}
         categories={categories}
+        modal={false}
       />
 
       <KitEditorModal

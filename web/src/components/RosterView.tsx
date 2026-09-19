@@ -36,7 +36,9 @@ import {
   groupRosterByEvent,
   groupRosterByKind,
   itemsOnRosterDay,
-  packRosterGroupOffsets,
+  packRosterGroupSkyline,
+  placeRosterSegOnSkyline,
+  isRosterFringeItem,
   personHasRosterRole,
   personMatchesRosterOwners,
   personMatchesSpecialtyFilter,
@@ -46,6 +48,7 @@ import {
   rosterItemMatchesFirms,
   isVacantInstallerSlot,
   isRosterDutyMark,
+  isRosterZoneMark,
   collapseRosterDutyMarks,
   packRosterLanes,
   dateInRosterResizeWindow,
@@ -92,9 +95,85 @@ const DENSITY_DESKTOP: Density = {
   dayNumHeight: 38,
 };
 
-/** Текущая неделя + половина следующей. */
-const VISIBLE_DAYS = 10;
+/** Текущая неделя + половина следующей (при зуме 1). */
+const BASE_VISIBLE_DAYS = 10;
+/** Дни слева вне кадра — длинные мероприятия дольше держат упаковку, подъём позже. */
+const LEFT_PACK_BUFFER = 4;
+const RIGHT_PACK_BUFFER = 1;
+const ROSTER_ZOOM_STORAGE_KEY = "roster.zoom";
+const ROSTER_LANE_ZOOM_STORAGE_KEY = "roster.laneZoom";
+const ROSTER_ZOOM_MIN = 0.55;
+const ROSTER_ZOOM_MAX = 1.7;
+const ROSTER_LANE_ZOOM_MIN = 0.7;
+const ROSTER_LANE_ZOOM_MAX = 1.55;
 const WEEKDAY_LABELS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
+
+function clampRosterZoom(zoom: number): number {
+  if (!Number.isFinite(zoom)) return 1;
+  return Math.min(ROSTER_ZOOM_MAX, Math.max(ROSTER_ZOOM_MIN, Math.round(zoom * 100) / 100));
+}
+
+function clampRosterLaneZoom(zoom: number): number {
+  if (!Number.isFinite(zoom)) return 1;
+  return Math.min(
+    ROSTER_LANE_ZOOM_MAX,
+    Math.max(ROSTER_LANE_ZOOM_MIN, Math.round(zoom * 100) / 100),
+  );
+}
+
+function rosterVisibleDaysForZoom(zoom: number): number {
+  return Math.round(
+    Math.min(18, Math.max(5, BASE_VISIBLE_DAYS / clampRosterZoom(zoom))),
+  );
+}
+
+function readStoredRosterZoom(): number {
+  try {
+    const raw = localStorage.getItem(ROSTER_ZOOM_STORAGE_KEY);
+    if (raw == null) return 1;
+    return clampRosterZoom(Number(raw));
+  } catch {
+    return 1;
+  }
+}
+
+function persistRosterZoom(zoom: number): void {
+  try {
+    localStorage.setItem(ROSTER_ZOOM_STORAGE_KEY, String(clampRosterZoom(zoom)));
+  } catch {
+    /* ignore */
+  }
+}
+
+function readStoredRosterLaneZoom(): number {
+  try {
+    const raw = localStorage.getItem(ROSTER_LANE_ZOOM_STORAGE_KEY);
+    if (raw == null) return 1;
+    return clampRosterLaneZoom(Number(raw));
+  } catch {
+    return 1;
+  }
+}
+
+function persistRosterLaneZoom(zoom: number): void {
+  try {
+    localStorage.setItem(
+      ROSTER_LANE_ZOOM_STORAGE_KEY,
+      String(clampRosterLaneZoom(zoom)),
+    );
+  } catch {
+    /* ignore */
+  }
+}
+
+function densityForLaneZoom(base: Density, zoom: number): Density {
+  const z = clampRosterLaneZoom(zoom);
+  return {
+    laneHeight: Math.max(14, Math.round(base.laneHeight * z)),
+    laneGap: Math.max(2, Math.round(base.laneGap * z)),
+    dayNumHeight: base.dayNumHeight,
+  };
+}
 
 const KIND_ORDER: RosterKind[] = ["EVENT", "RENTAL", "TASK"];
 
@@ -248,8 +327,10 @@ function appendGroupedLanes(
     groups.set(key, list);
   }
   const ordered = [...groups.entries()].sort((a, b) => {
-    const aRange = colRangeOf(a[1]);
-    const bRange = colRangeOf(b[1]);
+    const aCore = a[1].filter((s) => !isRosterFringeItem(s.item));
+    const bCore = b[1].filter((s) => !isRosterFringeItem(s.item));
+    const aRange = colRangeOf(aCore.length ? aCore : a[1]);
+    const bRange = colRangeOf(bCore.length ? bCore : b[1]);
     if (aRange.startCol !== bRange.startCol) {
       return aRange.startCol - bRange.startCol;
     }
@@ -262,37 +343,89 @@ function appendGroupedLanes(
   });
 
   for (const [, group] of ordered) {
-    const { startCol, endExclusive } = colRangeOf(group);
-    const laid = assignLanes(group);
-    let innerMax = -1;
-    for (const s of laid) if (s.lane > innerMax) innerMax = s.lane;
-    const height = 1 + Math.max(0, innerMax + 1);
-    const offset = packRosterGroupOffsets(
-      [{ startCol, endExclusive, height }],
-      colHeight,
-    )[0]!;
-    const sample = group[0]!;
-    out.push({
-      item: {
-        ...sample.item,
-        id: `hdr:${groupKey(sample.item)}`,
-        vacant: false,
-        resizable: false,
-        name: "",
-        role: "",
-        assignmentIds: [],
-      },
-      startCol,
-      span: endExclusive - startCol,
-      continuesLeft: group.some((s) => s.continuesLeft && s.startCol === startCol),
-      continuesRight: group.some(
-        (s) => s.continuesRight && s.startCol + s.span === endExclusive,
-      ),
-      lane: offset,
-      header: true,
+    const core = group.filter((s) => !isRosterFringeItem(s.item));
+    const fringe = group.filter((s) => isRosterFringeItem(s.item));
+    // Шапка + слоты — одна горизонтальная плоскость (общий offset).
+    // Монтаж/демонтаж — бахрома, не расширяет прямоугольник.
+    if (core.length > 0) {
+      const { startCol, endExclusive } = colRangeOf(core);
+      const laid = assignLanes(core);
+      const width = Math.max(0, endExclusive - startCol);
+      const columnHeights = Array.from({ length: width }, () => 1);
+      for (const s of laid) {
+        for (let c = s.startCol; c < s.startCol + s.span; c++) {
+          const idx = c - startCol;
+          if (idx < 0 || idx >= width) continue;
+          columnHeights[idx] = Math.max(columnHeights[idx]!, 2 + s.lane);
+        }
+      }
+      const offset = packRosterGroupSkyline(
+        { startCol, endExclusive, columnHeights },
+        colHeight,
+      );
+      const sample = core[0]!;
+      out.push({
+        item: {
+          ...sample.item,
+          id: `hdr:${groupKey(sample.item)}`,
+          vacant: false,
+          resizable: false,
+          name: "",
+          role: "",
+          assignmentIds: [],
+        },
+        startCol,
+        span: endExclusive - startCol,
+        continuesLeft: core.some((s) => s.continuesLeft && s.startCol === startCol),
+        continuesRight: core.some(
+          (s) => s.continuesRight && s.startCol + s.span === endExclusive,
+        ),
+        lane: offset,
+        header: true,
+      });
+      for (const s of laid) {
+        out.push({ ...s, lane: s.lane + offset + 1 });
+      }
+    } else if (fringe.length > 0) {
+      // Только монтаж/демонтаж — шапка в те же дни, общим offset по бахроме.
+      const { startCol, endExclusive } = colRangeOf(fringe);
+      const width = Math.max(0, endExclusive - startCol);
+      const columnHeights = Array.from({ length: width }, () => 1);
+      const offset = packRosterGroupSkyline(
+        { startCol, endExclusive, columnHeights },
+        colHeight,
+      );
+      const sample = fringe[0]!;
+      out.push({
+        item: {
+          ...sample.item,
+          id: `hdr:${groupKey(sample.item)}`,
+          vacant: false,
+          resizable: false,
+          name: "",
+          role: "",
+          assignmentIds: [],
+        },
+        startCol,
+        span: endExclusive - startCol,
+        continuesLeft: false,
+        continuesRight: false,
+        lane: offset,
+        header: true,
+      });
+    }
+
+    const fringeLaid = [...fringe].sort((a, b) => {
+      if (a.startCol !== b.startCol) return a.startCol - b.startCol;
+      if (a.span !== b.span) return b.span - a.span;
+      return (a.item.role || "").localeCompare(b.item.role || "", "ru");
     });
-    for (const s of laid) {
-      out.push({ ...s, lane: s.lane + offset + 1 });
+    for (const seg of fringeLaid) {
+      const lane = placeRosterSegOnSkyline(
+        { startCol: seg.startCol, span: seg.span },
+        colHeight,
+      );
+      out.push({ ...seg, lane });
     }
   }
 }
@@ -423,6 +556,10 @@ export function RosterView() {
   const { showingDesktop } = useLayoutDensity();
   const [viewStart, setViewStart] = useState(() => startOfWeekMonday(new Date()));
   const [viewReady, setViewReady] = useState(false);
+  const [dayZoom, setDayZoom] = useState(1);
+  const [laneZoom, setLaneZoom] = useState(1);
+  const [panPx, setPanPx] = useState(0);
+  const [zoomMotion, setZoomMotion] = useState(false);
   const [items, setItems] = useState<RosterItem[]>([]);
   const [people, setPeople] = useState<RosterPerson[]>([]);
   const [freelancers, setFreelancers] = useState<RosterPerson[]>([]);
@@ -482,6 +619,8 @@ export function RosterView() {
       setViewStart(stored.viewStart);
       setSelectedDay(stored.selectedDay);
     }
+    setDayZoom(readStoredRosterZoom());
+    setLaneZoom(readStoredRosterLaneZoom());
     setViewReady(true);
   }, []);
 
@@ -489,6 +628,16 @@ export function RosterView() {
     if (!viewReady) return;
     persistRosterView({ viewStart, selectedDay });
   }, [viewReady, viewStart, selectedDay]);
+
+  useEffect(() => {
+    if (!viewReady) return;
+    persistRosterZoom(dayZoom);
+  }, [viewReady, dayZoom]);
+
+  useEffect(() => {
+    if (!viewReady) return;
+    persistRosterLaneZoom(laneZoom);
+  }, [viewReady, laneZoom]);
 
   useEffect(() => {
     if (!peopleOpen && !selectedSlotId) return;
@@ -504,11 +653,14 @@ export function RosterView() {
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, [peopleOpen, selectedSlotId]);
 
+  const visibleDayCount = rosterVisibleDaysForZoom(dayZoom);
+  /** Буфер слева держит упаковку после ухода длинных мероприятий из кадра. */
+  const renderDayCount = visibleDayCount + LEFT_PACK_BUFFER + RIGHT_PACK_BUFFER;
   const visibleDays = useMemo(
-    () => buildDayRange(viewStart, VISIBLE_DAYS),
-    [viewStart],
+    () => buildDayRange(addDays(viewStart, -LEFT_PACK_BUFFER), renderDayCount),
+    [viewStart, renderDayCount],
   );
-  const viewEnd = visibleDays[visibleDays.length - 1]!;
+  const viewEnd = visibleDays[visibleDays.length - 1 - RIGHT_PACK_BUFFER]!;
   const from = formatDateKey(addDays(viewStart, -21));
   const to = formatDateKey(addDays(viewEnd, 21));
   const earnMonth = (
@@ -596,20 +748,38 @@ export function RosterView() {
   }, [people, freelancers, peopleKind, peopleQuery, specialtyFilter, selectedSlot, selectedKey, ownerFilter]);
 
   function shiftDays(delta: number) {
+    panPxRef.current = 0;
+    setPanPx(0);
     setViewStart((prev) => addDays(prev, delta));
   }
 
   function goToday() {
     const t = startOfDay(new Date());
+    panPxRef.current = 0;
+    setPanPx(0);
     setViewStart(startOfWeekMonday(t));
     setSelectedDay(t);
     if (showingDesktop) setDayPanelOpen(true);
   }
 
+  function nudgeZoom(dir: 1 | -1) {
+    setZoomMotion(true);
+    setDayZoom((z) => clampRosterZoom(z + dir * 0.12));
+    panPxRef.current = 0;
+    setPanPx(0);
+  }
+
+  function nudgeLaneZoom(dir: 1 | -1) {
+    setZoomMotion(true);
+    setLaneZoom((z) => clampRosterLaneZoom(z + dir * 0.1));
+  }
+
   const viewRef = useRef<HTMLDivElement>(null);
+  const panPxRef = useRef(0);
+  const panRafRef = useRef(0);
+  const zoomAccRef = useRef(0);
   const peopleSearchRef = useRef<HTMLInputElement>(null);
   const peopleListRef = useRef<HTMLUListElement>(null);
-  const wheelLock = useRef(0);
   useEffect(() => {
     if (!peopleOpen) return;
     peopleSearchRef.current?.focus();
@@ -631,23 +801,70 @@ export function RosterView() {
     if (el instanceof HTMLElement) el.scrollIntoView({ block: "nearest" });
   }, [peopleCursor, peopleOpen, rankedPeople]);
   useEffect(() => {
+    if (!zoomMotion) return;
+    const t = window.setTimeout(() => setZoomMotion(false), 80);
+    return () => window.clearTimeout(t);
+  }, [zoomMotion, dayZoom, laneZoom]);
+
+  useEffect(() => {
     const el = viewRef.current;
     if (!el) return;
-    const onWheel = (e: WheelEvent) => {
-      const horizontal =
-        Math.abs(e.deltaX) > Math.abs(e.deltaY) || e.shiftKey;
-      if (!horizontal) return;
-      e.preventDefault();
-      const now = Date.now();
-      if (now - wheelLock.current < 70) return;
-      wheelLock.current = now;
-      const delta = e.shiftKey ? e.deltaY : e.deltaX;
-      if (delta === 0) return;
-      setViewStart((prev) => addDays(prev, delta > 0 ? 1 : -1));
+
+    const flushPan = () => {
+      panRafRef.current = 0;
+      setPanPx(panPxRef.current);
     };
+
+    const onWheel = (e: WheelEvent) => {
+      // Pinch / ctrl+wheel — зум числа дней.
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        setZoomMotion(true);
+        zoomAccRef.current += -e.deltaY * 0.0015;
+        if (Math.abs(zoomAccRef.current) < 0.01) return;
+        const step = zoomAccRef.current;
+        zoomAccRef.current = 0;
+        panPxRef.current = 0;
+        setPanPx(0);
+        setDayZoom((z) => clampRosterZoom(z + step));
+        return;
+      }
+
+      const absX = Math.abs(e.deltaX);
+      const absY = Math.abs(e.deltaY);
+      const horizontal = absX > absY || e.shiftKey;
+      if (!horizontal) return;
+
+      e.preventDefault();
+      const raw = e.shiftKey ? e.deltaY : e.deltaX;
+      if (raw === 0) return;
+
+      const dayW = Math.max(24, el.clientWidth / Math.max(1, visibleDayCount));
+      let next = panPxRef.current + raw;
+      let shift = 0;
+      while (next >= dayW) {
+        next -= dayW;
+        shift += 1;
+      }
+      while (next <= -dayW) {
+        next += dayW;
+        shift -= 1;
+      }
+      panPxRef.current = next;
+      if (shift !== 0) {
+        setViewStart((prev) => addDays(prev, shift));
+      }
+      if (!panRafRef.current) {
+        panRafRef.current = requestAnimationFrame(flushPan);
+      }
+    };
+
     el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel);
-  }, []);
+    return () => {
+      el.removeEventListener("wheel", onWheel);
+      if (panRafRef.current) cancelAnimationFrame(panRafRef.current);
+    };
+  }, [visibleDayCount]);
 
   function openItem(item: RosterItem) {
     selectSlot(item);
@@ -665,6 +882,10 @@ export function RosterView() {
   }
 
   function selectSlot(item: RosterItem) {
+    if (isRosterZoneMark(item)) {
+      if (item.quoteId) setOpenQuoteId(item.quoteId);
+      return;
+    }
     setSelectedSlotId(item.id);
     setPeopleQuery("");
     setSpecialtyFilter(rosterSpecialtyFilterForSlot(item));
@@ -818,7 +1039,7 @@ export function RosterView() {
   }
 
   function onBarPointerDown(e: ReactPointerEvent, item: RosterItem) {
-    if (e.button !== 0) return;
+    if (e.button !== 0 || isRosterZoneMark(item)) return;
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     setDrag({
       mode: "move",
@@ -1002,9 +1223,14 @@ export function RosterView() {
     });
   }
 
-  const tt = showingDesktop ? DENSITY_DESKTOP : DENSITY_MOBILE;
+  const tt = densityForLaneZoom(
+    showingDesktop ? DENSITY_DESKTOP : DENSITY_MOBILE,
+    laneZoom,
+  );
   const barFont = showingDesktop ? 11 : 10;
   const colCount = visibleDays.length;
+  const weekStart = startOfWeekMonday(viewStart);
+  const nextWeekFrom = addDays(weekStart, 7);
   const viewSegs = viewLayout.segs;
   const lanes = weekLaneCount(viewSegs);
   const rowH = weekRowHeight(tt, viewSegs);
@@ -1241,7 +1467,17 @@ export function RosterView() {
       ) : null}
 
       <div className={cn("relative flex min-h-0 flex-1 flex-col", showingDesktop && "px-1")}>
-        <div ref={viewRef} className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+        <div
+          ref={viewRef}
+          className="roster-pan-viewport relative flex min-h-0 min-w-0 flex-1 flex-col"
+        >
+          <div
+            className="roster-pan-track flex min-h-0 min-w-0 flex-1 flex-col"
+            style={{
+              width: `${(colCount / Math.max(1, visibleDayCount)) * 100}%`,
+              transform: `translate3d(calc(-100% / ${colCount} * ${LEFT_PACK_BUFFER} - ${panPx}px), 0, 0)`,
+            }}
+          >
           <div className="roster-dates-sticky">
             <div
               className="grid shrink-0 px-0.5"
@@ -1271,13 +1507,13 @@ export function RosterView() {
                 gridTemplateColumns: `repeat(${colCount}, minmax(0, 1fr))`,
               }}
             >
-              {visibleDays.map((day, dayIdx) => {
+              {visibleDays.map((day) => {
                 const key = formatDateKey(day);
                 const isToday = key === todayKey;
                 const isSelected = key === selectedKey;
                 const weekend = day.getDay() === 0 || day.getDay() === 6;
                 const isDrop = dropHint === `day:${key}`;
-                const nextWeek = dayIdx >= 7;
+                const nextWeek = day >= nextWeekFrom;
                 return (
                   <button
                     key={`num-${key}`}
@@ -1334,10 +1570,10 @@ export function RosterView() {
                 gridTemplateColumns: `repeat(${colCount}, minmax(0, 1fr))`,
               }}
             >
-              {visibleDays.map((day, dayIdx) => {
+              {visibleDays.map((day) => {
                 const key = formatDateKey(day);
                 const isDrop = dropHint === `day:${key}`;
-                const nextWeek = dayIdx >= 7;
+                const nextWeek = day >= nextWeekFrom;
                 return (
                   <button
                     key={key}
@@ -1362,7 +1598,11 @@ export function RosterView() {
               })}
             </div>
             <div
-              className="roster-week-lanes min-h-full"
+              className={cn(
+                "roster-week-lanes min-h-full",
+                zoomMotion && "is-zooming",
+                drag && "is-dragging",
+              )}
               style={{ minHeight: rowH }}
             >
                 <div
@@ -1385,6 +1625,8 @@ export function RosterView() {
                       seg.item.resizable && !seg.item.vacant && !seg.header;
                     const selected = selectedSlotId === seg.item.id;
                     const dutyMark = isRosterDutyMark(seg.item);
+                    const zoneMark = isRosterZoneMark(seg.item);
+                    const softMark = dutyMark || zoneMark;
                     if (seg.header) {
                       return (
                         <div
@@ -1398,6 +1640,7 @@ export function RosterView() {
                             lineHeight: `${tt.laneHeight}px`,
                             fontSize: barFont,
                             borderRadius: `${radiusLeft} ${radiusRight} ${radiusRight} ${radiusLeft}`,
+                            ["--roster-col" as string]: seg.startCol,
                           }}
                           title={seg.item.title}
                           onClick={() => {
@@ -1412,23 +1655,27 @@ export function RosterView() {
                     return (
                       <div
                         key={`${seg.item.id}-${seg.startCol}`}
-                        data-roster-slot={seg.item.id}
+                        {...(zoneMark
+                          ? {}
+                          : { "data-roster-slot": seg.item.id })}
                         role="button"
                         tabIndex={0}
                         aria-label={
-                          dutyMark
-                            ? `День ${seg.item.role}`
-                            : seg.item.vacant
-                              ? `Запрос: ${seg.item.role}`
-                              : `Сменить: ${rosterBarLabel(seg.item)}`
+                          zoneMark
+                            ? `Зона ${seg.item.zoneName || seg.item.role}`
+                            : dutyMark
+                              ? `День ${seg.item.role}`
+                              : seg.item.vacant
+                                ? `Запрос: ${seg.item.role}`
+                                : `Сменить: ${rosterBarLabel(seg.item)}`
                         }
                         className={cn(
                           "roster-bar pointer-events-auto absolute overflow-hidden text-left font-medium",
-                          dutyMark && "roster-bar-duty-mark",
-                          seg.item.vacant && !dutyMark && "roster-bar-vacant",
-                          selected && "roster-bar-selected",
+                          softMark && "roster-bar-duty-mark",
+                          seg.item.vacant && !softMark && "roster-bar-vacant",
+                          selected && !softMark && "roster-bar-selected",
                           past && "roster-bar-past",
-                          dropOver && "roster-bar-drop",
+                          dropOver && !softMark && "roster-bar-drop",
                           dragging && "pointer-events-none opacity-40",
                           (seg.item.vacant || past) && "roster-bar-fixed",
                         )}
@@ -1439,26 +1686,29 @@ export function RosterView() {
                           height: tt.laneHeight,
                           lineHeight: `${tt.laneHeight}px`,
                           fontSize: barFont,
-                          background: dutyMark
+                          background: softMark
                             ? "transparent"
                             : seg.item.vacant
                               ? "var(--panel-muted)"
                               : seg.item.color,
-                          color: dutyMark
+                          color: softMark
                             ? "var(--muted)"
                             : seg.item.vacant
                               ? seg.item.color
                               : "#fff",
-                          borderRadius: dutyMark
+                          borderRadius: softMark
                             ? "0"
                             : `${radiusLeft} ${radiusRight} ${radiusRight} ${radiusLeft}`,
                           opacity: dragging ? 0.4 : 1,
                           touchAction: "none",
+                          ["--roster-col" as string]: seg.startCol,
                         }}
                         title={
-                          dutyMark
-                            ? `${seg.item.title} · день ${seg.item.role}`
-                            : `${ROSTER_KIND_LABELS[seg.item.kind]} · ${seg.item.title} · ${rosterBarLabel(seg.item)}`
+                          zoneMark
+                            ? `${seg.item.title} · зона ${seg.item.zoneName || seg.item.role}`
+                            : dutyMark
+                              ? `${seg.item.title} · день ${seg.item.role}`
+                              : `${ROSTER_KIND_LABELS[seg.item.kind]} · ${seg.item.title} · ${rosterBarLabel(seg.item)}`
                         }
                         onKeyDown={(e) => {
                           if (e.key === "Enter" || e.key === " ") {
@@ -1515,6 +1765,48 @@ export function RosterView() {
                 </div>
               </div>
           </div>
+          </div>
+        </div>
+
+        <div className="roster-zoom-pad" role="group" aria-label="Масштаб сроста">
+          <button
+            type="button"
+            className="roster-zoom-btn"
+            aria-label="Выше строки"
+            title="Вертикальный зум +"
+            onClick={() => nudgeLaneZoom(1)}
+          >
+            ↑
+          </button>
+          <div className="roster-zoom-pad-row">
+            <button
+              type="button"
+              className="roster-zoom-btn"
+              aria-label="Больше дней"
+              title="Горизонтальный зум −"
+              onClick={() => nudgeZoom(-1)}
+            >
+              ←
+            </button>
+            <button
+              type="button"
+              className="roster-zoom-btn"
+              aria-label="Шире дни"
+              title="Горизонтальный зум +"
+              onClick={() => nudgeZoom(1)}
+            >
+              →
+            </button>
+          </div>
+          <button
+            type="button"
+            className="roster-zoom-btn"
+            aria-label="Ниже строки"
+            title="Вертикальный зум −"
+            onClick={() => nudgeLaneZoom(-1)}
+          >
+            ↓
+          </button>
         </div>
 
         <div
@@ -1799,7 +2091,12 @@ function RosterDayAgenda({
     day: "numeric",
     month: "long",
   });
-  const slotCount = items.filter((item) => !isRosterDutyMark(item)).length;
+  const softMarks = items.filter(
+    (item) => isRosterDutyMark(item) || isRosterZoneMark(item),
+  );
+  const slotCount = items.filter(
+    (item) => !isRosterDutyMark(item) && !isRosterZoneMark(item),
+  ).length;
   const groups = groupRosterByKind(items);
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -1807,7 +2104,7 @@ function RosterDayAgenda({
         <button
           type="button"
           onClick={onClose}
-          className="flex size-8 shrink-0 items-center justify-center rounded-full text-lg leading-none text-[var(--muted)] hover:bg-[var(--ink)]/10 hover:text-[var(--ink)]"
+          className="drawer-close flex size-8 shrink-0 items-center justify-center rounded-[var(--radius-sm)] text-lg leading-none text-[var(--muted)] hover:bg-[var(--ink)]/10 hover:text-[var(--ink)]"
           aria-label="Закрыть"
         >
           ×
@@ -1822,8 +2119,14 @@ function RosterDayAgenda({
           <p className="mt-0.5 text-xs text-[var(--muted)]">
             {slotCount
               ? `${slotCount} ${slotCount === 1 ? "слот" : "слотов"}`
-              : items.some(isRosterDutyMark)
-                ? "День монтажа или демонтажа"
+              : softMarks.length
+                ? softMarks
+                    .map((item) =>
+                      isRosterZoneMark(item)
+                        ? item.zoneName || item.role
+                        : item.role,
+                    )
+                    .join(" · ")
                 : "Никто не занят"}
           </p>
         </div>
@@ -1846,7 +2149,11 @@ function RosterDayAgenda({
               <div className="space-y-3">
                 {groupRosterByEvent(group.items).map((block, blockIdx) => {
                   const dutyMarks = block.items.filter(isRosterDutyMark);
-                  const slots = block.items.filter((item) => !isRosterDutyMark(item));
+                  const zoneMarks = block.items.filter(isRosterZoneMark);
+                  const slots = block.items.filter(
+                    (item) =>
+                      !isRosterDutyMark(item) && !isRosterZoneMark(item),
+                  );
                   return (
                   <div key={block.title || group.kind}>
                     {block.title ? (
@@ -1857,9 +2164,14 @@ function RosterDayAgenda({
                         )}
                       >
                         {block.title}
-                        {dutyMarks.length ? (
+                        {zoneMarks.length || dutyMarks.length ? (
                           <span className="ml-1.5 font-normal text-[var(--muted)]">
-                            {dutyMarks.map((item) => item.role).join(" · ")}
+                            {[
+                              ...zoneMarks.map(
+                                (item) => item.zoneName || item.role,
+                              ),
+                              ...dutyMarks.map((item) => item.role),
+                            ].join(" · ")}
                           </span>
                         ) : null}
                       </p>
@@ -1891,7 +2203,9 @@ function RosterDayAgenda({
                                     : item.name || "Сотрудник"}
                                 </span>
                                 <span className="text-caption text-[var(--muted)]">
-                                  {item.role}
+                                  {item.zoneName
+                                    ? `${item.zoneName} · ${item.role}`
+                                    : item.role}
                                 </span>
                               </span>
                             </button>

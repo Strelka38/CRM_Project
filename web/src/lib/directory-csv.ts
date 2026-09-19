@@ -864,7 +864,7 @@ export function parseQuoteCsv(text: string): {
       durationDays: Math.max(1, Math.floor(csvNum(csvCell(map, line, "Дней", "durationDays")) ?? 1)),
       client: csvCell(map, line, "Клиент", "client").trim(),
       place: csvCell(map, line, "Место", "place").trim(),
-      lifecycle: csvCell(map, line, "Статус", "lifecycle").trim().toUpperCase(),
+      lifecycle: csvCell(map, line, "Статус", "lifecycle").trim(),
       ownerName: csvCell(map, line, "Автор", "owner").trim(),
       managerName: csvCell(map, line, "Менеджер", "managerName").trim(),
       invoiceSent: csvBool(csvCell(map, line, "Счёт", "invoiceSent"), false),

@@ -1,5 +1,27 @@
 export const DATABASE_BACKUP_KIND = "baikal-crm-database";
-export const DATABASE_BACKUP_VERSION = 3;
+export const DATABASE_BACKUP_VERSION = 4;
+
+export const QUOTE_PACK_KIND = "baikal-crm-quotes";
+export const QUOTE_PACK_VERSION = 1;
+
+export const QUOTE_PACK_TABLES = [
+  "quotes",
+  "quoteZones",
+  "quoteBlocks",
+  "quoteAssignments",
+  "quoteCalcShares",
+  "quoteCalcLineOverrides",
+  "quoteExtraExpenses",
+  "specOverrides",
+  "specExtras",
+  "quoteComments",
+  "quoteAttachments",
+  "quoteSnapshots",
+  "quoteAuditEvents",
+  "specRevisions",
+] as const;
+
+export type QuotePackTableKey = (typeof QUOTE_PACK_TABLES)[number];
 
 export type DatabaseBackupTables = {
   specialties: unknown[];
@@ -20,9 +42,29 @@ export type DatabaseBackupTables = {
   equipmentUnits: unknown[];
   equipmentDocuments: unknown[];
   quoteTemplates: unknown[];
+  quotes: unknown[];
+  quoteZones: unknown[];
+  quoteBlocks: unknown[];
+  quoteAssignments: unknown[];
+  quoteCalcShares: unknown[];
+  quoteCalcLineOverrides: unknown[];
+  quoteExtraExpenses: unknown[];
+  specOverrides: unknown[];
+  specExtras: unknown[];
+  quoteComments: unknown[];
+  quoteAttachments: unknown[];
   quoteSnapshots: unknown[];
   quoteAuditEvents: unknown[];
   specRevisions: unknown[];
+};
+
+export type QuotePackTables = Pick<DatabaseBackupTables, QuotePackTableKey>;
+
+export type QuotePackFile = {
+  kind: typeof QUOTE_PACK_KIND;
+  version: number;
+  exportedAt: string;
+  tables: QuotePackTables;
 };
 
 export type DatabaseBackupFile = {
@@ -56,6 +98,17 @@ export function emptyBackupCounts(): DatabaseBackupCounts {
     equipmentUnits: 0,
     equipmentDocuments: 0,
     quoteTemplates: 0,
+    quotes: 0,
+    quoteZones: 0,
+    quoteBlocks: 0,
+    quoteAssignments: 0,
+    quoteCalcShares: 0,
+    quoteCalcLineOverrides: 0,
+    quoteExtraExpenses: 0,
+    specOverrides: 0,
+    specExtras: 0,
+    quoteComments: 0,
+    quoteAttachments: 0,
     quoteSnapshots: 0,
     quoteAuditEvents: 0,
     specRevisions: 0,

@@ -22,6 +22,7 @@ import {
   type DatabaseBackupFile,
   type DatabaseBackupTables,
 } from "@/lib/database-backup-format";
+import { applyQuoteTables, collectQuoteTables } from "@/lib/quote-backup";
 
 export {
   DATABASE_BACKUP_KIND,
@@ -191,9 +192,6 @@ export async function collectDatabaseBackup(): Promise<DatabaseBackupFile> {
     equipmentUnits,
     equipmentDocuments,
     quoteTemplates,
-    quoteSnapshots,
-    quoteAuditEvents,
-    specRevisions,
   ] = await Promise.all([
     prisma.specialty.findMany({
       orderBy: { sortOrder: "asc" },
@@ -216,10 +214,8 @@ export async function collectDatabaseBackup(): Promise<DatabaseBackupFile> {
     prisma.equipmentUnit.findMany({ orderBy: { unitNumber: "asc" } }),
     prisma.equipmentDocument.findMany({ orderBy: { createdAt: "asc" } }),
     prisma.quoteTemplate.findMany({ orderBy: { name: "asc" } }),
-    prisma.quoteSnapshot.findMany({ orderBy: { createdAt: "asc" } }),
-    prisma.quoteAuditEvent.findMany({ orderBy: { createdAt: "asc" } }),
-    prisma.specRevision.findMany({ orderBy: { createdAt: "asc" } }),
   ]);
+  const quoteTables = await collectQuoteTables();
 
   return {
     kind: DATABASE_BACKUP_KIND,
@@ -248,9 +244,7 @@ export async function collectDatabaseBackup(): Promise<DatabaseBackupFile> {
         equipmentUnits,
         equipmentDocuments,
         quoteTemplates,
-        quoteSnapshots,
-        quoteAuditEvents,
-        specRevisions,
+        ...quoteTables,
       }),
     ) as DatabaseBackupTables,
   };
@@ -300,6 +294,17 @@ export function parseDatabaseBackup(raw: unknown): DatabaseBackupFile {
       equipmentUnits: rowsOf(tables.equipmentUnits),
       equipmentDocuments: rowsOf(tables.equipmentDocuments),
       quoteTemplates: rowsOf(tables.quoteTemplates),
+      quotes: rowsOf(tables.quotes),
+      quoteZones: rowsOf(tables.quoteZones),
+      quoteBlocks: rowsOf(tables.quoteBlocks),
+      quoteAssignments: rowsOf(tables.quoteAssignments),
+      quoteCalcShares: rowsOf(tables.quoteCalcShares),
+      quoteCalcLineOverrides: rowsOf(tables.quoteCalcLineOverrides),
+      quoteExtraExpenses: rowsOf(tables.quoteExtraExpenses),
+      specOverrides: rowsOf(tables.specOverrides),
+      specExtras: rowsOf(tables.specExtras),
+      quoteComments: rowsOf(tables.quoteComments),
+      quoteAttachments: rowsOf(tables.quoteAttachments),
       quoteSnapshots: rowsOf(tables.quoteSnapshots),
       quoteAuditEvents: rowsOf(tables.quoteAuditEvents),
       specRevisions: rowsOf(tables.specRevisions),
@@ -372,7 +377,7 @@ export async function applyDatabaseBackup(
       warnings,
     ),
   );
-  await withBackupTx((tx) =>
+  const clientIds = await withBackupTx((tx) =>
     importClients(tx, backup.tables.clients, counts, warnings),
   );
   const freelancerIds = await withBackupTx((tx) =>
@@ -440,28 +445,19 @@ export async function applyDatabaseBackup(
     ),
   );
   await withBackupTx((tx) =>
-    importQuoteSnapshots(
+    applyQuoteTables(
       tx,
-      backup.tables.quoteSnapshots,
-      userIds,
-      counts,
-      warnings,
-    ),
-  );
-  await withBackupTx((tx) =>
-    importQuoteAuditEvents(
-      tx,
-      backup.tables.quoteAuditEvents,
-      userIds,
-      counts,
-      warnings,
-    ),
-  );
-  await withBackupTx((tx) =>
-    importSpecRevisions(
-      tx,
-      backup.tables.specRevisions,
-      userIds,
+      backup.tables,
+      {
+        currentUserId,
+        userIds,
+        itemIds,
+        kitIds,
+        specialtyIds,
+        venueIds,
+        clientIds,
+        writes: { created: 0, updated: 0 },
+      },
       counts,
       warnings,
     ),
@@ -914,7 +910,8 @@ async function importClients(
   raw: unknown[],
   counts: DatabaseBackupCounts,
   warnings: string[],
-) {
+): Promise<IdMap> {
+  const map: IdMap = new Map();
   for (const rec of rowsOf(raw)) {
     const id = requireId(rec);
     const companyName = str(rec.companyName).trim();
@@ -935,14 +932,17 @@ async function importClients(
     };
     const existing = await tx.client.findUnique({ where: { id } });
     if (existing) {
+      map.set(id, existing.id);
       await tx.client.update({ where: { id }, data });
     } else {
+      map.set(id, id);
       await tx.client.create({
         data: { id, ...data, createdAt: asDate(rec.createdAt) },
       });
     }
     counts.clients += 1;
   }
+  return map;
 }
 
 async function importFreelancers(
@@ -1444,127 +1444,3 @@ async function importQuoteTemplates(
   }
 }
 
-async function quoteExists(
-  tx: Prisma.TransactionClient,
-  quoteId: string,
-): Promise<boolean> {
-  if (!quoteId) return false;
-  const row = await tx.quote.findUnique({
-    where: { id: quoteId },
-    select: { id: true },
-  });
-  return Boolean(row);
-}
-
-async function importQuoteSnapshots(
-  tx: Prisma.TransactionClient,
-  raw: unknown[],
-  userIds: IdMap,
-  counts: DatabaseBackupCounts,
-  warnings: string[],
-) {
-  for (const rec of rowsOf(raw)) {
-    const id = requireId(rec);
-    const quoteId = str(rec.quoteId).trim();
-    if (!id || !quoteId) {
-      warnings.push("Пропущен снимок сметы без id или quoteId");
-      continue;
-    }
-    if (!(await quoteExists(tx, quoteId))) {
-      warnings.push(`Снимок сметы ${id}: смета ${quoteId} не найдена`);
-      continue;
-    }
-    const createdById = mapped(userIds, str(rec.createdById));
-    const data = {
-      quoteId,
-      title: str(rec.title),
-      payload: asJson(rec.payload),
-      createdById,
-    };
-    const existing = await tx.quoteSnapshot.findUnique({ where: { id } });
-    if (existing) {
-      await tx.quoteSnapshot.update({ where: { id }, data });
-    } else {
-      await tx.quoteSnapshot.create({
-        data: { id, ...data, createdAt: asDate(rec.createdAt) },
-      });
-    }
-    counts.quoteSnapshots += 1;
-  }
-}
-
-async function importQuoteAuditEvents(
-  tx: Prisma.TransactionClient,
-  raw: unknown[],
-  userIds: IdMap,
-  counts: DatabaseBackupCounts,
-  warnings: string[],
-) {
-  for (const rec of rowsOf(raw)) {
-    const id = requireId(rec);
-    const quoteId = str(rec.quoteId).trim();
-    if (!id || !quoteId) {
-      warnings.push("Пропущено событие журнала сметы без id или quoteId");
-      continue;
-    }
-    if (!(await quoteExists(tx, quoteId))) {
-      warnings.push(`Журнал сметы ${id}: смета ${quoteId} не найдена`);
-      continue;
-    }
-    const actorId = mapped(userIds, str(rec.actorId));
-    const data = {
-      quoteId,
-      actorId,
-      action: str(rec.action, "PATCH"),
-      summary: str(rec.summary),
-      diff: rec.diff == null ? undefined : asJson(rec.diff),
-    };
-    const existing = await tx.quoteAuditEvent.findUnique({ where: { id } });
-    if (existing) {
-      await tx.quoteAuditEvent.update({ where: { id }, data });
-    } else {
-      await tx.quoteAuditEvent.create({
-        data: { id, ...data, createdAt: asDate(rec.createdAt) },
-      });
-    }
-    counts.quoteAuditEvents += 1;
-  }
-}
-
-async function importSpecRevisions(
-  tx: Prisma.TransactionClient,
-  raw: unknown[],
-  userIds: IdMap,
-  counts: DatabaseBackupCounts,
-  warnings: string[],
-) {
-  for (const rec of rowsOf(raw)) {
-    const id = requireId(rec);
-    const quoteId = str(rec.quoteId).trim();
-    if (!id || !quoteId) {
-      warnings.push("Пропущен снимок спецификации без id или quoteId");
-      continue;
-    }
-    if (!(await quoteExists(tx, quoteId))) {
-      warnings.push(`Снимок спецификации ${id}: смета ${quoteId} не найдена`);
-      continue;
-    }
-    const createdById = mapped(userIds, str(rec.createdById));
-    const data = {
-      quoteId,
-      title: str(rec.title),
-      lines: asJson(rec.lines, []),
-      note: optStr(rec.note),
-      createdById,
-    };
-    const existing = await tx.specRevision.findUnique({ where: { id } });
-    if (existing) {
-      await tx.specRevision.update({ where: { id }, data });
-    } else {
-      await tx.specRevision.create({
-        data: { id, ...data, createdAt: asDate(rec.createdAt) },
-      });
-    }
-    counts.specRevisions += 1;
-  }
-}

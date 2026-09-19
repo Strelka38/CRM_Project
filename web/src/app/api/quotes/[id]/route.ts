@@ -203,8 +203,12 @@ export async function PATCH(
     const nextDate = meta.date !== undefined ? meta.date : existing.date;
     const nextDays =
       meta.durationDays !== undefined ? meta.durationDays : existing.durationDays;
-    const nextLifecycle =
+    let nextLifecycle =
       meta.lifecycle !== undefined ? meta.lifecycle : existing.lifecycle;
+    if (meta.paid === true && nextLifecycle === "CONFIRMED") {
+      nextLifecycle = "COMPLETED";
+      meta.lifecycle = "COMPLETED";
+    }
     const nextVenueId =
       meta.venueId !== undefined ? meta.venueId : existing.venueId;
 

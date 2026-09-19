@@ -64,6 +64,7 @@ function downloadBlob(blob: Blob, filename: string) {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
+  window.dispatchEvent(new Event("bs-crm-viewport-pin"));
 }
 
 function cashlessRate(meta: ExportMeta) {

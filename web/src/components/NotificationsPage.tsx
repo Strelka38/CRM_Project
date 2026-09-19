@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useSession } from "next-auth/react";
 import { useEffect, useMemo, useState } from "react";
 import {
   Button,
@@ -9,7 +8,6 @@ import {
   PageHeader,
   TableSkeleton,
 } from "@/components/ui";
-import { isManager } from "@/lib/roles";
 import {
   NOTIFICATIONS_CHANGED,
   NOTIFICATION_TYPE_LABELS,
@@ -21,8 +19,6 @@ import {
 } from "@/lib/notification-ui";
 
 export function NotificationsPage() {
-  const { data: session } = useSession();
-  const manager = isManager(session?.user?.role);
   const [items, setItems] = useState<AppNotification[]>([]);
   const [unread, setUnread] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -94,37 +90,30 @@ export function NotificationsPage() {
       />
 
       <section className="rounded-xl border border-[var(--line)] bg-[var(--panel)]">
-        <div className="flex w-full flex-wrap items-center gap-2 border-b border-[var(--line)] px-4 py-3">
-          <div className="flex rounded-lg border border-[var(--line)] p-0.5">
+        <div className="flex w-full items-center gap-2 border-b border-[var(--line)] px-4 py-3">
+          <div className="flex shrink-0 rounded-lg border border-[var(--line)] p-0.5">
             <FilterTab
               active={filter === "all"}
               onClick={() => setFilter("all")}
-              label={items.length ? `Все · ${items.length}` : "Все"}
+              label="Все"
+              count={items.length}
             />
             <FilterTab
               active={filter === "unread"}
               onClick={() => setFilter("unread")}
-              label={unread ? `Непрочитанные · ${unread}` : "Непрочитанные"}
+              label="Непрочитанные"
+              count={unread}
             />
           </div>
-          <div className="ml-auto flex flex-wrap items-center gap-2">
-            {manager ? (
-              <Link
-                href="/unpaid"
-                className="text-sm text-[var(--accent-deep)] hover:underline"
-              >
-                Неоплаченные проекты
-              </Link>
-            ) : null}
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={unread === 0}
-              onClick={() => void markAll()}
-            >
-              Прочитать все
-            </Button>
-          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="ml-auto shrink-0"
+            disabled={unread === 0}
+            onClick={() => void markAll()}
+          >
+            Прочитать все
+          </Button>
         </div>
 
         {loading ? (
@@ -185,22 +174,25 @@ function FilterTab({
   active,
   onClick,
   label,
+  count,
 }: {
   active: boolean;
   onClick: () => void;
   label: string;
+  count?: number;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-md px-3 py-1.5 text-sm ${
+      className={`whitespace-nowrap rounded-md px-2.5 py-1.5 text-sm md:px-3 ${
         active
           ? "bg-[var(--selected)] text-[var(--ink)]"
           : "text-[var(--muted)] hover:text-[var(--ink)]"
       }`}
     >
       {label}
+      {count ? <span className="hidden md:inline"> · {count}</span> : null}
     </button>
   );
 }

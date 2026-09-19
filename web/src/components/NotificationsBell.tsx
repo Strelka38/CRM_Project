@@ -46,10 +46,8 @@ export function useUnreadNotifications() {
 }
 
 export function NotificationsBell({
-  showUnpaidLink = false,
   placement = "header",
 }: {
-  showUnpaidLink?: boolean;
   placement?: "header" | "sidebar";
 }) {
   const pathname = usePathname();
@@ -212,7 +210,7 @@ export function NotificationsBell({
               );
             })}
           </div>
-          <div className="flex flex-col gap-1 border-t border-[var(--line)] px-3 py-2">
+          <div className="border-t border-[var(--line)] px-3 py-2">
             <Link
               href="/notifications"
               className="text-xs text-[var(--accent-deep)] hover:underline"
@@ -220,15 +218,6 @@ export function NotificationsBell({
             >
               {rest > 0 ? `Все уведомления (${items.length}) →` : "Все уведомления →"}
             </Link>
-            {showUnpaidLink && (
-              <Link
-                href="/unpaid"
-                className="text-xs text-[var(--accent-deep)] hover:underline"
-                onClick={() => setOpen(false)}
-              >
-                Неоплаченные проекты →
-              </Link>
-            )}
           </div>
         </div>
       )}

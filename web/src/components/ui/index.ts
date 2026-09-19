@@ -33,6 +33,7 @@ export {
   type PeekMenuItem,
 } from "./PeekChrome";
 export { PageHeader } from "./PageHeader";
+export { CollapsibleNotice } from "./CollapsibleNotice";
 export { Skeleton, TableSkeleton, CalendarSkeleton } from "./Skeleton";
 export { EmptyState } from "./EmptyState";
 export { NavLink } from "./NavLink";

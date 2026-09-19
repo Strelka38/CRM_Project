@@ -12,6 +12,8 @@ import {
   collectBusyDates,
   collectFreelancerBusyDates,
   packRosterGroupOffsets,
+  packRosterGroupSkyline,
+  placeRosterSegOnSkyline,
   packRosterLanes,
   compareRosterLaneItems,
   eachDateKey,
@@ -27,6 +29,7 @@ import {
   isVacantInstallerSlot,
   isOpenMountDropSlot,
   isRosterDutyMark,
+  isRosterZoneMark,
   collapseRosterDutyMarks,
   dateInRosterResizeWindow,
   ROSTER_MOUNT_COLOR,
@@ -685,6 +688,63 @@ assert.deepEqual(
 );
 assert.equal(seeded[1], 10);
 
+const skyline = [0, 0, 0, 0];
+assert.equal(
+  packRosterGroupSkyline(
+    {
+      startCol: 0,
+      endExclusive: 3,
+      // Высокое мероприятие на 0–1, на дне демонтажа (col 2) только 2 дорожки.
+      columnHeights: [10, 10, 2],
+    },
+    skyline,
+  ),
+  0,
+);
+assert.deepEqual(skyline, [10, 10, 2, 0]);
+assert.equal(
+  packRosterGroupSkyline(
+    {
+      startCol: 2,
+      endExclusive: 4,
+      columnHeights: [3, 3],
+    },
+    skyline,
+  ),
+  2,
+  "следующее мероприятие поднимается под демонтаж, не под всю высоту",
+);
+assert.deepEqual(skyline, [10, 10, 5, 5]);
+
+const floatCols = [0, 0, 12, 0];
+assert.equal(
+  placeRosterSegOnSkyline({ startCol: 0, span: 1 }, floatCols),
+  0,
+);
+assert.equal(
+  placeRosterSegOnSkyline({ startCol: 3, span: 1 }, floatCols),
+  0,
+  "день без тела мероприятия остаётся свободным сверху",
+);
+assert.deepEqual(floatCols, [1, 0, 12, 1]);
+
+{
+  // Высокое тело на col0 + демонтаж-бахрома на col1 → сосед пакуется под бахромой.
+  const cols = [0, 0, 0];
+  packRosterGroupSkyline(
+    { startCol: 0, endExclusive: 1, columnHeights: [4] },
+    cols,
+  );
+  const demountLane = placeRosterSegOnSkyline({ startCol: 1, span: 1 }, cols);
+  assert.equal(demountLane, 0);
+  const nextOffset = packRosterGroupSkyline(
+    { startCol: 1, endExclusive: 2, columnHeights: [2] },
+    cols,
+  );
+  assert.equal(nextOffset, 1, "следующее под демонтажом, не под высотой 4");
+  assert.deepEqual(cols, [4, 3, 0]);
+}
+
 const vacantDemount = {
   vacant: true,
   name: "",
@@ -713,5 +773,57 @@ const emptyLane = packedDuty.find(
   (s) => s.item.vacant && s.item.role === "демонтаж",
 )?.lane;
 assert.ok(filledLane != null && emptyLane != null && filledLane < emptyLane);
+
+const zonedQuote = buildQuoteRosterItems({
+  ...quote,
+  zones: [
+    { id: "z1", name: "Зал", sortOrder: 0, workingDayIndexes: [] },
+    { id: "z2", name: "Фойе", sortOrder: 1, workingDayIndexes: [] },
+  ],
+  assignments: [
+    {
+      id: "za1",
+      kind: "EVENT",
+      dayIndex: 1,
+      userId: null,
+      specialtyId: "s1",
+      specialty: { id: "s1", name: "Звук" },
+      zoneId: "z1",
+    },
+    {
+      id: "za2",
+      kind: "EVENT",
+      dayIndex: 1,
+      userId: null,
+      specialtyId: "s2",
+      specialty: { id: "s2", name: "Свет" },
+      zoneId: "z2",
+    },
+  ],
+});
+const zoneMarks = zonedQuote.filter(isRosterZoneMark);
+assert.equal(zoneMarks.length, 2);
+assert.deepEqual(
+  zoneMarks.map((i) => i.zoneName).sort(),
+  ["Зал", "Фойе"],
+);
+assert.ok(
+  compareRosterLaneItems(
+    { ...zoneMarks[0]!, zoneSortOrder: 0, zoneName: "Зал", zoneId: "z1" },
+    {
+      vacant: true,
+      name: "",
+      role: "Звук",
+      assignmentIds: ["za1"],
+      mountDuty: null,
+      zoneMark: false,
+      zoneId: "z1",
+      zoneName: "Зал",
+      zoneSortOrder: 0,
+      assignmentKind: "EVENT",
+    },
+  ) < 0,
+  "подпись зоны выше слотов этой зоны",
+);
 
 console.log("roster.test.ts: ok");

@@ -71,7 +71,9 @@ export async function GET(req: NextRequest) {
           demountDate: true,
           demountDurationDays: true,
           owner: { select: { owners: true } },
-          zones: { select: { id: true, workingDayIndexes: true } },
+          zones: {
+            select: { id: true, name: true, sortOrder: true, workingDayIndexes: true },
+          },
           assignments: {
             select: {
               id: true,

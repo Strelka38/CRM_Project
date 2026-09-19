@@ -3,27 +3,28 @@ import type { ButtonHTMLAttributes } from "react";
 import { cn } from "@/lib/cn";
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-1.5 font-medium transition-all duration-300 disabled:pointer-events-none disabled:opacity-50",
+  "inline-flex items-center justify-center gap-1.5 font-medium transition-[background-color,border-color,color,opacity,transform] duration-150 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] active:scale-[0.98]",
   {
     variants: {
       variant: {
         primary:
-          "rounded-full bg-cta text-white shadow-lg shadow-[#009ee3]/20 hover:scale-[1.02] hover:shadow-[#009ee3]/35",
+          "rounded-[var(--radius-sm)] bg-[var(--accent)] text-[var(--accent-ink)] hover:bg-[var(--accent-deep)]",
         secondary:
-          "rounded-full border border-[var(--accent-glow)] bg-transparent text-[var(--accent-deep)] hover:bg-subtle",
+          "rounded-[var(--radius-sm)] border border-[var(--hairline-strong)] bg-transparent text-[var(--ink)] hover:border-[var(--ink)] hover:bg-[var(--panel-muted)]",
         ghost:
-          "rounded-md text-[var(--muted)] hover:bg-white/10 hover:text-[var(--ink)]",
+          "rounded-[var(--radius-sm)] text-[var(--muted)] hover:bg-[var(--header-hover)] hover:text-[var(--ink)]",
         outline:
-          "rounded-md border border-[var(--line)] bg-[var(--panel)] text-[var(--ink)] hover:bg-white/10",
-        icon:
-          "rounded-md border border-[var(--line)] bg-[var(--btn-icon-bg)] text-[var(--ink)] hover:bg-[var(--btn-icon-hover)] shrink-0",
-        danger: "rounded-full bg-[var(--danger)] text-white hover:bg-red-600",
-        "danger-ghost": "rounded-md text-[var(--danger)] hover:bg-red-500/15",
+          "rounded-[var(--radius-sm)] border border-[var(--line)] bg-[var(--panel)] text-[var(--ink)] hover:bg-[var(--panel-muted)]",
+        icon: "rounded-[var(--radius-sm)] border border-[var(--line)] bg-[var(--btn-icon-bg)] text-[var(--ink)] hover:bg-[var(--btn-icon-hover)] shrink-0",
+        danger:
+          "rounded-[var(--radius-sm)] bg-[var(--danger)] text-white hover:opacity-90",
+        "danger-ghost":
+          "rounded-[var(--radius-sm)] text-[var(--danger)] hover:bg-[var(--danger)]/15",
       },
       size: {
-        sm: "px-3 py-1.5 text-xs",
-        md: "px-4 py-2 text-sm",
-        lg: "px-6 py-2.5 text-sm",
+        sm: "h-8 min-h-[max(2rem,var(--tap-min))] px-3 text-xs",
+        md: "h-10 min-h-[max(2.5rem,var(--tap-min))] px-4 text-sm",
+        lg: "h-12 min-h-[max(3rem,var(--tap-min))] px-5 text-sm",
       },
     },
     defaultVariants: {

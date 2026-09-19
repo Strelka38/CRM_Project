@@ -16,24 +16,28 @@ export function PageHeader({
   return (
     <header
       className={cn(
-        "mb-5 flex flex-wrap items-end justify-between gap-3",
+        "mb-6 flex flex-wrap items-end justify-between gap-3",
         className,
       )}
     >
-      <div className="animate-fade-up">
+      <div>
         {eyebrow && (
-          <p className="text-xs uppercase tracking-[0.15em] text-[var(--muted)]">
+          <p className="font-mono text-caption uppercase tracking-[0.1em] text-[var(--muted)]">
             {eyebrow}
           </p>
         )}
-        <h1 className="mt-1 text-2xl font-medium tracking-tight text-[var(--ink)]">
+        <h1 className="mt-1 text-[length:var(--fs-h1)] leading-[var(--lh-h1)] font-medium tracking-tight text-[var(--ink)]">
           {title}
         </h1>
         {subtitle && (
-          <p className="mt-1 text-sm text-[var(--muted)]">{subtitle}</p>
+          <p className="mt-1 max-w-prose text-sm leading-relaxed text-[var(--muted)]">
+            {subtitle}
+          </p>
         )}
       </div>
-      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+      {actions && (
+        <div className="flex flex-wrap items-center gap-2">{actions}</div>
+      )}
     </header>
   );
 }

@@ -9,12 +9,23 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "BaikalStageGroup CRM",
   description: "Сметы и каталог проката ивент-оборудования",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "CRM",
+  },
+  formatDetection: { telephone: false },
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
+  interactiveWidget: "overlays-content",
+  themeColor: [
+    { media: "(prefers-color-scheme: dark)", color: "#0b0c0e" },
+    { media: "(prefers-color-scheme: light)", color: "#f6f6f4" },
+  ],
 };
 
 export default function RootLayout({

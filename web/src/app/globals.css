@@ -4,71 +4,62 @@
 [data-theme="dark"] {
   color-scheme: dark;
 
-  /* Surfaces */
-  --bg: #070a12;
-  --bg-elevated: #0a0e17;
-  --panel: #121826;
-  --panel-muted: #171e2e;
-  --ink: #e8eef8;
-  --ink-on-dark: #ffffff;
-  --muted: #8a9abc;
-  --muted-on-dark: #8a9abc;
-  --line: rgba(255, 255, 255, 0.1);
-  --line-on-dark: rgba(255, 255, 255, 0.1);
-  --tree-line: rgba(138, 154, 188, 0.55);
-  --solid: #e8eef8;
-  --on-solid: #070a12;
-  /* App header (adapts with theme) */
-  --header-ink: #ffffff;
-  --header-muted: #8a9abc;
-  --header-line: rgba(255, 255, 255, 0.1);
-  --header-hover: rgba(255, 255, 255, 0.08);
-  --header-active-bg: rgba(255, 255, 255, 0.1);
+  /* Surfaces — Linear-like near-black, not navy */
+  --bg: #0b0c0e;
+  --bg-elevated: #121314;
+  --panel: #161719;
+  --panel-muted: #1c1d20;
+  --ink: #f4f5f6;
+  --ink-on-dark: #f4f5f6;
+  --muted: #8a8f98;
+  --muted-on-dark: #8a8f98;
+  --line: #26272b;
+  --line-on-dark: #26272b;
+  --tree-line: rgba(138, 143, 152, 0.45);
+  --solid: #f4f5f6;
+  --on-solid: #0b0c0e;
+  --header-ink: #f4f5f6;
+  --header-muted: #8a8f98;
+  --header-line: #26272b;
+  --header-hover: rgba(255, 255, 255, 0.06);
+  --header-active-bg: rgba(0, 158, 227, 0.14);
 
-  /* Brand */
+  /* Brand — one cyan accent, no magenta/purple fills */
   --accent: #009ee3;
   --accent-deep: #4db8eb;
   --accent-glow: #4ba7d4;
-  --selected: rgba(0, 158, 227, 0.18);
-  --table-head: #171e2e;
-  --gradient-cta: linear-gradient(
-    135deg,
-    #ec14fe 0%,
-    #4371ea 51%,
-    #49c1ef 100%
-  );
-  --gradient-subtle: linear-gradient(
-    135deg,
-    rgba(0, 158, 227, 0.14) 0%,
-    rgba(67, 113, 234, 0.1) 100%
-  );
+  --accent-ink: #ffffff;
+  --selected: rgba(0, 158, 227, 0.14);
+  --table-head: #1c1d20;
+  --gradient-cta: var(--accent);
+  --gradient-subtle: var(--selected);
 
   /* Semantic */
-  --success: #22c55e;
-  --warning: #f59e0b;
-  --danger: #f87171;
-  --lifecycle-calculated: #6b8f7e;
-  --lifecycle-confirmed: #009ee3;
-  --lifecycle-cancelled: #f87171;
-  --lifecycle-completed: #7c9cff;
+  --success: #4cb782;
+  --warning: #e2b203;
+  --danger: #eb5757;
+  --lifecycle-calculated: #4379b0;
+  --lifecycle-confirmed: #528f4b;
+  --lifecycle-cancelled: #7f7770;
+  --lifecycle-completed: #c4961a;
 
   /* Controls */
-  --field-bg: rgba(255, 255, 255, 0.04);
-  --field-bg-focus: rgba(255, 255, 255, 0.06);
-  --btn-icon-bg: rgba(255, 255, 255, 0.04);
-  --btn-icon-hover: rgba(255, 255, 255, 0.1);
-  --stock-cell-bg: rgba(255, 255, 255, 0.03);
-  --body-glow-1: rgba(0, 158, 227, 0.16);
-  --body-glow-2: rgba(67, 113, 234, 0.12);
-  --body-glow-3: rgba(236, 20, 254, 0.06);
+  --field-bg: rgba(255, 255, 255, 0.03);
+  --field-bg-focus: rgba(255, 255, 255, 0.05);
+  --btn-icon-bg: rgba(255, 255, 255, 0.03);
+  --btn-icon-hover: rgba(255, 255, 255, 0.08);
+  --stock-cell-bg: rgba(255, 255, 255, 0.02);
+  --body-glow-1: transparent;
+  --body-glow-2: transparent;
+  --body-glow-3: transparent;
 
   /* Shape & motion */
   --radius-sm: 0.375rem;
-  --radius-md: 0.75rem;
-  --radius-lg: 1rem;
-  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-  --duration-fast: 150ms;
-  --duration-normal: 300ms;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --ease-out: cubic-bezier(0.32, 0.72, 0, 1);
+  --duration-fast: 120ms;
+  --duration-normal: 180ms;
 
   --background: var(--bg);
   --foreground: var(--ink);
@@ -77,58 +68,50 @@
 [data-theme="light"] {
   color-scheme: light;
 
-  --bg: #e8eef5;
+  --bg: #f6f6f4;
   --bg-elevated: #ffffff;
   --panel: #ffffff;
-  --panel-muted: #f4f7fb;
-  --ink: #0f1729;
-  --ink-on-dark: #ffffff;
-  --muted: #5a6b82;
-  --muted-on-dark: #8a9abc;
-  --line: #d0d9e6;
-  --line-on-dark: rgba(255, 255, 255, 0.1);
-  --tree-line: #9aa8bc;
-  --solid: #0f1729;
+  --panel-muted: #f1f1ee;
+  --ink: #0a0a0a;
+  --ink-on-dark: #f4f5f6;
+  --muted: #5c5c5c;
+  --muted-on-dark: #8a8f98;
+  --line: #e4e4e0;
+  --line-on-dark: #26272b;
+  --tree-line: #b4b4ae;
+  --solid: #0a0a0a;
   --on-solid: #ffffff;
-  --header-ink: #0f1729;
-  --header-muted: #5a6b82;
-  --header-line: #d0d9e6;
-  --header-hover: rgba(15, 23, 41, 0.06);
-  --header-active-bg: #d6eef9;
+  --header-ink: #0a0a0a;
+  --header-muted: #5c5c5c;
+  --header-line: #e4e4e0;
+  --header-hover: rgba(10, 10, 10, 0.05);
+  --header-active-bg: rgba(0, 158, 227, 0.12);
 
-  --accent: #009ee3;
-  --accent-deep: #0f69b1;
-  --accent-glow: #4ba7d4;
-  --selected: #d6eef9;
-  --table-head: #eef3f8;
-  --gradient-cta: linear-gradient(
-    135deg,
-    #c026d3 0%,
-    #4371ea 51%,
-    #009ee3 100%
-  );
-  --gradient-subtle: linear-gradient(
-    135deg,
-    rgba(0, 158, 227, 0.08) 0%,
-    rgba(67, 113, 234, 0.05) 100%
-  );
+  --accent: #0088c2;
+  --accent-deep: #006a99;
+  --accent-glow: #009ee3;
+  --accent-ink: #ffffff;
+  --selected: rgba(0, 136, 194, 0.1);
+  --table-head: #f1f1ee;
+  --gradient-cta: var(--accent);
+  --gradient-subtle: var(--selected);
 
-  --success: #16a34a;
-  --warning: #d97706;
-  --danger: #dc2626;
-  --lifecycle-calculated: #6b8f7e;
-  --lifecycle-confirmed: #009ee3;
-  --lifecycle-cancelled: #dc2626;
-  --lifecycle-completed: #4371ea;
+  --success: #1b7f4e;
+  --warning: #b45309;
+  --danger: #c24141;
+  --lifecycle-calculated: #356696;
+  --lifecycle-confirmed: #387034;
+  --lifecycle-cancelled: #726960;
+  --lifecycle-completed: #b58614;
 
-  --field-bg: rgba(255, 255, 255, 0.9);
+  --field-bg: #f6f6f4;
   --field-bg-focus: #ffffff;
-  --btn-icon-bg: rgba(255, 255, 255, 0.85);
-  --btn-icon-hover: #ffffff;
-  --stock-cell-bg: rgba(238, 243, 248, 0.7);
-  --body-glow-1: rgba(0, 158, 227, 0.12);
-  --body-glow-2: rgba(67, 113, 234, 0.08);
-  --body-glow-3: rgba(236, 20, 254, 0.04);
+  --btn-icon-bg: #ffffff;
+  --btn-icon-hover: #f1f1ee;
+  --stock-cell-bg: #f1f1ee;
+  --body-glow-1: transparent;
+  --body-glow-2: transparent;
+  --body-glow-3: transparent;
 }
 
 /*
@@ -162,8 +145,8 @@
   --lh-read: 1.5rem; /* 24px */
   --fs-title: 1.125rem; /* 18px — заголовки карточек и секций */
   --lh-title: 1.5rem; /* 24px */
-  --fs-h1: 1.5rem; /* 24px — заголовок страницы */
-  --lh-h1: 1.875rem; /* 30px */
+  --fs-h1: 1.75rem; /* 28px — заголовок страницы */
+  --lh-h1: 2.125rem; /* 34px */
   --fs-display: 1.875rem; /* 30px — итоговые суммы, KPI дашборда */
   --lh-display: 2.25rem; /* 36px */
 
@@ -175,18 +158,19 @@
   --tracking-display: -0.015em;
   --tracking-caption: 0.04em;
 
-  /* Login atmosphere — always dark, independent of app theme. */
-  --login-atmosphere-base: linear-gradient(
-    165deg,
-    #070a12 0%,
-    #101827 45%,
-    #0c2438 100%
-  );
-  --login-atmosphere-magenta: rgba(236, 20, 254, 0.38);
-  --login-atmosphere-cyan: rgba(0, 158, 227, 0.42);
-  --login-atmosphere-blue: rgba(67, 113, 234, 0.25);
-  --login-orb-magenta: #ec14fe;
-  --login-orb-cyan: #009ee3;
+  --surface: var(--bg);
+  --surface-elevated: var(--panel);
+  --hairline: var(--line);
+  --hairline-strong: color-mix(in srgb, var(--ink) 18%, var(--line));
+  --ink-muted: var(--muted);
+  --accent-soft: var(--selected);
+
+  --login-surface: #0b0c0e;
+  --login-panel: #161719;
+  --login-ink: #f4f5f6;
+  --login-muted: #8a8f98;
+  --login-line: #26272b;
+  --login-accent: #4db8eb;
 }
 
 @theme inline {
@@ -206,6 +190,8 @@ body {
   line-height: var(--lh-body);
   font-weight: var(--fw-body);
   font-variant-numeric: tabular-nums;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
   min-height: 100%;
 }
 
@@ -229,24 +215,53 @@ body {
   outline: none;
   transition:
     border-color var(--duration-fast) ease,
-    box-shadow var(--duration-fast) ease,
-    background var(--duration-fast) ease;
+    background-color var(--duration-fast) ease;
 }
 
 .field::placeholder {
-  color: var(--muted);
-  opacity: 0.7;
+  color: color-mix(in srgb, var(--muted) 72%, var(--bg));
 }
 
-.field:focus {
+.field:hover {
+  border-color: color-mix(in srgb, var(--ink) 28%, var(--line));
+}
+
+.field:focus,
+.field:focus-visible {
   border-color: var(--accent);
   background: var(--field-bg-focus);
-  box-shadow: 0 0 0 3px rgba(0, 158, 227, 0.22);
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .field option {
   background: var(--panel);
   color: var(--ink);
+}
+
+/* Компактные поля в мобильных карточках сметы/спеки. */
+.field-compact {
+  min-height: 1.25rem;
+  padding: 0.05rem 0.3rem;
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+/* Chrome fields must not inherit .field { width: 100% } — that stretches №
+   across the row inside a flex parent. */
+.quote-chrome-field {
+  width: auto;
+  min-height: 2.25rem;
+  padding: 0.3rem 0.5rem;
+}
+
+.quote-chrome-num {
+  width: 2.75rem;
+  min-width: 2.75rem;
+  max-width: 2.75rem;
+  flex: 0 0 2.75rem;
+  padding-left: 0.15rem;
+  padding-right: 0.15rem;
 }
 
 .btn-icon {
@@ -564,7 +579,7 @@ body {
   background: var(--panel-muted);
 }
 
-/* День монтажа/демонтажа без назначения — подпись, не слот сотрудника. */
+/* День монтажа/демонтажа и подпись зоны — текст на фоне, не слот. */
 .roster-bar-duty-mark {
   z-index: 1;
   box-shadow: none;
@@ -670,32 +685,27 @@ body {
   align-items: center;
   justify-content: center;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--radius-md);
   background: var(--panel);
   color: var(--ink);
-  box-shadow: 0 8px 22px rgb(15 23 42 / 0.2);
+  box-shadow: none;
   transition:
-    transform 0.2s ease,
-    background 0.2s ease,
-    color 0.2s ease,
-    box-shadow 0.2s ease;
+    background-color var(--duration-fast) ease,
+    color var(--duration-fast) ease,
+    border-color var(--duration-fast) ease;
 }
 
 .roster-people-fab:hover {
-  transform: scale(1.06);
+  background: var(--panel-muted);
 }
 
 .roster-people-fab:active {
-  transform: scale(0.97);
+  transform: scale(0.98);
 }
 
 .roster-people-fab.is-open {
-  background: linear-gradient(
-    145deg,
-    color-mix(in srgb, var(--accent) 92%, white),
-    var(--accent-deep)
-  );
-  color: #fff;
+  background: var(--accent);
+  color: var(--accent-ink);
   border-color: transparent;
 }
 
@@ -707,22 +717,22 @@ body {
   flex-direction: column;
   overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: 1rem;
+  border-radius: var(--radius-lg);
   background: var(--panel);
   padding: 0.75rem;
-  box-shadow: 0 18px 40px rgb(15 23 42 / 0.22);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.28);
   transform-origin: top right;
-  animation: roster-people-in 0.22s ease;
+  animation: roster-people-in 140ms var(--ease-out);
 }
 
 @keyframes roster-people-in {
   from {
     opacity: 0;
-    transform: scale(0.72) translate(12px, -8px);
+    transform: scale(0.98) translateY(-6px);
   }
   to {
     opacity: 1;
-    transform: scale(1) translate(0, 0);
+    transform: scale(1) translateY(0);
   }
 }
 
@@ -752,6 +762,7 @@ body {
   display: flex;
   justify-content: flex-end;
   align-items: stretch;
+  overscroll-behavior: none;
 }
 
 .side-drawer-overlay {
@@ -761,11 +772,36 @@ body {
   padding: 0;
   background: rgba(0, 0, 0, 0.4);
   opacity: 0;
+  touch-action: none;
   transition: opacity 0.24s ease;
 }
 
+html.sheet-open,
+html.sheet-open body {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+html.sheet-open .app-frame {
+  touch-action: none;
+}
+
 .side-drawer[data-open="1"] .side-drawer-overlay {
-  opacity: 1;
+  opacity: var(--sheet-dim, 1);
+}
+
+.side-drawer[data-modal="0"] {
+  pointer-events: none;
+}
+
+.side-drawer[data-modal="0"] .side-drawer-panel {
+  pointer-events: auto;
+}
+
+.side-drawer.is-sheet-drag .side-drawer-overlay,
+.side-drawer.is-sheet-drag .side-drawer-panel {
+  touch-action: none;
+  transition: none;
 }
 
 .side-drawer-panel {
@@ -792,14 +828,20 @@ body {
   transform: translateX(0);
 }
 
-.side-drawer-handle {
+.side-drawer-grab {
   display: none;
+  flex-shrink: 0;
+  touch-action: none;
+  padding: 0.7rem 0 0.45rem;
+}
+
+.side-drawer-handle {
   height: 4px;
   width: 2.5rem;
-  flex-shrink: 0;
-  margin: 0.5rem auto 0.15rem;
+  margin: 0 auto;
   border-radius: 99px;
   background: color-mix(in srgb, var(--muted) 55%, transparent);
+  pointer-events: none;
 }
 
 @media (min-width: 768px) {
@@ -813,10 +855,10 @@ body {
     height: min(88dvh, calc(100% - 2rem));
     max-height: min(88dvh, calc(100% - 2rem));
     border: 1px solid var(--line);
-    border-radius: 1.15rem;
+    border-radius: var(--radius-lg);
     box-shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
   }
-  html:not([data-layout="mobile"]) .side-drawer-handle {
+  html:not([data-layout="mobile"]) .side-drawer-grab {
     display: block;
   }
 }
@@ -828,19 +870,24 @@ body {
   }
   html:not([data-layout="desktop"]) .side-drawer-panel,
   html:not([data-layout="desktop"]) .side-drawer-panel-wide {
-    height: min(92dvh, 100%);
+    height: min(94dvh, 100%);
     max-width: none;
+    padding-bottom: env(safe-area-inset-bottom);
     border-left: none;
     border-top: 1px solid var(--line);
-    border-radius: 1.15rem 1.15rem 0 0;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
     box-shadow: 0 -16px 40px rgba(0, 0, 0, 0.32);
     transform: translateY(100%);
   }
   html:not([data-layout="desktop"]) .side-drawer[data-open="1"] .side-drawer-panel {
-    transform: translateY(0);
+    transform: translateY(var(--sheet-y, 0px));
   }
-  html:not([data-layout="desktop"]) .side-drawer-handle {
+  html:not([data-layout="desktop"]) .side-drawer-grab {
     display: block;
+  }
+
+  html:not([data-layout="desktop"]) .side-drawer-panel .drawer-close {
+    display: none;
   }
 }
 
@@ -855,11 +902,11 @@ html[data-layout="desktop"] .side-drawer-panel-wide {
   height: min(88dvh, calc(100% - 2rem));
   max-height: min(88dvh, calc(100% - 2rem));
   border: 1px solid var(--line);
-  border-radius: 1.15rem;
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.32);
 }
 
-html[data-layout="desktop"] .side-drawer-handle {
+html[data-layout="desktop"] .side-drawer-grab {
   display: block;
 }
 
@@ -870,21 +917,26 @@ html[data-layout="mobile"] .side-drawer {
 
 html[data-layout="mobile"] .side-drawer-panel,
 html[data-layout="mobile"] .side-drawer-panel-wide {
-  height: min(92dvh, 100%);
+  height: min(94dvh, 100%);
   max-width: none;
+  padding-bottom: env(safe-area-inset-bottom);
   border-left: none;
   border-top: 1px solid var(--line);
-  border-radius: 1.15rem 1.15rem 0 0;
-  box-shadow: 0 -16px 40px rgba(0, 0, 0, 0.32);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  box-shadow: 0 -12px 32px rgba(0, 0, 0, 0.28);
   transform: translateY(100%);
 }
 
 html[data-layout="mobile"] .side-drawer[data-open="1"] .side-drawer-panel {
-  transform: translateY(0);
+  transform: translateY(var(--sheet-y, 0px));
 }
 
-html[data-layout="mobile"] .side-drawer-handle {
+html[data-layout="mobile"] .side-drawer-grab {
   display: block;
+}
+
+html[data-layout="mobile"] .side-drawer-panel .drawer-close {
+  display: none;
 }
 
 .side-drawer[data-side="left"] {
@@ -917,7 +969,7 @@ html[data-layout="desktop"] .side-drawer[data-side="left"] {
   html:not([data-layout="desktop"])
     .side-drawer[data-side="left"][data-open="1"]
     .side-drawer-panel {
-    transform: translateY(0);
+    transform: translateY(var(--sheet-y, 0px));
   }
 }
 
@@ -930,15 +982,22 @@ html[data-layout="mobile"] .side-drawer[data-side="left"] .side-drawer-panel-wid
 html[data-layout="mobile"]
   .side-drawer[data-side="left"][data-open="1"]
   .side-drawer-panel {
-  transform: translateY(0);
+  transform: translateY(var(--sheet-y, 0px));
 }
 
 .bg-cta {
-  background-image: var(--gradient-cta);
+  background-color: var(--accent);
+  background-image: none;
 }
 
 .bg-subtle {
-  background-image: var(--gradient-subtle);
+  background-color: var(--selected);
+  background-image: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 /* White logo on dark chrome; black logo on light theme */
@@ -953,6 +1012,128 @@ html[data-theme="light"] .brand-logo-invert {
   --app-sidebar-width: 15.25rem;
   --app-topbar-height: 3.25rem;
   --app-bottombar-height: 3.75rem;
+}
+
+/*
+ * На телефоне шапка с safe-area выше CSS-переменной, нижнее меню — fixed.
+ * 100dvh минус константы даёт календарь выше экрана, страница едет.
+ * Рамка — колонка на 100dvh, сетка календаря занимает остаток.
+ */
+.app-frame {
+  min-height: 100%;
+  background: var(--bg);
+}
+
+/*
+ * Не сажаем body в position:fixed — на iOS это visual viewport
+ * и чёрная полоса под нижним меню. Бар сам position:fixed; bottom:0.
+ */
+html.app-vv-lock,
+html.app-vv-lock body {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+html[data-layout="mobile"] .app-frame {
+  display: flex;
+  min-height: 100lvh;
+  height: 100lvh;
+  max-height: 100lvh;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+html[data-layout="mobile"] .app-main {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: auto;
+}
+
+html[data-layout="mobile"] .app-topbar {
+  display: none;
+}
+
+html[data-layout="mobile"] .app-bottombar {
+  position: fixed;
+  bottom: 0;
+  transform: translate3d(0, var(--app-bar-shift, 0px), 0);
+}
+
+html[data-layout="mobile"] .app-main:has(.cal-page),
+html[data-layout="mobile"] .app-main:has(.roster-page) {
+  overflow: hidden;
+  padding-bottom: var(
+    --app-bottom-inset,
+    calc(var(--app-bottombar-height) + env(safe-area-inset-bottom, 0px))
+  );
+}
+
+html[data-layout="mobile"] .roster-page,
+html[data-layout="mobile"] .cal-page {
+  height: 100%;
+}
+
+html[data-layout="mobile"] .cal-filters {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+html[data-layout="mobile"] .cal-filters::-webkit-scrollbar {
+  display: none;
+}
+
+@media (max-width: 767px) {
+  html:not([data-layout="desktop"]) .app-frame {
+    display: flex;
+    min-height: 100lvh;
+    height: 100lvh;
+    max-height: 100lvh;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  html:not([data-layout="desktop"]) .app-main {
+    min-height: 0;
+    flex: 1 1 auto;
+    overflow: auto;
+  }
+
+  html:not([data-layout="desktop"]) .app-topbar {
+    display: none;
+  }
+
+  html:not([data-layout="desktop"]) .app-bottombar {
+    position: fixed;
+    bottom: 0;
+    transform: translate3d(0, var(--app-bar-shift, 0px), 0);
+  }
+
+  html:not([data-layout="desktop"]) .app-main:has(.cal-page),
+  html:not([data-layout="desktop"]) .app-main:has(.roster-page) {
+    overflow: hidden;
+    padding-bottom: var(
+      --app-bottom-inset,
+      calc(var(--app-bottombar-height) + env(safe-area-inset-bottom, 0px))
+    );
+  }
+
+  html:not([data-layout="desktop"]) .roster-page,
+  html:not([data-layout="desktop"]) .cal-page {
+    height: 100%;
+  }
+
+  html:not([data-layout="desktop"]) .cal-filters {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  html:not([data-layout="desktop"]) .cal-filters::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 /*
@@ -995,30 +1176,7 @@ html[data-layout="desktop"] {
  */
 .side-drawer .side-drawer-panel.action-sheet-panel {
   height: auto;
-  max-height: 80dvh;
-}
-
-.app-frame {
-  min-height: 100%;
-  background:
-    radial-gradient(900px 420px at 8% -8%, var(--body-glow-1) 0%, transparent 55%),
-    radial-gradient(700px 360px at 100% 0%, var(--body-glow-2) 0%, transparent 50%),
-    radial-gradient(600px 300px at 50% 100%, var(--body-glow-3) 0%, transparent 45%),
-    var(--bg);
-}
-
-@media (max-width: 640px) {
-  .app-frame {
-    background:
-      radial-gradient(520px 280px at 12% -12%, var(--body-glow-1) 0%, transparent 58%),
-      var(--bg);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .app-frame {
-    background: var(--bg);
-  }
+  max-height: min(80dvh, calc(100dvh - env(safe-area-inset-top) - 0.75rem));
 }
 
 .roster-dates-sticky {
@@ -1026,6 +1184,16 @@ html[data-layout="desktop"] {
   flex-shrink: 0;
   background: color-mix(in srgb, var(--bg) 92%, transparent);
   box-shadow: 0 1px 0 var(--line);
+}
+
+.roster-pan-viewport {
+  overflow: hidden;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+}
+
+.roster-pan-track {
+  will-change: transform;
 }
 
 .roster-week-scroll {
@@ -1057,19 +1225,72 @@ html[data-layout="desktop"] {
   pointer-events: none;
 }
 
+.roster-week-lanes .roster-bar,
+.roster-week-lanes .roster-event-label {
+  transition: top 0.65s cubic-bezier(0.22, 1, 0.36, 1);
+  transition-delay: calc(var(--roster-col, 0) * 55ms);
+}
+
+.roster-week-lanes.is-zooming .roster-bar,
+.roster-week-lanes.is-zooming .roster-event-label,
+.roster-week-lanes.is-dragging .roster-bar,
+.roster-week-lanes.is-dragging .roster-event-label {
+  transition: none;
+}
+
+.roster-zoom-pad {
+  position: absolute;
+  left: 0.5rem;
+  bottom: 0.5rem;
+  z-index: 22;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  pointer-events: none;
+}
+
+.roster-zoom-pad-row {
+  display: flex;
+  gap: 0.2rem;
+}
+
+.roster-zoom-btn {
+  pointer-events: auto;
+  display: flex;
+  height: 1.85rem;
+  width: 1.85rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  color: var(--muted);
+  font-size: 0.85rem;
+  line-height: 1;
+  backdrop-filter: blur(6px);
+  transition:
+    background-color var(--duration-fast) ease,
+    color var(--duration-fast) ease,
+    border-color var(--duration-fast) ease;
+}
+
+.roster-zoom-btn:hover {
+  color: var(--ink);
+  background: var(--panel);
+  border-color: color-mix(in srgb, var(--ink) 25%, var(--line));
+}
+
+.roster-zoom-btn:active {
+  transform: scale(0.96);
+}
+
 .roster-page {
   display: flex;
   flex-direction: column;
   height: calc(100dvh - var(--app-topbar-height));
   min-height: 0;
   overflow: hidden;
-}
-
-html[data-layout="mobile"] .roster-page {
-  height: calc(
-    100dvh - var(--app-topbar-height) - var(--app-bottombar-height) -
-      env(safe-area-inset-bottom)
-  );
 }
 
 .app-topnav {
@@ -1085,8 +1306,7 @@ html[data-layout="mobile"] .roster-page {
     max(0.75rem, env(safe-area-inset-right)) 0.4rem
     max(0.75rem, env(safe-area-inset-left));
   border-bottom: 1px solid var(--header-line);
-  background: color-mix(in srgb, var(--bg-elevated) 95%, transparent);
-  backdrop-filter: blur(16px);
+  background: var(--bg-elevated);
 }
 
 .app-topbar {
@@ -1101,8 +1321,7 @@ html[data-layout="mobile"] .roster-page {
     max(0.75rem, env(safe-area-inset-right)) 0.4rem
     max(0.75rem, env(safe-area-inset-left));
   border-bottom: 1px solid var(--header-line);
-  background: color-mix(in srgb, var(--bg-elevated) 95%, transparent);
-  backdrop-filter: blur(16px);
+  background: var(--bg-elevated);
 }
 
 .app-main {
@@ -1122,8 +1341,8 @@ html[data-layout="mobile"] .roster-page {
   min-height: var(--app-bottombar-height);
   padding: 0.35rem 1.25rem max(0.45rem, env(safe-area-inset-bottom));
   border-top: 1px solid var(--header-line);
-  background: color-mix(in srgb, var(--bg-elevated) 96%, transparent);
-  backdrop-filter: blur(16px);
+  background: var(--bg-elevated);
+  transform: translate3d(0, var(--app-bar-shift, 0px), 0);
 }
 
 .app-bottombar-btn {
@@ -1132,9 +1351,9 @@ html[data-layout="mobile"] .roster-page {
   width: 2.75rem;
   align-items: center;
   justify-content: center;
-  border-radius: 0.85rem;
+  border-radius: var(--radius-sm);
   color: var(--header-muted);
-  transition: color 0.15s ease, background 0.15s ease;
+  transition: color var(--duration-fast) ease, background-color var(--duration-fast) ease;
 }
 
 .app-bottombar-btn:hover,
@@ -1193,9 +1412,9 @@ html[data-layout="mobile"] .roster-page {
   overflow: hidden;
   padding: 0.85rem 0.75rem 0.85rem;
   border: 1px solid var(--header-line);
-  border-radius: 1rem;
+  border-radius: var(--radius-lg);
   background: var(--bg-elevated);
-  box-shadow: 12px 0 36px rgba(0, 0, 0, 0.28);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.28);
   transform: translateX(calc(-100% - 1rem));
   transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
 }
@@ -1234,7 +1453,40 @@ html[data-layout="mobile"] .app-topnav {
 }
 
 html[data-layout="mobile"] .app-topbar {
-  display: flex;
+  display: none;
+}
+
+/*
+ * iOS зумит страницу при фокусе, если у поля меньше 16px.
+ * На телефоне все текстовые поля — 16px, масштаб не прыгает.
+ */
+html[data-layout="mobile"] :is(
+  .field,
+  textarea,
+  select,
+  input:not([type="button"]):not([type="submit"]):not([type="reset"]):not(
+      [type="checkbox"]
+    ):not([type="radio"]):not([type="hidden"]):not([type="range"]):not(
+      [type="file"]
+    ):not([type="color"])
+) {
+  font-size: 1rem;
+}
+
+html[data-layout="mobile"] .quote-dense {
+  font-size: 11px;
+  line-height: 1.25;
+}
+
+html[data-layout="mobile"] .quote-dense .field-compact {
+  min-height: 1.25rem;
+  padding: 0.05rem 0.3rem;
+  font-size: 11px;
+}
+
+html[data-layout="mobile"] .quote-dense :is(input, textarea, select),
+html[data-layout="mobile"] .quote-dense :is(input, textarea, select).field-compact {
+  font-size: 1rem;
 }
 
 html[data-layout="mobile"] .app-bottombar {
@@ -1242,8 +1494,10 @@ html[data-layout="mobile"] .app-bottombar {
 }
 
 html[data-layout="mobile"] .app-main {
-  padding-bottom: calc(
-    var(--app-bottombar-height) + 0.75rem + env(safe-area-inset-bottom)
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: var(
+    --app-bottom-inset,
+    calc(var(--app-bottombar-height) + env(safe-area-inset-bottom, 0px))
   );
 }
 
@@ -1258,17 +1512,47 @@ html[data-layout="mobile"] .app-main {
     display: flex;
   }
 
+  html:not([data-layout="desktop"]) :is(
+    .field,
+    textarea,
+    select,
+    input:not([type="button"]):not([type="submit"]):not([type="reset"]):not(
+        [type="checkbox"]
+      ):not([type="radio"]):not([type="hidden"]):not([type="range"]):not(
+        [type="file"]
+      ):not([type="color"])
+  ) {
+    font-size: 1rem;
+  }
+
+  html:not([data-layout="desktop"]) .quote-dense {
+    font-size: 11px;
+    line-height: 1.25;
+  }
+
+  html:not([data-layout="desktop"]) .quote-dense .field-compact {
+    min-height: 1.25rem;
+    padding: 0.05rem 0.3rem;
+    font-size: 11px;
+  }
+
+  html:not([data-layout="desktop"]) .quote-dense :is(input, textarea, select),
+  html:not([data-layout="desktop"])
+    .quote-dense
+    :is(input, textarea, select).field-compact {
+    font-size: 1rem;
+  }
+
   html:not([data-layout="desktop"]) .app-main {
-    padding-bottom: calc(
-      var(--app-bottombar-height) + 0.75rem + env(safe-area-inset-bottom)
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: var(
+      --app-bottom-inset,
+      calc(var(--app-bottombar-height) + env(safe-area-inset-bottom, 0px))
     );
   }
 
-  html:not([data-layout="desktop"]) .roster-page {
-    height: calc(
-      100dvh - var(--app-topbar-height) - var(--app-bottombar-height) -
-        env(safe-area-inset-bottom)
-    );
+  html:not([data-layout="desktop"]) .cal-page {
+    padding: 0;
   }
 }
 
@@ -1281,7 +1565,7 @@ html[data-layout="mobile"] .app-main {
 }
 
 .cal-dash-overlay > * {
-  filter: drop-shadow(0 12px 28px rgb(15 23 42 / 0.14));
+  filter: none;
 }
 
 .cal-dash-overlay.is-closed {
@@ -1315,6 +1599,7 @@ html.cal-lock-x body {
   height: calc(100dvh - var(--app-topbar-height));
   max-width: 100%;
   min-width: 0;
+  min-height: 0;
   flex-direction: column;
   overflow: hidden;
   overscroll-behavior: none;
@@ -1345,6 +1630,33 @@ html.cal-lock-x body {
   display: flex;
   min-height: 0;
   flex: 1 1 auto;
+  flex-direction: column;
+}
+
+.cal-tt-swipe {
+  position: relative;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  touch-action: pan-y;
+}
+
+.cal-tt-swipe-track {
+  display: flex;
+  height: 100%;
+  width: 300%;
+  will-change: transform;
+}
+
+.cal-tt-swipe-track.is-settle {
+  transition: transform 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.cal-tt-swipe-page {
+  display: flex;
+  min-width: 0;
+  height: 100%;
+  flex: 0 0 33.333333%;
   flex-direction: column;
 }
 
@@ -1423,6 +1735,19 @@ html.cal-lock-x body {
   pointer-events: none;
 }
 
+/* На телефоне +N живёт у числа даты, не отбирает дорожку у полосок. */
+.cal-tt-more.is-corner {
+  top: 1px;
+  right: 1px;
+  bottom: auto;
+  left: auto;
+  transform: none;
+  padding: 0 0.15rem;
+  background: transparent;
+  font-size: 9px;
+  line-height: 10px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .app-drawer-overlay,
   .app-drawer-panel,
@@ -1434,7 +1759,8 @@ html.cal-lock-x body {
   .roster-people-fab,
   .roster-people-panel,
   .side-drawer-overlay,
-  .side-drawer-panel {
+  .side-drawer-panel,
+  .animate-fade-up {
     transition: none;
     animation: none;
   }

@@ -30,6 +30,17 @@ const LABELS: Array<{ key: keyof DatabaseBackupCounts; label: string }> = [
   { key: "equipmentUnits", label: "Единицы оборудования" },
   { key: "equipmentDocuments", label: "Документы оборудования" },
   { key: "quoteTemplates", label: "Шаблоны смет" },
+  { key: "quotes", label: "Сметы" },
+  { key: "quoteZones", label: "Зоны смет" },
+  { key: "quoteBlocks", label: "Блоки и позиции" },
+  { key: "quoteAssignments", label: "Запросы на персонал" },
+  { key: "quoteCalcShares", label: "Доли калькуляции" },
+  { key: "quoteCalcLineOverrides", label: "Переопределения строк" },
+  { key: "quoteExtraExpenses", label: "Доп. расходы смет" },
+  { key: "specOverrides", label: "Правки спецификаций" },
+  { key: "specExtras", label: "Доп. строки спецификаций" },
+  { key: "quoteComments", label: "Комментарии смет" },
+  { key: "quoteAttachments", label: "Вложения смет" },
   { key: "quoteSnapshots", label: "Снимки смет" },
   { key: "quoteAuditEvents", label: "Журнал смет" },
   { key: "specRevisions", label: "Снимки спецификаций" },
@@ -236,7 +247,7 @@ export function DatabaseBackupAdmin() {
       <ConfirmDialog
         open={!!pendingText}
         title="Импортировать базу?"
-        message="Справочники будут созданы или обновлены по файлу. Существующие сметы не удаляются. Продолжить?"
+        message="Справочники и сметы будут созданы или обновлены по файлу. Позиции, блоки, разделы и назначения в сметах из файла заменятся. Существующие сметы, которых нет в файле, не удаляются. Продолжить?"
         confirmLabel="Импортировать"
         danger={false}
         busy={busy}

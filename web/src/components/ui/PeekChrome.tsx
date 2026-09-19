@@ -18,7 +18,7 @@ export function DrawerCloseButton({
     <button
       type="button"
       onClick={onClick}
-      className="flex size-8 shrink-0 items-center justify-center rounded-full text-lg leading-none text-[var(--muted)] hover:bg-[var(--ink)]/10 hover:text-[var(--ink)]"
+      className="drawer-close flex size-8 shrink-0 items-center justify-center rounded-[var(--radius-sm)] text-lg leading-none text-[var(--muted)] hover:bg-[var(--panel-muted)] hover:text-[var(--ink)]"
       aria-label="Закрыть"
     >
       ×
@@ -79,7 +79,7 @@ export function PeekKebabMenu({ items }: { items: PeekMenuItem[] }) {
           setRect(btnRef.current?.getBoundingClientRect() ?? null);
           setOpen(true);
         }}
-        className="flex size-8 shrink-0 items-center justify-center rounded-full text-[var(--muted)] hover:bg-[var(--ink)]/10 hover:text-[var(--ink)]"
+        className="flex size-8 shrink-0 items-center justify-center rounded-[var(--radius-sm)] text-[var(--muted)] hover:bg-[var(--panel-muted)] hover:text-[var(--ink)]"
       >
         <span className="flex flex-col items-center gap-[3px]" aria-hidden>
           <span className="size-1 rounded-full bg-current" />
@@ -92,7 +92,7 @@ export function PeekKebabMenu({ items }: { items: PeekMenuItem[] }) {
             <div
               id="peek-kebab-menu"
               role="menu"
-              className="fixed z-[80] min-w-[10.5rem] overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--panel)] py-1 shadow-xl"
+              className="fixed z-[80] min-w-[10.5rem] overflow-hidden rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--panel)] py-1 shadow-[0_12px_32px_rgba(0,0,0,0.28)]"
               style={{
                 top: rect.bottom + 6,
                 right: Math.max(8, window.innerWidth - rect.right),
@@ -142,7 +142,7 @@ export function PeekHeader({
 }) {
   return (
     <div className="border-b border-[var(--line)]">
-      <div className="flex items-center gap-1 px-2 py-1.5">
+      <div className="flex items-center gap-1 px-3 py-1.5">
         <DrawerCloseButton onClick={onClose} />
         <p
           id={kindId}

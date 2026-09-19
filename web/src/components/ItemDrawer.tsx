@@ -72,6 +72,8 @@ type Props = {
   lockStock?: boolean;
   /** Render inside an existing drawer instead of opening a second overlay. */
   embedded?: boolean;
+  /** false — карточка справа, каталог остаётся кликабельным. */
+  modal?: boolean;
 };
 
 type Draft = {
@@ -133,6 +135,7 @@ export function ItemDrawer({
   categories = [],
   lockStock = false,
   embedded = false,
+  modal = true,
 }: Props) {
   const editable = Boolean(onSave);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -231,7 +234,7 @@ export function ItemDrawer({
   const content = (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
         <div className="flex items-start gap-2 border-b border-[var(--line)] px-3 py-3">
-          <button type="button" onClick={onClose} className="btn-icon shrink-0" aria-label="Закрыть">
+          <button type="button" onClick={onClose} className="drawer-close btn-icon shrink-0" aria-label="Закрыть">
             ×
           </button>
           <div className="min-w-0 flex-1">
@@ -549,7 +552,7 @@ export function ItemDrawer({
   if (embedded) return content;
 
   return (
-    <SideDrawer open onClose={onClose} zIndex={80}>
+    <SideDrawer open onClose={onClose} zIndex={80} modal={modal}>
       {content}
     </SideDrawer>
   );

@@ -14,6 +14,7 @@ import {
   readStoredLayoutDensity,
   type LayoutDensity,
 } from "@/lib/layout-density";
+import { useMobileViewportLock } from "@/lib/mobile-viewport";
 
 type LayoutDensityContextValue = {
   mode: LayoutDensity;
@@ -34,6 +35,7 @@ export function LayoutDensityProvider({
 }) {
   const [mode, setModeState] = useState<LayoutDensity>("auto");
   const [wide, setWide] = useState(true);
+  useMobileViewportLock();
 
   useEffect(() => {
     const stored = readStoredLayoutDensity();

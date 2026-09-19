@@ -44,7 +44,7 @@ export function WarehouseMenu({
         className={cn(
           "rounded-md px-2 py-1.5 text-sm transition-colors",
           isActive
-            ? "text-[var(--accent)]"
+            ? "bg-[var(--header-active-bg)] font-medium text-[var(--ink)]"
             : "text-[var(--header-muted)] hover:bg-[var(--header-hover)] hover:text-[var(--header-ink)]",
         )}
       >
@@ -68,7 +68,7 @@ export function WarehouseMenu({
           "flex items-center justify-between rounded-md px-2.5 py-1.5 text-left text-sm transition-colors",
           variant === "sidebar" ? "w-full" : "gap-1.5 whitespace-nowrap",
           active || open
-            ? "bg-[var(--header-active-bg)] text-[var(--accent)]"
+            ? "bg-[var(--header-active-bg)] font-medium text-[var(--ink)]"
             : "text-[var(--header-muted)] hover:bg-[var(--header-hover)] hover:text-[var(--header-ink)]",
         )}
       >

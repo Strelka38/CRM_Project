@@ -6,6 +6,7 @@ import { canAccessQuote } from "@/lib/quote-access";
 import { recommendedMountQty } from "@/lib/quote-assignment-slots";
 import {
   canEditBrief,
+  canEditQuoteSchedule,
   canManageAssignments,
   canManageEventAttachments,
   isManager,
@@ -370,6 +371,7 @@ export async function GET(
       isManager: isManager(session.user.role),
       canManageAssignments: canManageAssignments(session.user.role),
       canEditBrief: canEditBrief(session.user.role),
+      canEditSchedule: canEditQuoteSchedule(session.user.role),
       canManageAttachments: canManageEventAttachments(session.user.role),
     });
   } catch (e) {

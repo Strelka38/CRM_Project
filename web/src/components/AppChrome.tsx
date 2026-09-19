@@ -88,7 +88,7 @@ function AppNav({
               Оплаты
             </NavLink>
           )}
-          {workloadStats && (
+          {workloadStats && variant === "top" && (
             <NavLink href="/roster" className={horizontal ? "whitespace-nowrap" : undefined}>
               Срост
             </NavLink>
@@ -131,17 +131,15 @@ function SignOutForm({ logoutAction }: { logoutAction: () => Promise<void> }) {
 /** Desktop topnav tools — theme stays here for desktop. */
 function DesktopChromeTools({
   userName,
-  manager,
   logoutAction,
 }: {
   userName: string | null;
-  manager: boolean;
   logoutAction: () => Promise<void>;
 }) {
   return (
     <div className="flex items-center gap-1">
       <ThemeToggle />
-      <NotificationsBell showUnpaidLink={manager} />
+      <NotificationsBell />
       {userName ? (
         <Link
           href="/profile"
@@ -161,19 +159,17 @@ function DesktopChromeTools({
 function DrawerChromeTools({
   userName,
   roleLabel,
-  manager,
   logoutAction,
 }: {
   userName: string | null;
   roleLabel: string;
-  manager: boolean;
   logoutAction: () => Promise<void>;
 }) {
   return (
     <div className="mt-auto flex flex-col gap-1 border-t border-[var(--header-line)] pt-3">
       <div className="flex items-center gap-1">
         <ThemeToggle />
-        <NotificationsBell showUnpaidLink={manager} placement="sidebar" />
+        <NotificationsBell placement="sidebar" />
       </div>
       {userName ? (
         <Link
@@ -306,14 +302,16 @@ export function AppChrome({
 
   return (
     <div className="app-frame">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-[100] focus:rounded-[var(--radius-sm)] focus:bg-[var(--accent)] focus:px-3 focus:py-2 focus:text-[var(--accent-ink)]"
+      >
+        К содержимому
+      </a>
       <header className="app-topnav">
         <SidebarBrand />
         <AppNav {...navProps} variant="top" />
-        <DesktopChromeTools
-          userName={userName}
-          manager={manager}
-          logoutAction={logoutAction}
-        />
+        <DesktopChromeTools userName={userName} logoutAction={logoutAction} />
       </header>
 
       <header className="app-topbar">
@@ -359,13 +357,12 @@ export function AppChrome({
           <DrawerChromeTools
             userName={userName}
             roleLabel={roleLabel}
-            manager={manager}
             logoutAction={logoutAction}
           />
         </aside>
       </div>
 
-      <main className="app-main">{children}</main>
+      <main id="main-content" className="app-main">{children}</main>
 
       <nav className="app-bottombar" aria-label="Нижнее меню">
         <Link

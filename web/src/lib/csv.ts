@@ -69,8 +69,19 @@ export function csvFileResponse(filename: string, rows: string[][]): NextRespons
   });
 }
 
+export function jsonFileResponse(filename: string, body: unknown): NextResponse {
+  return new NextResponse(JSON.stringify(body, null, 2), {
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      "Content-Disposition": `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+      "Cache-Control": "no-store",
+    },
+  });
+}
+
 export async function readUploadedCsv(
   req: NextRequest,
+  maxBytes = 20 * 1024 * 1024,
 ): Promise<{ text: string } | { error: NextResponse }> {
   const form = await req.formData();
   const file = form.get("file");
@@ -79,9 +90,13 @@ export async function readUploadedCsv(
       error: NextResponse.json({ error: "Файл обязателен" }, { status: 400 }),
     };
   }
-  if (file.size > 20 * 1024 * 1024) {
+  if (file.size > maxBytes) {
+    const mb = Math.round(maxBytes / (1024 * 1024));
     return {
-      error: NextResponse.json({ error: "Файл больше 20 МБ" }, { status: 400 }),
+      error: NextResponse.json(
+        { error: `Файл больше ${mb} МБ` },
+        { status: 400 },
+      ),
     };
   }
   return { text: await file.text() };

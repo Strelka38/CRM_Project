@@ -15,6 +15,7 @@ export default auth((req) => {
 
   if (isAuthApi) return NextResponse.next();
   if (isPublicQr) return NextResponse.next();
+  if (pathname.startsWith("/brand/")) return NextResponse.next();
 
   if (!isLoggedIn && !isLogin) {
     const url = new URL("/login", req.nextUrl.origin);
@@ -40,5 +41,7 @@ export default auth((req) => {
 });
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|fonts/).*)"],
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico|fonts/|brand/).*)",
+  ],
 };

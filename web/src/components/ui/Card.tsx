@@ -9,7 +9,7 @@ export function Card({
   return (
     <div
       className={cn(
-        "overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--panel)] shadow-sm",
+        "overflow-hidden rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--panel)]",
         className,
       )}
       {...props}

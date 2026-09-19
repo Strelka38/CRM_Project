@@ -272,6 +272,9 @@ export function DirectoryCsvMenu({
   excelHint,
   onImport,
   busy,
+  exportLabel = "Экспорт CSV",
+  importLabel = "Импорт CSV",
+  extraExport,
 }: {
   onExport: () => void;
   onExportExcel?: () => void;
@@ -279,6 +282,9 @@ export function DirectoryCsvMenu({
   excelHint?: string;
   onImport?: () => void;
   busy?: boolean;
+  exportLabel?: string;
+  importLabel?: string;
+  extraExport?: { label: string; onSelect: () => void };
 }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -324,8 +330,18 @@ export function DirectoryCsvMenu({
             className="flex w-full px-3 py-1.5 text-left text-sm text-[var(--ink)] hover:bg-[var(--header-hover)] disabled:opacity-40"
             onClick={() => run(onExport)}
           >
-            Экспорт CSV
+            {busy ? `${exportLabel}…` : exportLabel}
           </button>
+          {extraExport ? (
+            <button
+              type="button"
+              disabled={busy}
+              className="flex w-full px-3 py-1.5 text-left text-sm text-[var(--ink)] hover:bg-[var(--header-hover)] disabled:opacity-40"
+              onClick={() => run(extraExport.onSelect)}
+            >
+              {extraExport.label}
+            </button>
+          ) : null}
           {onExportExcel ? (
             <button
               type="button"
@@ -344,7 +360,7 @@ export function DirectoryCsvMenu({
               className="flex w-full px-3 py-1.5 text-left text-sm text-[var(--ink)] hover:bg-[var(--header-hover)] disabled:opacity-40"
               onClick={() => run(onImport)}
             >
-              {busy ? "CSV…" : "Импорт CSV"}
+              {busy ? `${importLabel}…` : importLabel}
             </button>
           ) : null}
         </div>
@@ -392,7 +408,14 @@ export function DirectoryMobileBar({
   sheetTitle: string;
   /** Группы поверх стандартной «Таблица» с CSV. */
   groups?: ActionSheetGroup[];
-  csv?: { busy?: boolean; onExport: () => void; onImport?: () => void };
+  csv?: {
+    busy?: boolean;
+    onExport: () => void;
+    onImport?: () => void;
+    exportLabel?: string;
+    importLabel?: string;
+    extraExport?: { label: string; onSelect: () => void };
+  };
   selection?: {
     count: number;
     busy?: boolean;
@@ -413,14 +436,27 @@ export function DirectoryMobileBar({
             title: "Таблица",
             items: [
               {
-                label: csv.busy ? "Экспорт CSV…" : "Экспорт CSV",
+                label: csv.busy
+                  ? `${csv.exportLabel ?? "Экспорт CSV"}…`
+                  : csv.exportLabel ?? "Экспорт CSV",
                 disabled: csv.busy,
                 onSelect: csv.onExport,
               },
+              ...(csv.extraExport
+                ? [
+                    {
+                      label: csv.extraExport.label,
+                      disabled: csv.busy,
+                      onSelect: csv.extraExport.onSelect,
+                    },
+                  ]
+                : []),
               ...(csv.onImport
                 ? [
                     {
-                      label: csv.busy ? "Импорт CSV…" : "Импорт CSV",
+                      label: csv.busy
+                        ? `${csv.importLabel ?? "Импорт CSV"}…`
+                        : csv.importLabel ?? "Импорт CSV",
                       disabled: csv.busy,
                       onSelect: csv.onImport,
                     },
@@ -559,7 +595,10 @@ export function downloadCsvRows(filename: string, rows: string[][]): string {
   return "CSV скачан";
 }
 
-export async function downloadCsvExport(url: string): Promise<string> {
+export async function downloadCsvExport(
+  url: string,
+  doneMessage = "CSV скачан",
+): Promise<string> {
   const res = await fetch(url, { credentials: "same-origin" });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
@@ -576,7 +615,7 @@ export async function downloadCsvExport(url: string): Promise<string> {
     "export.csv";
   a.click();
   URL.revokeObjectURL(objectUrl);
-  return "CSV скачан";
+  return doneMessage;
 }
 
 export async function uploadCsvImport(

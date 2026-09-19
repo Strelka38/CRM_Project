@@ -3,7 +3,8 @@ export type LayoutDensity = "auto" | "desktop" | "mobile";
 export const LAYOUT_STORAGE_KEY = "bs-crm-layout";
 export const LAYOUT_COOKIE = "bs-crm-layout";
 export const DESKTOP_VIEWPORT = "width=1280";
-export const MOBILE_VIEWPORT = "width=device-width, initial-scale=1, viewport-fit=cover";
+export const MOBILE_VIEWPORT =
+  "width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=overlays-content";
 
 export function isLayoutDensity(value: unknown): value is LayoutDensity {
   return value === "auto" || value === "desktop" || value === "mobile";

@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useTheme } from "@/components/ThemeProvider";
 import { cn } from "@/lib/cn";
 
@@ -11,23 +12,34 @@ export function ThemeToggle({
   variant?: "header" | "page";
 }) {
   const { theme, toggleTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
   const isDark = theme === "dark";
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   return (
     <button
       type="button"
       onClick={toggleTheme}
-      aria-label={isDark ? "Включить светлую тему" : "Включить тёмную тему"}
-      title={isDark ? "Светлая тема" : "Тёмная тема"}
+      aria-label={
+        !mounted
+          ? "Переключить тему"
+          : isDark
+            ? "Включить светлую тему"
+            : "Включить тёмную тему"
+      }
+      title={!mounted ? "Тема" : isDark ? "Светлая тема" : "Тёмная тема"}
       className={cn(
-        "relative flex h-9 w-9 items-center justify-center rounded-md transition-colors",
+        "relative flex h-9 w-9 items-center justify-center rounded-[var(--radius-sm)] transition-colors",
         variant === "header"
           ? "text-[var(--header-muted)] hover:bg-[var(--header-hover)] hover:text-[var(--header-ink)]"
           : "text-[var(--muted)] hover:bg-[var(--selected)] hover:text-[var(--ink)]",
         className,
       )}
     >
-      {isDark ? (
+      {!mounted || isDark ? (
         <svg
           viewBox="0 0 24 24"
           fill="none"

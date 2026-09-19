@@ -7,57 +7,55 @@ import { BrandLogo } from "@/components/BrandLogo";
 import { Button } from "@/components/ui/Button";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
-function BrandMark({ compact = false }: { compact?: boolean }) {
-  const size = compact ? 36 : 44;
+function BrandMark({
+  compact = false,
+  onDark = false,
+}: {
+  compact?: boolean;
+  onDark?: boolean;
+}) {
+  const size = compact ? 32 : 40;
   return (
     <div className={`flex items-center ${compact ? "gap-2.5" : "gap-3"}`}>
       <span
-        className={`flex shrink-0 items-center justify-center overflow-hidden rounded-xl ${
-          compact ? "size-9" : "size-11"
+        className={`flex shrink-0 items-center justify-center overflow-hidden rounded-[var(--radius-sm)] ${
+          compact ? "size-8" : "size-10"
         }`}
       >
-        <BrandLogo size={size} invertOnLight={false} />
+        <BrandLogo size={size} invertOnLight={!onDark} />
       </span>
       <span className="leading-none">
         <span
-          className={`block font-medium text-white ${
-            compact ? "text-base" : "text-lg"
-          }`}
+          className={`block font-medium ${
+            onDark ? "text-[var(--login-ink)]" : "text-[var(--ink)]"
+          } ${compact ? "text-sm" : "text-base"}`}
         >
           BaikalStageGroup
         </span>
-        <span className="mt-1 block text-caption uppercase tracking-[0.22em] text-[var(--muted-on-dark)]">
-          Event CRM
+        <span
+          className={`mt-1 block font-mono text-caption uppercase tracking-[0.12em] ${
+            onDark ? "text-[var(--login-muted)]" : "text-[var(--muted)]"
+          }`}
+        >
+          CRM
         </span>
       </span>
     </div>
   );
 }
 
-function Atmosphere() {
-  return (
-    <>
-      <div
-        className="absolute inset-0"
-        style={{
-          background:
-            "radial-gradient(ellipse at 20% 10%, var(--login-atmosphere-magenta) 0%, transparent 45%), radial-gradient(ellipse at 85% 75%, var(--login-atmosphere-cyan) 0%, transparent 42%), radial-gradient(ellipse at 50% 100%, var(--login-atmosphere-blue) 0%, transparent 40%), var(--login-atmosphere-base)",
-        }}
-      />
-      <div
-        className="absolute inset-0 opacity-[0.22]"
-        style={{
-          backgroundImage:
-            "linear-gradient(rgba(255,255,255,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px)",
-          backgroundSize: "40px 40px",
-          maskImage:
-            "radial-gradient(ellipse at center, black 20%, transparent 75%)",
-        }}
-      />
-      <div className="pointer-events-none absolute -left-20 top-1/4 size-64 rounded-full bg-[var(--login-orb-magenta)]/20 blur-3xl" />
-      <div className="pointer-events-none absolute -right-16 bottom-1/4 size-72 rounded-full bg-[var(--login-orb-cyan)]/25 blur-3xl" />
-    </>
-  );
+function safeCallbackUrl(raw: string | null): string {
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return "/calendar";
+  const path = raw.split("?")[0] ?? "";
+  if (
+    path.startsWith("/login") ||
+    path.startsWith("/brand/") ||
+    path.startsWith("/api/")
+  ) {
+    return "/calendar";
+  }
+  if (/\.[a-z0-9]+$/i.test(path)) return "/calendar";
+  return raw;
 }
 
 function LoginForm() {
@@ -81,10 +79,14 @@ function LoginForm() {
     });
     setLoading(false);
     if (res?.error) {
-      setError("Неверный email или пароль");
+      setError(
+        res.error === "CredentialsSignin"
+          ? "Неверный email или пароль. Проверьте данные и попробуйте снова."
+          : "Не удалось войти. Обновите страницу и попробуйте ещё раз.",
+      );
       return;
     }
-    router.push(params.get("callbackUrl") || "/calendar");
+    router.push(safeCallbackUrl(params.get("callbackUrl")));
     router.refresh();
   }
 
@@ -100,65 +102,61 @@ function LoginForm() {
   }
 
   return (
-    <div className="relative min-h-dvh overflow-hidden">
+    <div className="relative min-h-dvh bg-[var(--bg)]">
       <div className="absolute right-3 top-3 z-20 sm:right-5 sm:top-5">
-        <ThemeToggle
-          variant="header"
-          className="bg-black/25 backdrop-blur-sm lg:bg-[var(--panel)] lg:text-[var(--muted)] lg:hover:bg-[var(--selected)] lg:hover:text-[var(--ink)]"
-        />
-      </div>
-      {/* Mobile / tablet: full-bleed atmosphere */}
-      <div className="absolute inset-0 lg:hidden">
-        <Atmosphere />
+        <ThemeToggle variant="header" />
       </div>
 
       <div className="relative flex min-h-dvh flex-col lg:flex-row">
-        {/* Desktop brand panel */}
-        <aside className="relative hidden overflow-hidden lg:flex lg:w-[46%] lg:min-h-dvh lg:flex-col">
-          <Atmosphere />
+        <aside className="relative hidden border-r border-[var(--login-line)] bg-[var(--login-surface)] lg:flex lg:w-[44%] lg:min-h-dvh lg:flex-col">
           <div className="relative z-10 flex flex-1 flex-col justify-between p-10 xl:p-14">
-            <BrandMark />
-            <div className="animate-fade-up max-w-lg">
-              <p className="text-xs uppercase tracking-[0.2em] text-[var(--accent-glow)]">
-                Технический продакшен
+            <BrandMark onDark />
+            <div className="max-w-md">
+              <p className="font-mono text-caption uppercase tracking-[0.12em] text-[var(--login-accent)]">
+                Иркутск · продакшен
               </p>
-              <h1 className="mt-3 text-4xl leading-[1.15] tracking-tight text-white xl:text-5xl">
-                Полное техническое
+              <h1 className="mt-3 text-[clamp(2rem,4vw,3.25rem)] leading-[1.1] font-medium tracking-tight text-[var(--login-ink)]">
+                Сметы, склад
                 <br />
-                сопровождение мероприятий
+                и календарь смен
               </h1>
-              <p className="mt-5 max-w-md text-base leading-relaxed text-[var(--muted-on-dark)]">
-                Сметы, каталог, календарь и склад — в одной панели для команды
-                продакшена.
+              <p className="mt-5 max-w-sm text-[length:var(--fs-read)] leading-[var(--lh-read)] text-[var(--login-muted)]">
+                Панель команды BaikalStageGroup: КП, комплекты, занятость
+                площадок и выплаты — без переключения между таблицами.
               </p>
-              <ul className="mt-8 flex flex-wrap gap-2">
-                {["Сметы", "Склад", "Календарь", "Зарплата"].map((tag) => (
-                  <li
-                    key={tag}
-                    className="rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs text-[var(--muted-on-dark)] backdrop-blur-sm"
-                  >
-                    {tag}
-                  </li>
+              <dl className="mt-10 grid grid-cols-2 gap-x-8 gap-y-5">
+                {[
+                  ["Сметы", "Клиент, закуп, маржа"],
+                  ["Склад", "Каталог и субаренда"],
+                  ["Календарь", "Смены и выходные"],
+                  ["Зарплата", "Начисления по проектам"],
+                ].map(([term, def]) => (
+                  <div key={term}>
+                    <dt className="text-sm font-medium text-[var(--login-ink)]">
+                      {term}
+                    </dt>
+                    <dd className="mt-0.5 text-sm text-[var(--login-muted)]">
+                      {def}
+                    </dd>
+                  </div>
                 ))}
-              </ul>
+              </dl>
             </div>
-            <p className="text-xs tracking-wide text-[var(--muted-on-dark)]">
-              Иркутск · Байкал · Бурятия
+            <p className="font-mono text-caption tracking-wide text-[var(--login-muted)]">
+              Байкал · Бурятия
             </p>
           </div>
         </aside>
 
-        {/* Form column */}
-        <div className="relative flex flex-1 flex-col lg:bg-[var(--bg)]">
-          {/* Mobile brand header */}
+        <div className="relative flex flex-1 flex-col bg-[var(--bg)]">
           <div className="relative z-10 px-5 pb-2 pt-[max(1.25rem,env(safe-area-inset-top))] lg:hidden">
             <BrandMark compact />
-            <div className="animate-fade-up mt-6 max-w-sm">
-              <h1 className="text-2xl leading-snug tracking-tight text-white">
-                Вход в панель продакшена
+            <div className="mt-8 max-w-sm">
+              <h1 className="text-[1.75rem] leading-snug font-medium tracking-tight text-[var(--ink)]">
+                Вход в CRM
               </h1>
-              <p className="mt-2 text-sm leading-relaxed text-[var(--muted-on-dark)]">
-                Сметы, каталог и календарь — в одном месте.
+              <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">
+                Email и пароль аккаунта команды.
               </p>
             </div>
           </div>
@@ -166,31 +164,30 @@ function LoginForm() {
           <div className="relative z-10 flex flex-1 flex-col justify-end px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-5 sm:justify-center sm:px-6 sm:py-10 lg:items-center lg:justify-center lg:px-8">
             <form
               onSubmit={onSubmit}
-              className="animate-fade-up w-full max-w-md rounded-[1.35rem] border border-white/50 bg-[var(--panel)]/95 p-5 shadow-[0_20px_60px_rgba(7,10,18,0.35)] backdrop-blur-xl sm:p-7 lg:border-[var(--line)] lg:bg-[var(--panel)] lg:shadow-sm lg:backdrop-blur-none"
+              className="w-full max-w-md rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--panel)] p-5 sm:p-7"
             >
               <div className="hidden lg:block">
-                <p className="text-xs uppercase tracking-[0.15em] text-[var(--muted)]">
+                <p className="font-mono text-caption uppercase tracking-[0.1em] text-[var(--muted)]">
                   BaikalStageGroup
                 </p>
-                <h2 className="mt-1 text-3xl font-medium tracking-tight text-[var(--ink)]">
-                  Вход
+                <h2 className="mt-1 text-[length:var(--fs-h1)] leading-[var(--lh-h1)] font-medium tracking-tight text-[var(--ink)]">
+                  Войти
                 </h2>
                 <p className="mt-2 text-sm text-[var(--muted)]">
-                  Войдите в аккаунт команды, чтобы открыть сметы и календарь.
+                  Откроется календарь смен и ваши сметы.
                 </p>
               </div>
 
               <div className="lg:hidden">
-                <h2 className="text-xl font-medium tracking-tight text-[var(--ink)]">
+                <h2 className="text-lg font-medium tracking-tight text-[var(--ink)]">
                   Войти
                 </h2>
-                <p className="mt-1 text-sm text-[var(--muted)]">
-                  Email и пароль от вашего аккаунта
-                </p>
               </div>
 
               <label className="mt-5 block text-sm lg:mt-6">
-                <span className="text-[var(--muted)]">Email</span>
+                <span className="font-mono text-caption uppercase tracking-[0.08em] text-[var(--muted)]">
+                  Email
+                </span>
                 <input
                   type="email"
                   required
@@ -204,7 +201,9 @@ function LoginForm() {
               </label>
 
               <label className="mt-3.5 block text-sm">
-                <span className="text-[var(--muted)]">Пароль</span>
+                <span className="font-mono text-caption uppercase tracking-[0.08em] text-[var(--muted)]">
+                  Пароль
+                </span>
                 <div className="relative mt-1.5">
                   <input
                     type={showPassword ? "text" : "password"}
@@ -218,7 +217,7 @@ function LoginForm() {
                   <button
                     type="button"
                     onClick={() => setShowPassword((v) => !v)}
-                    className="absolute inset-y-0 right-0 px-3.5 text-xs font-medium text-[var(--muted)] transition-colors hover:text-[var(--accent-deep)]"
+                    className="absolute inset-y-0 right-0 px-3.5 text-xs font-medium text-[var(--muted)] transition-colors hover:text-[var(--ink)]"
                   >
                     {showPassword ? "Скрыть" : "Показать"}
                   </button>
@@ -228,7 +227,7 @@ function LoginForm() {
               {error && (
                 <p
                   role="alert"
-                  className="mt-3 rounded-lg bg-red-500/15 px-3 py-2 text-sm text-[var(--danger)]"
+                  className="mt-3 rounded-[var(--radius-sm)] border border-[var(--danger)]/30 bg-[var(--danger)]/10 px-3 py-2 text-sm text-[var(--danger)]"
                 >
                   {error}
                 </p>
@@ -237,7 +236,7 @@ function LoginForm() {
               <Button
                 type="submit"
                 disabled={loading}
-                className="mt-5 min-h-12 w-full text-base sm:text-sm"
+                className="mt-5 w-full"
                 size="lg"
               >
                 {loading ? "Входим…" : "Войти"}
@@ -247,7 +246,7 @@ function LoginForm() {
                 <button
                   type="button"
                   onClick={() => setShowDemo((v) => !v)}
-                  className="text-xs text-[var(--muted)] transition-colors hover:text-[var(--accent-deep)]"
+                  className="text-xs text-[var(--muted)] transition-colors hover:text-[var(--ink)]"
                 >
                   {showDemo ? "Скрыть демо-доступы" : "Демо-доступы для теста"}
                 </button>
@@ -256,24 +255,24 @@ function LoginForm() {
                     <button
                       type="button"
                       onClick={() => fillDemo("manager")}
-                      className="rounded-xl border border-[var(--line)] bg-[var(--panel-muted)] px-3 py-2.5 text-left transition-colors hover:border-[var(--accent-glow)] hover:bg-subtle"
+                      className="rounded-[var(--radius-sm)] border border-[var(--line)] bg-[var(--panel-muted)] px-3 py-2.5 text-left transition-colors hover:border-[var(--ink)]"
                     >
                       <span className="block text-xs font-medium text-[var(--ink)]">
                         Менеджер
                       </span>
-                      <span className="mt-0.5 block truncate text-caption text-[var(--muted)]">
+                      <span className="mt-0.5 block truncate font-mono text-caption text-[var(--muted)]">
                         manager@local.test
                       </span>
                     </button>
                     <button
                       type="button"
                       onClick={() => fillDemo("employee")}
-                      className="rounded-xl border border-[var(--line)] bg-[var(--panel-muted)] px-3 py-2.5 text-left transition-colors hover:border-[var(--accent-glow)] hover:bg-subtle"
+                      className="rounded-[var(--radius-sm)] border border-[var(--line)] bg-[var(--panel-muted)] px-3 py-2.5 text-left transition-colors hover:border-[var(--ink)]"
                     >
                       <span className="block text-xs font-medium text-[var(--ink)]">
                         Сотрудник
                       </span>
-                      <span className="mt-0.5 block truncate text-caption text-[var(--muted)]">
+                      <span className="mt-0.5 block truncate font-mono text-caption text-[var(--muted)]">
                         employee@local.test
                       </span>
                     </button>
@@ -281,10 +280,6 @@ function LoginForm() {
                 )}
               </div>
             </form>
-
-            <p className="mt-4 text-center text-caption text-white/55 lg:mt-6 lg:text-[var(--muted)]">
-              Иркутск · Байкал · Бурятия
-            </p>
           </div>
         </div>
       </div>

@@ -41,7 +41,7 @@ export function StatusBadge({
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium",
+        "inline-flex h-5 items-center rounded-[var(--radius-sm)] px-2 text-caption font-medium tracking-wide",
         lifecycleStyles[status],
         className,
       )}

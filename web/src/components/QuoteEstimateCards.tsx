@@ -34,7 +34,7 @@ function IconArrow({ dir }: { dir: "up" | "down" }) {
   return (
     <svg
       viewBox="0 0 24 24"
-      className="size-4"
+      className="size-3"
       fill="none"
       stroke="currentColor"
       strokeWidth="2"
@@ -62,7 +62,7 @@ function MoveButtons({
         disabled={disabled}
         aria-label="Переместить выше"
         onClick={() => onMove(-1)}
-        className="tap-target flex items-center justify-center rounded-md text-[var(--muted)] hover:bg-[var(--header-hover)] hover:text-[var(--ink)] disabled:opacity-30"
+        className="flex size-5 items-center justify-center rounded-sm text-[var(--muted)] hover:bg-[var(--header-hover)] hover:text-[var(--ink)] disabled:opacity-30"
       >
         <IconArrow dir="up" />
       </button>
@@ -71,7 +71,7 @@ function MoveButtons({
         disabled={disabled}
         aria-label="Переместить ниже"
         onClick={() => onMove(1)}
-        className="tap-target flex items-center justify-center rounded-md text-[var(--muted)] hover:bg-[var(--header-hover)] hover:text-[var(--ink)] disabled:opacity-30"
+        className="flex size-5 items-center justify-center rounded-sm text-[var(--muted)] hover:bg-[var(--header-hover)] hover:text-[var(--ink)] disabled:opacity-30"
       >
         <IconArrow dir="down" />
       </button>
@@ -121,7 +121,7 @@ export function QuoteEstimateCards({
     return (
       <p
         className={cn(
-          "rounded-xl border border-[var(--line)] bg-[var(--panel)] px-4 py-8 text-center text-sm text-[var(--muted)]",
+          "quote-dense rounded-md border border-[var(--line)] bg-[var(--panel)] px-2 py-3 text-center text-[11px] text-[var(--muted)]",
           className,
         )}
       >
@@ -131,7 +131,7 @@ export function QuoteEstimateCards({
   }
 
   return (
-    <div className={cn("flex flex-col gap-1.5", className)}>
+    <div className={cn("quote-dense flex flex-col gap-px", className)}>
       {blocks.map((block) => {
         if (isGroupHeader(block.type)) {
           const subtotal =
@@ -140,32 +140,29 @@ export function QuoteEstimateCards({
             <div
               key={block.key}
               className={cn(
-                "flex items-center gap-2 rounded-lg border border-[var(--accent)]/25 bg-[var(--selected)] px-3 py-2",
-                block.type === "KIT_HEADER" && "ml-3",
+                "flex items-center gap-1 rounded-sm border border-[var(--accent)]/25 bg-[var(--selected)] px-1.5 py-0.5",
+                block.type === "KIT_HEADER" && "ml-2",
               )}
             >
-              <div className="min-w-0 flex-1">
-                <p className="text-caption uppercase tracking-[0.04em] text-[var(--muted)]">
-                  {block.type === "SECTION" ? "Раздел" : "Комплект"}
+              {canEdit ? (
+                <input
+                  className="field field-compact min-w-0 flex-1 font-semibold"
+                  value={block.title || ""}
+                  aria-label="Название раздела"
+                  onChange={(e) =>
+                    onUpdate(block.key, { title: e.target.value })
+                  }
+                />
+              ) : (
+                <p className="min-w-0 flex-1 truncate font-semibold">
+                  {block.title}
                 </p>
-                {canEdit ? (
-                  <input
-                    className="field mt-0.5 font-semibold"
-                    value={block.title || ""}
-                    aria-label="Название раздела"
-                    onChange={(e) =>
-                      onUpdate(block.key, { title: e.target.value })
-                    }
-                  />
-                ) : (
-                  <p className="mt-0.5 font-semibold">{block.title}</p>
-                )}
-                {subtotal != null ? (
-                  <p className="mt-1 text-sm tabular-nums text-[var(--muted)]">
-                    Итого: {formatMoney(subtotal)}
-                  </p>
-                ) : null}
-              </div>
+              )}
+              {subtotal != null ? (
+                <p className="shrink-0 tabular-nums text-[var(--muted)]">
+                  {formatMoney(subtotal)}
+                </p>
+              ) : null}
               {canEdit ? (
                 <>
                   <MoveButtons onMove={(dir) => onMove(block.key, dir)} />
@@ -173,11 +170,11 @@ export function QuoteEstimateCards({
                     type="button"
                     aria-label="Удалить раздел"
                     onClick={() => onRemove(block.key)}
-                    className="tap-target flex shrink-0 items-center justify-center rounded-md text-[var(--danger)] hover:bg-[color-mix(in_srgb,var(--danger)_14%,transparent)]"
+                    className="flex size-5 shrink-0 items-center justify-center rounded-sm text-[var(--danger)] hover:bg-[color-mix(in_srgb,var(--danger)_14%,transparent)]"
                   >
                     <svg
                       viewBox="0 0 24 24"
-                      className="size-4"
+                      className="size-3"
                       fill="none"
                       stroke="currentColor"
                       strokeWidth="1.8"
@@ -203,29 +200,31 @@ export function QuoteEstimateCards({
           <div
             key={block.key}
             className={cn(
-              "rounded-lg border bg-[var(--panel)]",
+              "rounded-sm border bg-[var(--panel)]",
               shortfall > 0
                 ? "border-amber-500/40 bg-amber-500/5"
                 : "border-[var(--line)]",
               isKit && "bg-[var(--selected)]/40",
             )}
           >
-            <div className="flex items-start gap-1 px-3 py-2">
+            <div className="flex min-h-[3.25rem] items-center gap-1 px-1.5 py-1.5">
               <button
                 type="button"
                 disabled={!canEdit}
                 onClick={() => setEditingKey(block.key)}
-                className="min-w-0 flex-1 py-1 text-left disabled:cursor-default"
+                className="min-w-0 flex-1 text-left disabled:cursor-default"
               >
-                {isKit ? (
-                  <span className="mb-1 inline-block rounded bg-[var(--accent)]/10 px-1.5 py-0.5 text-caption font-medium uppercase tracking-wide text-[var(--accent)]">
-                    Комплект
+                <span className="flex min-w-0 items-baseline gap-1">
+                  {isKit ? (
+                    <span className="shrink-0 text-[9px] font-medium uppercase tracking-wide text-[var(--accent)]">
+                      компл.
+                    </span>
+                  ) : null}
+                  <span className="min-w-0 truncate font-medium">
+                    {block.name || "Без названия"}
                   </span>
-                ) : null}
-                <span className="line-clamp-2 block font-medium">
-                  {block.name || "Без названия"}
                 </span>
-                <span className="mt-0.5 block text-caption tabular-nums text-[var(--muted)]">
+                <span className="block truncate tabular-nums text-[10px] text-[var(--muted)]">
                   {qty} × {formatMoney(unitPrice)}
                   {line && line.dayCoef !== 1
                     ? ` · коэф ${formatNumber(line.dayCoef)}`
@@ -233,20 +232,18 @@ export function QuoteEstimateCards({
                 </span>
               </button>
 
-              <div className="flex shrink-0 flex-col items-end gap-1 pl-1">
-                <span className="font-semibold tabular-nums">
-                  {formatMoney(line?.lineTotal ?? 0)}
-                </span>
-                {canEdit ? (
-                  <MoveButtons onMove={(dir) => onMove(block.key, dir)} />
-                ) : null}
-              </div>
+              <span className="shrink-0 tabular-nums font-semibold">
+                {formatMoney(line?.lineTotal ?? 0)}
+              </span>
+              {canEdit ? (
+                <MoveButtons onMove={(dir) => onMove(block.key, dir)} />
+              ) : null}
             </div>
 
             {shortfall > 0 ? (
               // Дефицит — предупреждение, а не запрет: смета сохраняется,
               // нехватку закрывают субарендой.
-              <p className="border-t border-amber-500/30 px-3 py-1.5 text-caption text-amber-600 dark:text-amber-400">
+              <p className="border-t border-amber-500/30 px-1.5 py-0.5 text-[10px] text-amber-600 dark:text-amber-400">
                 Не хватает {shortfall} — нужна субаренда
               </p>
             ) : null}
@@ -258,7 +255,6 @@ export function QuoteEstimateCards({
         open={Boolean(editing)}
         onClose={() => setEditingKey(null)}
         labelledBy="estimate-line-title"
-        className="action-sheet-panel"
       >
         {editing ? (
           <EstimateLineSheet
@@ -294,7 +290,7 @@ function EstimateLineSheet({
   onClose: () => void;
 }) {
   return (
-    <div className="flex min-h-0 flex-col">
+    <div className="flex h-full min-h-0 flex-1 flex-col">
       <div className="flex items-center gap-2 border-b border-[var(--line)] px-4 py-3">
         <h2
           id="estimate-line-title"
@@ -434,7 +430,7 @@ function EstimateLineSheet({
         <button
           type="button"
           onClick={onClose}
-          className="tap-target rounded-full bg-cta px-6 text-sm font-medium text-white"
+          className="tap-target h-10 rounded-[var(--radius-sm)] bg-[var(--accent)] px-5 text-sm font-medium text-[var(--accent-ink)]"
         >
           Готово
         </button>

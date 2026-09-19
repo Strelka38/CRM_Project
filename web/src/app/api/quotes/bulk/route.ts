@@ -19,11 +19,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, count: result.count });
     }
     if (body.action === "paid") {
-      const result = await prisma.quote.updateMany({
-        where: { id: { in: ids } },
-        data: { paid: true, invoiceSent: true },
+      const [completed, rest] = await prisma.$transaction([
+        prisma.quote.updateMany({
+          where: { id: { in: ids }, lifecycle: "CONFIRMED" },
+          data: { paid: true, invoiceSent: true, lifecycle: "COMPLETED" },
+        }),
+        prisma.quote.updateMany({
+          where: { id: { in: ids }, lifecycle: { not: "CONFIRMED" } },
+          data: { paid: true, invoiceSent: true },
+        }),
+      ]);
+      return NextResponse.json({
+        ok: true,
+        count: completed.count + rest.count,
       });
-      return NextResponse.json({ ok: true, count: result.count });
     }
     const result = await prisma.quote.updateMany({
       where: { id: { in: ids } },

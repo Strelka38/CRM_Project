@@ -48,6 +48,36 @@ assert.equal(
   true,
 );
 assert.equal(
+  accounting.some((s) => s.href === "/roster"),
+  true,
+);
+assert.equal(
+  accounting.some((s) => s.href === "/calculations"),
+  true,
+);
+const accountingMobile = navMenuItems("accounting", {
+  showPayouts: true,
+  mobile: true,
+});
+assert.equal(
+  accountingMobile.some((s) => s.href === "/roster"),
+  false,
+);
+assert.equal(
+  accountingMobile.some((s) => s.href === "/calculations"),
+  false,
+);
+assert.equal(
+  navMenuItems("database", { showBackup: true }).some((s) => s.href === "/backup"),
+  true,
+);
+assert.equal(
+  navMenuItems("database", { showBackup: true, mobile: true }).some(
+    (s) => s.href === "/backup",
+  ),
+  false,
+);
+assert.equal(
   navMenuItems("accounting").some((s) => s.href === "/payouts"),
   false,
 );

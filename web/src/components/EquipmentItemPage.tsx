@@ -532,7 +532,7 @@ export function EquipmentItemPage({
           <button
             type="button"
             onClick={onClose}
-            className="flex size-8 shrink-0 items-center justify-center rounded-full text-lg leading-none text-[var(--muted)] hover:bg-[var(--ink)]/10 hover:text-[var(--ink)]"
+            className="drawer-close flex size-8 shrink-0 items-center justify-center rounded-[var(--radius-sm)] text-lg leading-none text-[var(--muted)] hover:bg-[var(--ink)]/10 hover:text-[var(--ink)]"
             aria-label="Закрыть"
           >
             ×
@@ -601,6 +601,7 @@ export function EquipmentCardDrawer({
       onClose={onClose}
       side="right"
       wide
+      modal={false}
       labelledBy="equipment-card-title"
       className="!max-w-[min(42rem,100%)]"
     >

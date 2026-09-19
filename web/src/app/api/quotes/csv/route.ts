@@ -13,7 +13,14 @@ import {
   defaultDemountDate,
   defaultMountDate,
 } from "@/lib/quote-schedule";
+import { parseLifecycleStatus } from "@/lib/lifecycle";
 import { nextProposalNumber } from "@/lib/proposal-number";
+import {
+  applyQuotePack,
+  isDatabaseBackupKind,
+  isQuotePack,
+  parseQuotePack,
+} from "@/lib/quote-backup";
 import {
   canSeeAllEvents,
   requireManager,
@@ -112,8 +119,44 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const session = await requireManager();
-    const uploaded = await readUploadedCsv(req);
+    const uploaded = await readUploadedCsv(req, 50 * 1024 * 1024);
     if ("error" in uploaded) return uploaded.error;
+    const trimmed = uploaded.text.trim().replace(/^\uFEFF/, "");
+    if (trimmed.startsWith("{")) {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(trimmed);
+      } catch {
+        return NextResponse.json(
+          { error: "Файл не является JSON" },
+          { status: 400 },
+        );
+      }
+      if (isDatabaseBackupKind(parsed)) {
+        return NextResponse.json(
+          {
+            error:
+              "Это файл базы CRM. Импортируйте его в разделе База, а не в списке смет.",
+          },
+          { status: 400 },
+        );
+      }
+      if (!isQuotePack(parsed)) {
+        return NextResponse.json(
+          { error: "Это не файл экспорта смет" },
+          { status: 400 },
+        );
+      }
+      const pack = parseQuotePack(parsed);
+      const result = await applyQuotePack(pack, session.user.id);
+      return NextResponse.json({
+        created: result.created,
+        updated: result.updated,
+        total: result.created + result.updated,
+        errors: result.warnings.slice(0, 50),
+        errorCount: result.warnings.length,
+      });
+    }
     const { rows, errors } = parseQuoteCsv(uploaded.text);
     if (rows.length === 0) {
       return NextResponse.json(
@@ -138,6 +181,14 @@ export async function POST(req: NextRequest) {
             })
           : null;
         const existingId = byId?.id || byNumber?.id;
+        const owner =
+          r.ownerName.trim()
+            ? await prisma.user.findFirst({
+                where: { name: r.ownerName.trim() },
+                select: { id: true },
+              })
+            : null;
+        const lifecycle = parseLifecycleStatus(r.lifecycle);
         const data = {
           eventName: r.eventName,
           date: r.date,
@@ -149,6 +200,8 @@ export async function POST(req: NextRequest) {
           invoiceSent: r.invoiceSent,
           paid: r.paid,
           paymentComment: r.paymentComment,
+          lifecycle,
+          ...(owner ? { ownerId: owner.id } : {}),
           ...(r.date
             ? {
                 mountDate: defaultMountDate(r.date),
@@ -168,9 +221,8 @@ export async function POST(req: NextRequest) {
         const quote = await prisma.quote.create({
           data: {
             ...data,
-            ownerId: session.user.id,
+            ownerId: owner?.id || session.user.id,
             proposalNumber,
-            lifecycle: "CALCULATED",
             discountPercent: 0,
             cashlessPercent: DEFAULT_CASHLESS_PERCENT,
             zones: {

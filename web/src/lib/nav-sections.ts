@@ -30,6 +30,8 @@ export type NavSection = {
   exactActive?: boolean;
   /** Показывать в выпадающем меню. false — только гейт пути (например /equipment). */
   inMenu?: boolean;
+  /** В ящике на телефоне. false — только верхнее меню десктопа. */
+  inMobileMenu?: boolean;
 };
 
 export const NAV_SECTIONS: NavSection[] = [
@@ -41,7 +43,7 @@ export const NAV_SECTIONS: NavSection[] = [
     access: "auth",
     exactActive: true,
   },
-  { href: "/roster", label: "Срост", group: "accounting", access: "roster" },
+  { href: "/roster", label: "Срост", group: "accounting", access: "roster", inMobileMenu: false },
   { href: "/payroll", label: "Моя ЗП", group: "accounting", access: "auth" },
   {
     href: "/payouts",
@@ -66,6 +68,7 @@ export const NAV_SECTIONS: NavSection[] = [
     label: "Калькуляции",
     group: "accounting",
     access: "manager",
+    inMobileMenu: false,
   },
   { href: "/catalog", label: "Каталог", group: "warehouse", access: "database" },
   { href: "/repairs", label: "Ремонт", group: "warehouse", access: "database" },
@@ -109,6 +112,7 @@ export const NAV_SECTIONS: NavSection[] = [
     label: "Экспорт / импорт",
     group: "database",
     access: "admin",
+    inMobileMenu: false,
   },
 ];
 
@@ -127,10 +131,11 @@ export function isNavItemActive(
 
 function visibleInGroup(
   s: NavSection,
-  flags: { showBackup?: boolean; showPayouts?: boolean },
+  flags: { showBackup?: boolean; showPayouts?: boolean; mobile?: boolean },
   forMenu: boolean,
 ): boolean {
   if (forMenu && s.inMenu === false) return false;
+  if (forMenu && flags.mobile && s.inMobileMenu === false) return false;
   if (s.access === "admin" && !flags.showBackup) return false;
   if (s.access === "payments" && !flags.showPayouts) return false;
   return true;
@@ -138,7 +143,7 @@ function visibleInGroup(
 
 export function navMenuItems(
   group: NavGroup,
-  flags: { showBackup?: boolean; showPayouts?: boolean } = {},
+  flags: { showBackup?: boolean; showPayouts?: boolean; mobile?: boolean } = {},
 ): NavSection[] {
   return NAV_SECTIONS.filter(
     (s) => s.group === group && visibleInGroup(s, flags, true),

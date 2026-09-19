@@ -104,15 +104,43 @@ function ExportIcon() {
   );
 }
 
+const toolbarBtn =
+  "relative rounded-md p-1.5 text-[var(--muted)] transition-colors hover:bg-[var(--header-hover)] hover:text-[var(--ink)] disabled:opacity-40";
+
 export function CatalogAddToolbar({
   onAction,
   disabled,
+  onAddUnit,
 }: {
   onAction: (action: AddAction) => void;
   disabled?: boolean;
+  onAddUnit?: () => void;
 }) {
   return (
     <div className="flex shrink-0 items-center gap-1">
+      {onAddUnit ? (
+        <button
+          type="button"
+          title="+ Единица"
+          aria-label="+ Единица"
+          disabled={disabled}
+          onClick={onAddUnit}
+          className={toolbarBtn}
+        >
+          <svg
+            viewBox="0 0 24 24"
+            className="size-6"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            aria-hidden
+          >
+            <rect x="4" y="4" width="16" height="16" rx="1.5" />
+            <path d="M8 8h.01M12 8h.01M16 8h.01M8 12h.01M12 12h.01M16 12h.01M8 16h.01M12 16h.01M16 16h.01" />
+          </svg>
+          <PlusBadge />
+        </button>
+      ) : null}
       {CATALOG_ADD_ACTIONS.map((a) => (
         <button
           key={a.id}
@@ -121,9 +149,7 @@ export function CatalogAddToolbar({
           aria-label={a.title}
           disabled={disabled}
           onClick={() => onAction(a.id)}
-          className={cn(
-            "relative rounded-md p-1.5 text-[var(--muted)] transition-colors hover:bg-[var(--header-hover)] hover:text-[var(--ink)] disabled:opacity-40",
-          )}
+          className={toolbarBtn}
         >
           {a.icon}
           <PlusBadge />
@@ -253,11 +279,13 @@ export function CatalogExportMenu({
   onExportCsv,
   onImportCsv,
   onExportWarehouse,
+  onSyncUnits,
   csvBusy,
 }: {
   onExportCsv: () => void;
   onImportCsv: () => void;
   onExportWarehouse: () => void;
+  onSyncUnits: () => void;
   csvBusy?: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -321,6 +349,14 @@ export function CatalogExportMenu({
             onClick={() => run(onExportWarehouse)}
           >
             Экспорт склада
+          </button>
+          <button
+            type="button"
+            disabled={csvBusy}
+            className="flex w-full px-3 py-1.5 text-left text-sm text-[var(--ink)] hover:bg-[var(--header-hover)] disabled:opacity-40"
+            onClick={() => run(onSyncUnits)}
+          >
+            {csvBusy ? "Догнать…" : "Догнать до склада"}
           </button>
         </div>
       ) : null}

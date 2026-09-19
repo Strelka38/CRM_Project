@@ -22,10 +22,18 @@ const PASSWORD = process.env.CRM_PASSWORD || "manager123";
 
 mkdirSync(OUT, { recursive: true });
 
+const HIDE_DEV = `
+nextjs-portal,
+[data-nextjs-toast],
+#__next-build-watcher,
+[data-next-badge-root],
+button[aria-label="Open Next.js Dev Tools"] {
+  display: none !important;
+}
+`;
+
 async function hideDevChrome(page) {
-  await page.addStyleTag({
-    content: `nextjs-portal, [data-nextjs-toast], #__next-build-watcher { display: none !important; }`,
-  }).catch(() => {});
+  await page.addStyleTag({ content: HIDE_DEV }).catch(() => {});
 }
 
 async function settle(page, ms = 900) {
@@ -40,6 +48,7 @@ async function settle(page, ms = 900) {
 }
 
 async function shot(page, name) {
+  await hideDevChrome(page);
   const file = join(OUT, name);
   await page.screenshot({
     path: file,
@@ -51,33 +60,41 @@ async function shot(page, name) {
 }
 
 async function goto(page, path) {
-  await page.goto(`${BASE}${path}`, { waitUntil: "domcontentloaded", timeout: 30000 });
+  await page.goto(`${BASE}${path}`, {
+    waitUntil: "domcontentloaded",
+    timeout: 30000,
+  });
   await settle(page, 1100);
+}
+
+async function login(page) {
+  await goto(page, "/login");
+  await page.locator('input[type="email"]').fill(EMAIL);
+  await page.locator('input[type="password"]').fill(PASSWORD);
 }
 
 const browser = await chromium.launch({
   headless: true,
   channel: "chrome",
 });
-const context = await browser.newContext({
+
+const desktop = await browser.newContext({
   viewport: { width: 1440, height: 900 },
   deviceScaleFactor: 2,
   colorScheme: "dark",
   locale: "ru-RU",
 });
-await context.addInitScript(() => {
+await desktop.addInitScript(() => {
   localStorage.setItem("bs-crm-theme", "dark");
   localStorage.setItem("bs-crm-layout", "desktop");
   document.cookie = "bs-crm-layout=desktop; path=/; max-age=31536000; SameSite=Lax";
 });
 
-const page = await context.newPage();
+const page = await desktop.newPage();
 
 try {
   console.log("login…");
-  await goto(page, "/login");
-  await page.locator('input[type="email"]').fill(EMAIL);
-  await page.locator('input[type="password"]').fill(PASSWORD);
+  await login(page);
   await shot(page, "01-login.jpg");
   await page.getByRole("button", { name: "Войти" }).click();
   await page.waitForURL(/\/calendar/, { timeout: 20000 });
@@ -164,17 +181,56 @@ try {
   await settle(page, 900);
   await shot(page, "17-legal-entities.jpg");
 
-  const mobile = await context.newPage();
-  await mobile.setViewportSize({ width: 390, height: 844 });
-  await mobile.goto(`${BASE}/calendar`, { waitUntil: "domcontentloaded" });
-  await settle(mobile, 1600);
-  await mobile.screenshot({
-    path: join(OUT, "18-calendar-mobile.jpg"),
-    type: "jpeg",
-    quality: 82,
-    animations: "disabled",
+  const storage = await desktop.storageState();
+  const mobile = await browser.newContext({
+    viewport: { width: 430, height: 932 },
+    deviceScaleFactor: 3,
+    isMobile: true,
+    hasTouch: true,
+    colorScheme: "dark",
+    locale: "ru-RU",
+    storageState: storage,
   });
-  console.log("  wrote 18-calendar-mobile.jpg");
+  await mobile.addInitScript(() => {
+    localStorage.setItem("bs-crm-theme", "dark");
+    localStorage.setItem("bs-crm-layout", "mobile");
+    document.cookie =
+      "bs-crm-layout=mobile; path=/; max-age=31536000; SameSite=Lax";
+  });
+
+  const phone = await mobile.newPage();
+  console.log("mobile…");
+  await goto(phone, "/calendar");
+  await settle(phone, 1800);
+  await shot(phone, "18-calendar-mobile.jpg");
+
+  await goto(phone, "/notifications");
+  await settle(phone, 1200);
+  await shot(phone, "19-notifications-mobile.jpg");
+
+  await goto(phone, "/payroll");
+  await settle(phone, 1400);
+  await shot(phone, "20-payroll-mobile.jpg");
+
+  await goto(phone, "/quotes");
+  await settle(phone, 1200);
+  await shot(phone, "21-quotes-mobile.jpg");
+
+  if (best?.id) {
+    await goto(phone, `/quotes/${best.id}?tab=quote`);
+    await phone.getByRole("tab", { name: "Смета" }).waitFor({ timeout: 15000 });
+    await settle(phone, 1400);
+    await shot(phone, "22-quote-editor-mobile.jpg");
+
+    const summary = phone.getByRole("button", { name: "Сводная" });
+    if (await summary.count()) {
+      await summary.click();
+      await settle(phone, 800);
+      await shot(phone, "23-quote-summary-mobile.jpg");
+    }
+  }
+
+  await phone.close();
   await mobile.close();
 
   console.log("done →", OUT);

@@ -201,6 +201,13 @@ const quotes = parseQuoteCsv(quoteCsv);
 assert.equal(quotes.errors.length, 0);
 assert.equal(quotes.rows[0].eventName, "Свадьба");
 assert.equal(quotes.rows[0].paid, true);
+assert.equal(quotes.rows[0].lifecycle, "");
+
+const quoteCsvStatus = toCsv([
+  ["Мероприятие", "Статус"],
+  ["Свадьба", "Подтверждено"],
+]);
+assert.equal(parseQuoteCsv(quoteCsvStatus).rows[0].lifecycle, "Подтверждено");
 const quoteCells = quoteToCsvCells({
   id: "q1",
   proposalNumber: "42",

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   daysInclusive,
   endDateFromDuration,
@@ -40,6 +41,9 @@ type Props = {
   inline?: boolean;
   /** Tighter label and field spacing. */
   dense?: boolean;
+  /** Label + date in one line, no field chrome — for peek rows. */
+  bare?: boolean;
+  allowClear?: boolean;
 };
 
 function sameDay(a: Date, b: Date) {
@@ -60,6 +64,8 @@ export function DateRangePicker({
   emptyLabel = "Выберите даты…",
   inline = false,
   dense = false,
+  bare = false,
+  allowClear = true,
 }: Props) {
   const start = parseEventDate(date);
   const end = start
@@ -73,7 +79,12 @@ export function DateRangePicker({
   const [pickingEnd, setPickingEnd] = useState(false);
   const [anchor, setAnchor] = useState<Date | null>(null);
   const [open, setOpen] = useState(inline);
+  const [popup, setPopup] = useState<{ top: number; left: number } | null>(
+    null,
+  );
   const rootRef = useRef<HTMLDivElement>(null);
+  const calRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (inline) setOpen(true);
@@ -82,18 +93,50 @@ export function DateRangePicker({
   function closePopup() {
     if (inline) return;
     setOpen(false);
+    setPopup(null);
     setPickingEnd(false);
     setAnchor(null);
+  }
+
+  function placePopup() {
+    const el = triggerRef.current ?? rootRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const calW = 232;
+    const calH = 280;
+    let left = r.left;
+    if (left + calW > window.innerWidth - 8) {
+      left = Math.max(8, window.innerWidth - calW - 8);
+    }
+    let top = r.bottom + 6;
+    if (top + calH > window.innerHeight - 8) {
+      top = Math.max(8, r.top - calH - 6);
+    }
+    setPopup({ top, left });
+  }
+
+  function openPopup() {
+    if (disabled || inline) return;
+    if (open) {
+      closePopup();
+      return;
+    }
+    const d = parseEventDate(date) || new Date();
+    setView(new Date(d.getFullYear(), d.getMonth(), 1));
+    placePopup();
+    setOpen(true);
   }
 
   useEffect(() => {
     if (inline || !open) return;
     function onDoc(e: MouseEvent) {
-      if (!rootRef.current?.contains(e.target as Node)) {
-        setOpen(false);
-        setPickingEnd(false);
-        setAnchor(null);
-      }
+      const node = e.target as Node;
+      if (rootRef.current?.contains(node)) return;
+      if (calRef.current?.contains(node)) return;
+      setOpen(false);
+      setPopup(null);
+      setPickingEnd(false);
+      setAnchor(null);
     }
     function onKey(e: KeyboardEvent) {
       if (e.key !== "Escape") return;
@@ -174,10 +217,13 @@ export function DateRangePicker({
     ? emptyLabel
     : durationDays <= 1
       ? formatRuDate(start)
-      : `${formatRuDate(start)} — ${formatRuDate(endDateFromDuration(start, durationDays))} (${durationDays} дн.)`;
+      : `${formatRuDate(start)} — ${formatRuDate(endDateFromDuration(start, durationDays))}${
+          bare ? "" : ` (${durationDays} дн.)`
+        }`;
 
   const calendar = (
     <div
+      ref={calRef}
       className={cn(
         "rounded-lg border border-[var(--line)] bg-[var(--panel)] p-2 shadow-lg",
         !inline && "w-[232px]",
@@ -253,7 +299,7 @@ export function DateRangePicker({
           : "Клик — начало, ещё раз — конец"}
       </p>
 
-      {start && !disabled && (
+      {start && !disabled && allowClear && (
         <button
           type="button"
           className="mt-0.5 text-caption text-[var(--accent-deep)] hover:underline"
@@ -281,12 +327,60 @@ export function DateRangePicker({
     );
   }
 
+  const popupNode =
+    open && popup && typeof document !== "undefined"
+      ? createPortal(
+          <div
+            className="fixed z-[90]"
+            style={{ top: popup.top, left: popup.left }}
+          >
+            {calendar}
+          </div>,
+          document.body,
+        )
+      : null;
+
+  if (bare) {
+    return (
+      <div ref={rootRef} className={cn("text-sm", className)}>
+        <button
+          ref={triggerRef}
+          type="button"
+          disabled={disabled}
+          aria-expanded={open}
+          aria-haspopup="dialog"
+          aria-label={`${fieldLabel}: ${valueLabel}`}
+          onClick={openPopup}
+          className={cn(
+            "inline-flex min-h-8 max-w-full items-baseline gap-1 text-left",
+            disabled
+              ? "cursor-default"
+              : "rounded-[var(--radius-sm)] hover:bg-[var(--ink)]/6",
+          )}
+        >
+          <span className="text-[var(--muted)]">{fieldLabel}:</span>
+          <span
+            className={cn(
+              "tabular-nums",
+              start ? "text-[var(--ink)]" : "text-[var(--muted)]",
+              !disabled && "underline decoration-[var(--line)] underline-offset-4",
+            )}
+          >
+            {start ? valueLabel : "—"}
+          </span>
+        </button>
+        {popupNode}
+      </div>
+    );
+  }
+
   return (
     <div ref={rootRef} className={cn("relative text-sm", className)}>
       <span className={cn(dense && "text-caption", "text-[var(--muted)]")}>
         {fieldLabel}
       </span>
       <button
+        ref={triggerRef}
         type="button"
         disabled={disabled}
         aria-expanded={open}
@@ -296,16 +390,7 @@ export function DateRangePicker({
           dense ? "mt-0.5" : "mt-1",
           !start && "text-[var(--muted)]",
         )}
-        onClick={() => {
-          if (disabled) return;
-          if (open) {
-            closePopup();
-            return;
-          }
-          const d = parseEventDate(date) || new Date();
-          setView(new Date(d.getFullYear(), d.getMonth(), 1));
-          setOpen(true);
-        }}
+        onClick={openPopup}
       >
         <span className="truncate tabular-nums">{valueLabel}</span>
         <span className="shrink-0 text-[var(--muted)]" aria-hidden>
@@ -313,9 +398,10 @@ export function DateRangePicker({
         </span>
       </button>
 
-      {open && (
-        <div className="absolute left-0 top-full z-40 mt-1">{calendar}</div>
-      )}
+      {popupNode ??
+        (open && !popup ? (
+          <div className="absolute left-0 top-full z-40 mt-1">{calendar}</div>
+        ) : null)}
     </div>
   );
 }

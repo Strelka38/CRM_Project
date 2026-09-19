@@ -10,6 +10,7 @@ import {
   useFileDrop,
 } from "@/components/FileDrop";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { DateRangePicker } from "@/components/DateRangePicker";
 import { DuplicateQuoteModal } from "@/components/QuoteTemplateActions";
 import { SideDrawer } from "@/components/ui/SideDrawer";
 import { PeekHeader, lifecycleLabel } from "@/components/ui";
@@ -20,6 +21,7 @@ import {
   formatRuDate,
   parseEventDate,
 } from "@/lib/dates";
+import { applyAutoMountDemount } from "@/lib/quote-schedule";
 import { isQuoteOwnerRole, roleLabelRu } from "@/lib/roles";
 import { whoWorksView, type WhoWorksLine } from "@/lib/quote-assignment-days";
 
@@ -66,6 +68,7 @@ type Project = {
   isManager: boolean;
   canManageAssignments?: boolean;
   canEditBrief?: boolean;
+  canEditSchedule?: boolean;
   canManageAttachments?: boolean;
 };
 
@@ -205,6 +208,8 @@ export function ProjectModal({
   );
   const [briefSaved, setBriefSaved] = useState(false);
   const [briefError, setBriefError] = useState("");
+  const [scheduleError, setScheduleError] = useState("");
+  const [scheduleSaving, setScheduleSaving] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const chatImageRef = useRef<HTMLInputElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -270,6 +275,7 @@ export function ProjectModal({
     setCopyOpen(false);
     setDeleteOpen(false);
     setDeleteError("");
+    setScheduleError("");
   }, [quoteId, open]);
 
   useEffect(() => {
@@ -505,6 +511,47 @@ export function ProjectModal({
   const showEventMenu = Boolean(
     project && (project.canEditBrief || project.isManager),
   );
+  const canEditSchedule = Boolean(project?.canEditSchedule);
+
+  async function saveSchedule(patch: {
+    date?: string;
+    durationDays?: number;
+    mountDate?: string;
+    mountDurationDays?: number;
+    demountDate?: string;
+    demountDurationDays?: number;
+  }) {
+    if (!quoteId || !project) return;
+    const prev = project;
+    setScheduleError("");
+    setProject({ ...project, ...patch });
+    setScheduleSaving(true);
+    try {
+      const res = await fetch(`/api/quotes/${quoteId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      if (!res.ok) {
+        setProject(prev);
+        const data = (await res.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        setScheduleError(
+          typeof data?.error === "string"
+            ? data.error
+            : "Не удалось сохранить даты",
+        );
+        return;
+      }
+      onChanged?.();
+    } catch {
+      setProject(prev);
+      setScheduleError("Не удалось сохранить даты");
+    } finally {
+      setScheduleSaving(false);
+    }
+  }
 
   async function unscheduleEvent() {
     if (!quoteId) return;
@@ -624,30 +671,89 @@ export function ProjectModal({
                   {lifecycleLabel(project.lifecycle)}
                 </p>
                 <div className="mt-1.5 space-y-0.5 text-sm">
-                  {periodLabel && (
-                    <p>
-                      <span className="text-[var(--muted)]">Даты: </span>
-                      <span className="text-[var(--ink)]">{periodLabel}</span>
-                    </p>
+                  {canEditSchedule ? (
+                    <>
+                      <DateRangePicker
+                        bare
+                        allowClear={false}
+                        label="Даты"
+                        date={project.date}
+                        durationDays={project.durationDays}
+                        onChange={(date, durationDays) => {
+                          const auto = applyAutoMountDemount({
+                            prevDate: project.date,
+                            prevDurationDays: project.durationDays,
+                            nextDate: date,
+                            nextDurationDays: durationDays,
+                            mountDate: project.mountDate,
+                            demountDate: project.demountDate,
+                          });
+                          void saveSchedule({
+                            date,
+                            durationDays,
+                            ...auto,
+                          });
+                        }}
+                      />
+                      <DateRangePicker
+                        bare
+                        label="Монтаж"
+                        emptyLabel="—"
+                        date={project.mountDate}
+                        durationDays={project.mountDurationDays}
+                        onChange={(mountDate, mountDurationDays) => {
+                          void saveSchedule({ mountDate, mountDurationDays });
+                        }}
+                      />
+                      <DateRangePicker
+                        bare
+                        label="Демонтаж"
+                        emptyLabel="—"
+                        date={project.demountDate}
+                        durationDays={project.demountDurationDays}
+                        onChange={(demountDate, demountDurationDays) => {
+                          void saveSchedule({
+                            demountDate,
+                            demountDurationDays,
+                          });
+                        }}
+                      />
+                    </>
+                  ) : (
+                    <>
+                      {periodLabel && (
+                        <p>
+                          <span className="text-[var(--muted)]">Даты: </span>
+                          <span className="text-[var(--ink)]">
+                            {periodLabel}
+                          </span>
+                        </p>
+                      )}
+                      <p>
+                        <span className="text-[var(--muted)]">Монтаж: </span>
+                        <span className="text-[var(--ink)]">
+                          {dateRangeLabel(
+                            project.mountDate,
+                            project.mountDurationDays,
+                          ) || "—"}
+                        </span>
+                      </p>
+                      <p>
+                        <span className="text-[var(--muted)]">Демонтаж: </span>
+                        <span className="text-[var(--ink)]">
+                          {dateRangeLabel(
+                            project.demountDate,
+                            project.demountDurationDays,
+                          ) || "—"}
+                        </span>
+                      </p>
+                    </>
                   )}
-                  <p>
-                    <span className="text-[var(--muted)]">Монтаж: </span>
-                    <span className="text-[var(--ink)]">
-                      {dateRangeLabel(
-                        project.mountDate,
-                        project.mountDurationDays,
-                      ) || "—"}
-                    </span>
-                  </p>
-                  <p>
-                    <span className="text-[var(--muted)]">Демонтаж: </span>
-                    <span className="text-[var(--ink)]">
-                      {dateRangeLabel(
-                        project.demountDate,
-                        project.demountDurationDays,
-                      ) || "—"}
-                    </span>
-                  </p>
+                  {scheduleError ? (
+                    <p className="text-caption text-[var(--danger)]">
+                      {scheduleError}
+                    </p>
+                  ) : null}
                   {managerLabel ? (
                     <p>
                       <span className="text-[var(--muted)]">Менеджер: </span>

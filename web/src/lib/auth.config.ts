@@ -32,5 +32,19 @@ export const authConfig = {
       session.user.name = token.name ?? "";
       return session;
     },
+    redirect({ url, baseUrl }) {
+      const publicBase = (process.env.AUTH_URL || baseUrl).replace(/\/$/, "");
+      if (url.startsWith("/")) return `${publicBase}${url}`;
+      try {
+        const next = new URL(url);
+        if (next.hostname === "0.0.0.0" || next.hostname === "localhost") {
+          return `${publicBase}${next.pathname}${next.search}`;
+        }
+        if (next.origin === publicBase || next.origin === baseUrl) return url;
+      } catch {
+        /* ignore malformed */
+      }
+      return publicBase;
+    },
   },
 } satisfies NextAuthConfig;

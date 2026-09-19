@@ -110,7 +110,7 @@ export function PaymentFlags({
 
   return (
     <>
-      <div className={cn("inline-flex items-center gap-2", className)}>
+      <div className={cn("inline-flex max-w-full min-w-0 items-center gap-2", className)}>
         {FLAGS.map((f) => {
           const active = current === f.status;
           return (
@@ -123,16 +123,16 @@ export function PaymentFlags({
               disabled={disabled || saving}
               onClick={() => handleFlag(f.status)}
               className={cn(
-                "h-5 w-5 rounded-full transition-transform disabled:cursor-not-allowed disabled:opacity-40",
+                "h-5 w-5 rounded-full transition-opacity disabled:cursor-not-allowed disabled:opacity-40",
                 f.color,
                 active
-                  ? cn("scale-110", f.activeClass)
+                  ? f.activeClass
                   : "opacity-35 hover:opacity-80",
               )}
             />
           );
         })}
-        <span className="ml-1 text-xs text-[var(--muted)]">
+        <span className="ml-1 min-w-0 truncate text-xs text-[var(--muted)]">
           {PAYMENT_STATUS_LABELS[current]}
           {paid && paymentComment ? ` · ${paymentComment}` : ""}
         </span>

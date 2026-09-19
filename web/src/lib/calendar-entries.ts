@@ -138,7 +138,7 @@ export const ENTRY_KIND_LABELS: Record<CalendarEntryKind, string> = {
 };
 
 export const ENTRY_KIND_COLORS: Record<CalendarEntryKind, string> = {
-  RENTAL: "#0f766e",
-  TASK: "#b45309",
-  DAY_OFF: "#64748b",
+  RENTAL: "#615348",
+  TASK: "#c4881c",
+  DAY_OFF: "#b2222e",
 };

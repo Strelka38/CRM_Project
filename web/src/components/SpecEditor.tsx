@@ -14,6 +14,8 @@ import { type PickedCatalogItem } from "@/components/CatalogPicker";
 import { CatalogReplaceDropTarget } from "@/components/CatalogReplaceDropTarget";
 import { QuoteCatalogSidebar } from "@/components/QuoteCatalogSidebar";
 import { QuoteZoneTabs, type ZoneTab } from "@/components/QuoteZoneTabs";
+import { SpecCards, type SpecCardPatch } from "@/components/SpecCards";
+import { moveBlockInGroups } from "@/lib/quote-block-groups";
 import {
   peakItemQtyByWorkingDay,
   staffCoverageLines,
@@ -25,6 +27,7 @@ import {
   StockMarks,
   type StockInfo,
 } from "@/components/StockMarks";
+import { CollapsibleNotice } from "@/components/ui/CollapsibleNotice";
 import { cn } from "@/lib/cn";
 import { CATALOG_OWNERS, ownerShorts } from "@/lib/catalog-owner";
 import { omitEmptyDerivedSections } from "@/lib/spec-build";
@@ -929,6 +932,69 @@ export function SpecEditor({
     updateLineOrder(next.map((r) => r.key));
   }
 
+  function moveLine(key: string, dir: -1 | 1) {
+    const groupable = displayRows.map((r, i) => ({
+      key: r.key,
+      type: r.isKitHeader ? "KIT_HEADER" : r.type,
+      zoneId: "spec",
+      sortOrder: i,
+    }));
+    const nextVisible = moveBlockInGroups(groupable, key, dir);
+    if (!nextVisible) return;
+    const visibleKeys = nextVisible.map((r) => r.key);
+    const visibleSet = new Set(visibleKeys);
+    const base = lineOrderRef.current.length
+      ? lineOrderRef.current
+      : allRows.map((r) => r.key);
+    const first = base.findIndex((k) => visibleSet.has(k));
+    const rest = base.filter((k) => !visibleSet.has(k));
+    if (first < 0) {
+      updateLineOrder([...rest, ...visibleKeys]);
+      return;
+    }
+    rest.splice(first, 0, ...visibleKeys);
+    updateLineOrder(rest);
+  }
+
+  function patchCardLine(key: string, patch: SpecCardPatch) {
+    const line = displayRows.find((l) => l.key === key);
+    if (!line) return;
+    const isExtra = line.source === "extra";
+    if (patch.title != null || patch.name != null) {
+      const value = patch.title ?? patch.name ?? "";
+      if (isExtra) {
+        updateExtra(
+          key,
+          line.type === "SECTION" ? { title: value } : { name: value },
+        );
+      } else {
+        updateDerivedName(line, value);
+      }
+    }
+    if (patch.qty != null) {
+      if (isExtra) updateExtra(key, { qty: patch.qty });
+      else updateDerivedQty(line, patch.qty);
+    }
+    if (patch.comment != null) {
+      if (isExtra) updateExtra(key, { comment: patch.comment });
+      else updateDerivedComment(line, patch.comment);
+    }
+    if (patch.ownerLabel != null) {
+      if (isExtra) updateExtra(key, { ownerLabel: patch.ownerLabel });
+      else updateDerivedOwner(line, patch.ownerLabel);
+    }
+  }
+
+  function shortfallForLine(line: { type: string; catalogItemId: string | null }) {
+    if (line.type === "SECTION") return 0;
+    const itemId = line.catalogItemId;
+    if (!itemId) return 0;
+    const stock = stockMap[itemId];
+    const needed = neededByItem.get(itemId) || 0;
+    if (!stock || stock.unlimited || needed <= stock.available) return 0;
+    return needed - stock.available;
+  }
+
   function replaceLineFromCatalog(
     target: ReplaceTarget,
     item: PickedCatalogItem,
@@ -1131,15 +1197,17 @@ export function SpecEditor({
         )}
       >
         {isEditing ? (
-          <QuoteCatalogSidebar
-            onPickItem={onPickFromSidebar}
-            eventDate={meta.date || undefined}
-            durationDays={meta.durationDays}
-            zoneName={insertZone?.name || "спецификацию"}
-            addTargetLabel="спецификацию"
-            includeHidden
-            currentQtyByItem={neededByItem}
-          />
+          <div className="hidden min-w-0 lg:block">
+            <QuoteCatalogSidebar
+              onPickItem={onPickFromSidebar}
+              eventDate={meta.date || undefined}
+              durationDays={meta.durationDays}
+              zoneName={insertZone?.name || "спецификацию"}
+              addTargetLabel="спецификацию"
+              includeHidden
+              currentQtyByItem={neededByItem}
+            />
+          </div>
         ) : null}
 
         <div className="flex min-w-0 flex-1 flex-col gap-2">
@@ -1159,7 +1227,15 @@ export function SpecEditor({
       ) : null}
 
       {canEdit ? (
-        <div className="flex items-center justify-end gap-2">
+        <div className="quote-dense flex flex-wrap items-center justify-end gap-1 md:gap-2">
+          <button
+            type="button"
+            disabled={importBusy}
+            onClick={() => void openImportPreview()}
+            className="rounded-sm border border-[var(--line)] px-2 py-0.5 text-[11px] disabled:opacity-40 md:rounded-md md:px-3 md:py-1.5 md:text-xs"
+          >
+            {importBusy ? "Сравнение…" : "Импорт из сметы"}
+          </button>
           <button
             type="button"
             role="switch"
@@ -1171,7 +1247,7 @@ export function SpecEditor({
             }
             onClick={() => setEditMode((v) => !v)}
             className={cn(
-              "inline-flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs font-medium uppercase tracking-wide transition-colors",
+              "inline-flex items-center gap-1.5 rounded-sm border px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide transition-colors md:gap-2 md:rounded-md md:px-2.5 md:py-1.5 md:text-xs",
               editMode
                 ? "border-[var(--accent)] bg-[var(--accent)] text-white"
                 : "border-[var(--line)] text-[var(--muted)] hover:border-[var(--accent)] hover:text-[var(--ink)]",
@@ -1196,10 +1272,28 @@ export function SpecEditor({
         </div>
       ) : null}
 
+      <SpecCards
+        className="md:hidden"
+        lines={displayRows}
+        canEdit={isEditing}
+        shortfallFor={shortfallForLine}
+        onUpdate={patchCardLine}
+        onRemove={(key) => {
+          const line = displayRows.find((l) => l.key === key);
+          if (line) deleteLine(line);
+        }}
+        onMove={moveLine}
+        onToggleHide={(key) => {
+          const line = displayRows.find((l) => l.key === key);
+          if (line) toggleHideLine(line);
+        }}
+        emptyMessage="В этой зоне пока нет позиций для спецификации"
+      />
+
       <div
         ref={tableRef}
         className={cn(
-          "data-table-shell quote-estimate-table-wrap relative",
+          "data-table-shell quote-estimate-table-wrap relative hidden md:block",
           isEditing && catalogOver && "ring-2 ring-inset ring-[var(--accent)]",
         )}
         onDragOver={isEditing ? onCatalogTableDragOver : undefined}
@@ -1516,19 +1610,23 @@ export function SpecEditor({
       </div>
 
       {staffLines.length > 0 ? (
-        <div className="overflow-hidden rounded-lg border border-[var(--line)]">
-          <p className="border-b border-[var(--line)] bg-[var(--table-head)] px-3 py-1.5 text-caption font-semibold uppercase tracking-wide text-[var(--muted)]">
-            Технический персонал
-            {staffLines.some((l) => l.vacant)
-              ? " · есть незакрытые слоты"
-              : ""}
-          </p>
-          <ul className="divide-y divide-[var(--line)] text-sm">
+        <CollapsibleNotice
+          storageKey="bs-crm-staff-slots"
+          title="Технический персонал"
+          summary={
+            staffLines.some((l) => l.vacant)
+              ? `${staffLines.length} · есть незакрытые слоты`
+              : String(staffLines.length)
+          }
+          className="overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--panel)] text-[11px] md:text-sm"
+          headerClassName="bg-[var(--table-head)] text-caption font-semibold uppercase tracking-wide text-[var(--muted)] md:px-3"
+        >
+          <ul className="divide-y divide-[var(--line)] border-t border-[var(--line)]">
             {staffLines.map((line) => (
               <li
                 key={line.id}
                 className={cn(
-                  "px-3 py-1.5",
+                  "px-2 py-1 md:px-3 md:py-1.5",
                   line.vacant && "bg-amber-500/10 text-amber-800 dark:text-amber-200",
                 )}
               >
@@ -1536,22 +1634,22 @@ export function SpecEditor({
               </li>
             ))}
           </ul>
-        </div>
+        </CollapsibleNotice>
       ) : null}
 
       {isEditing && (
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="quote-dense flex flex-wrap items-center gap-1 md:gap-1.5">
           <button
             type="button"
             onClick={addSection}
-            className="rounded-md border border-[var(--line)] px-2.5 py-1.5 text-xs"
+            className="min-h-11 rounded-sm border border-[var(--line)] px-2 py-2 text-[11px] md:min-h-0 md:rounded-md md:px-2.5 md:py-1.5 md:text-xs"
           >
             + Раздел
           </button>
           <button
             type="button"
             onClick={addCustomItem}
-            className="rounded-md border border-[var(--line)] px-2.5 py-1.5 text-xs"
+            className="min-h-11 rounded-sm border border-[var(--line)] px-2 py-2 text-[11px] md:min-h-0 md:rounded-md md:px-2.5 md:py-1.5 md:text-xs"
           >
             + Позиция
           </button>
@@ -1588,8 +1686,8 @@ export function SpecEditor({
         </div>
       </div>
 
-      <footer className="flex flex-col gap-2 border-t border-[var(--line)] pt-3 sm:flex-row sm:items-end sm:justify-between">
-        <div className="min-w-0 text-xs text-[var(--muted)]">
+      <footer className="quote-dense flex flex-col gap-1 border-t border-[var(--line)] pt-2 sm:flex-row sm:items-end sm:justify-between md:gap-2 md:pt-3">
+        <div className="min-w-0 text-[10px] text-[var(--muted)] md:text-xs">
           <p className="font-medium text-[var(--ink)]">Спецификация на погрузку</p>
           <p>
             {canEdit
@@ -1606,23 +1704,13 @@ export function SpecEditor({
               : " · следует за сметой, пока не сохраните правки или не импортируете"}
             {error ? ` · ${error}` : ""}
           </p>
-          <p className="mt-1">
+          <p className="mt-1 hidden md:block">
             Отдельные позиции из сметы + разворот комплектов по составляющим.
             Цен нет. Технический персонал указан под таблицей.
             {canEdit ? " Правки поверх сметы сохраняются отдельно." : ""}
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
-          {isEditing && (
-            <button
-              type="button"
-              disabled={importBusy}
-              onClick={() => void openImportPreview()}
-              className="rounded-md border border-[var(--line)] px-3 py-1.5 text-xs disabled:opacity-40"
-            >
-              {importBusy ? "Сравнение…" : "Импорт из сметы"}
-            </button>
-          )}
           <button
             type="button"
             disabled={

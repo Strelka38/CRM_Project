@@ -386,11 +386,33 @@ export default function QuotesPage() {
     }
   }
 
+  async function exportPack() {
+    setCsvBusy(true);
+    setCsvMessage("");
+    try {
+      setCsvMessage(
+        await downloadCsvExport("/api/quotes/pack", "Сметы скачаны"),
+      );
+    } catch (e) {
+      setCsvMessage(e instanceof Error ? e.message : "Не удалось экспортировать");
+    } finally {
+      setCsvBusy(false);
+    }
+  }
+
   async function importCsv(file: File) {
     setCsvBusy(true);
     setCsvMessage("");
     try {
-      setCsvMessage(await uploadCsvImport("/api/quotes/csv", file));
+      const isJson =
+        file.name.toLowerCase().endsWith(".json") ||
+        file.type.includes("json");
+      setCsvMessage(
+        await uploadCsvImport(
+          isJson ? "/api/quotes/pack" : "/api/quotes/csv",
+          file,
+        ),
+      );
       void load();
     } catch (e) {
       setCsvMessage(e instanceof Error ? e.message : "Не удалось импортировать");
@@ -462,9 +484,16 @@ export default function QuotesPage() {
           csv={{
             busy: csvBusy,
             onExport: () => void exportCsv(),
+            extraExport: isManager
+              ? {
+                  label: "Экспорт смет (JSON)",
+                  onSelect: () => void exportPack(),
+                }
+              : undefined,
             onImport: isManager
               ? () => csvImportRef.current?.click()
               : undefined,
+            importLabel: isManager ? "Импорт смет" : undefined,
           }}
           selection={
             isManager
@@ -529,6 +558,15 @@ export default function QuotesPage() {
             ) : null}
             <DirectoryCsvMenu
               busy={csvBusy}
+              extraExport={
+                isManager
+                  ? {
+                      label: "Экспорт смет (JSON)",
+                      onSelect: () => void exportPack(),
+                    }
+                  : undefined
+              }
+              importLabel="Импорт смет"
               onExport={() => void exportCsv()}
               onImport={
                 isManager ? () => csvImportRef.current?.click() : undefined
@@ -540,7 +578,7 @@ export default function QuotesPage() {
         <input
           ref={csvImportRef}
           type="file"
-          accept=".csv,text/csv"
+          accept=".json,.csv,application/json,text/csv"
           className="hidden"
           onChange={(e) => {
             const file = e.target.files?.[0];

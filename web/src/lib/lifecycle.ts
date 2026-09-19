@@ -37,6 +37,20 @@ export function isLifecycleStatus(v: unknown): v is LifecycleStatus {
   );
 }
 
+export function parseLifecycleStatus(
+  raw: string,
+  fallback: LifecycleStatus = "CALCULATED",
+): LifecycleStatus {
+  const t = raw.trim();
+  if (isLifecycleStatus(t)) return t;
+  const upper = t.toUpperCase();
+  if (isLifecycleStatus(upper)) return upper;
+  const byLabel = LIFECYCLE_STATUSES.find(
+    (s) => LIFECYCLE_LABELS[s].toLowerCase() === t.toLowerCase(),
+  );
+  return byLabel ?? fallback;
+}
+
 export function lifecycleLabel(status: string): string {
   return isLifecycleStatus(status) ? LIFECYCLE_LABELS[status] : status;
 }

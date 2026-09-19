@@ -116,10 +116,10 @@ export function QuoteZoneTabs({
         return (
           <div
             key={z.id}
-            className={`group relative flex items-center gap-0.5 rounded-t border border-b-0 px-2 py-1 text-xs ${
+            className={`group relative -mb-px flex items-center gap-0.5 rounded-t-md border px-2 py-1.5 text-xs ${
               selected
-                ? "border-[var(--line)] bg-[var(--panel)] font-medium text-[var(--ink)]"
-                : "border-transparent bg-transparent text-[var(--muted)] hover:bg-[var(--panel-muted)]"
+                ? "border-[var(--line)] border-b-[var(--panel)] bg-[var(--panel)] font-medium text-[var(--ink)]"
+                : "border-[var(--line)] bg-[var(--bg)] text-[var(--muted)] hover:bg-[var(--panel-muted)] hover:text-[var(--ink)]"
             } ${off ? "opacity-50" : ""}`}
           >
             <button
@@ -174,10 +174,10 @@ export function QuoteZoneTabs({
         <button
           type="button"
           onClick={() => onSelect("summary")}
-          className={`rounded-t border border-b-0 px-2.5 py-1 text-xs ${
+          className={`-mb-px rounded-t-md border px-2.5 py-1.5 text-xs ${
             activeId === "summary"
-              ? "border-[var(--line)] bg-[var(--panel)] font-medium"
-              : "border-transparent text-[var(--muted)] hover:bg-[var(--panel-muted)]"
+              ? "border-[var(--line)] border-b-[var(--panel)] bg-[var(--panel)] font-medium"
+              : "border-[var(--line)] bg-[var(--bg)] text-[var(--muted)] hover:bg-[var(--panel-muted)] hover:text-[var(--ink)]"
           }`}
         >
           Сводная

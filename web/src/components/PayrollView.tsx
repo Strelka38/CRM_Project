@@ -14,11 +14,12 @@ import {
 } from "@/lib/period";
 import {
   Card,
+  DataCards,
   EmptyState,
-  PageHeader,
   SortableTh,
   StatusBadge,
   useTableSort,
+  type DataCardItem,
   type LifecycleStatus,
 } from "@/components/ui";
 import {
@@ -148,6 +149,21 @@ function asLifecycle(value: string): LifecycleStatus | null {
     return value;
   }
   return null;
+}
+
+function payDetail(r: Row): string {
+  const bits = [
+    r.rateOverride != null
+      ? `override ${formatMoney(r.rateOverride)}`
+      : r.payMode === "HOURLY"
+        ? `${r.hours ?? 0} ч × ${formatMoney(r.hourlyRate)}`
+        : `смена ${formatMoney(r.shiftRate)}`,
+  ];
+  if ((r.bonus ?? 0) > 0) bits.push(`премия ${formatMoney(r.bonus!)}`);
+  if ((r.montageAmount ?? 0) > 0) {
+    bits.push(`монт. ${formatMoney(r.montageAmount!)}`);
+  }
+  return bits.join(" · ");
 }
 
 export function PayrollView() {
@@ -343,30 +359,43 @@ function PayrollDashboard({
   }
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-6 md:px-6">
-      <PageHeader
-        title="Моя зарплата"
-        subtitle="Оклад, начисления по сменам, монтажные и агентские за выбранный период."
-        actions={
-          <div className="min-w-[12rem] text-right animate-fade-up">
-            <p className="text-xs uppercase tracking-[0.15em] text-[var(--muted)]">
+    <div className="mx-auto max-w-6xl px-3 py-3 md:px-6 md:py-6">
+      <header className="mb-3 flex items-end justify-between gap-3 md:mb-6">
+        <div className="min-w-0">
+          <p className="hidden font-mono text-caption uppercase tracking-[0.1em] text-[var(--muted)] md:block">
+            CRM
+          </p>
+          <h1 className="text-xl font-medium tracking-tight text-[var(--ink)] md:mt-1 md:text-[length:var(--fs-h1)] md:leading-[var(--lh-h1)]">
+            Моя зарплата
+          </h1>
+          <p className="mt-1 hidden max-w-prose text-sm leading-relaxed text-[var(--muted)] md:block">
+            Оклад, начисления по сменам, монтажные и агентские за выбранный
+            период.
+          </p>
+        </div>
+        <div className="min-w-0 shrink-0 text-right">
+          <p className="hidden text-caption uppercase tracking-[0.12em] text-[var(--muted)] md:block">
+            Итого
+          </p>
+          <p className="flex items-baseline justify-end gap-2 text-2xl font-medium tracking-tight text-[var(--accent-deep)] tabular-nums md:text-4xl">
+            <span className="text-caption uppercase tracking-[0.12em] text-[var(--muted)] md:hidden">
               Итого
-            </p>
-            <p className="mt-0.5 text-4xl font-medium tracking-tight text-[var(--accent-deep)] tabular-nums sm:text-5xl">
-              {formatMoney(grandTotal)}
-            </p>
-            {composition.length > 0 && (
+            </span>
+            {formatMoney(grandTotal)}
+          </p>
+          {composition.length > 0 ? (
+            <div className="hidden md:block">
               <CompositionBar parts={composition} total={grandTotal} />
-            )}
-          </div>
-        }
-      />
+            </div>
+          ) : null}
+        </div>
+      </header>
 
-      <div className="mb-6 -mt-4 flex flex-wrap items-end gap-3">
+      <div className="mb-3 flex flex-wrap items-end gap-2 md:mb-6 md:gap-3">
         <label className="block text-sm">
-          <span className="text-xs text-[var(--muted)]">Период</span>
+          <span className="text-caption text-[var(--muted)]">Период</span>
           <select
-            className="field mt-1 min-w-[10rem]"
+            className="field mt-1 min-w-[8.5rem]"
             value={period}
             onChange={(e) => onPeriod(e.target.value as ListPeriod)}
           >
@@ -388,10 +417,10 @@ function PayrollDashboard({
               ←
             </button>
             <label className="block text-sm">
-              <span className="text-xs text-[var(--muted)]">Месяц</span>
+              <span className="text-caption text-[var(--muted)]">Месяц</span>
               <input
                 type="month"
-                className="field mt-1 min-w-[10rem]"
+                className="field mt-1 min-w-[9rem]"
                 value={toYearMonthParam(ym)}
                 onChange={(e) => onYm(parseYearMonth(e.target.value))}
               />
@@ -406,29 +435,29 @@ function PayrollDashboard({
             </button>
           </div>
         )}
-        <p className="pb-2 text-sm text-[var(--muted)]">
+        <p className="hidden pb-2 text-sm text-[var(--muted)] md:block">
           {data.period?.label ??
             (period === "month" ? formatYearMonthLabel(ym) : "")}
           {loading ? " · обновление…" : ""}
         </p>
-        <div className="ml-auto pb-1">
+        <div className="ml-auto hidden pb-1 md:block">
           <DirectoryCsvMenu onExport={exportCsv} />
         </div>
       </div>
 
       <div
-        className={`mb-6 grid gap-3 sm:grid-cols-2 ${
-          hasAgency ? "lg:grid-cols-4" : "lg:grid-cols-3"
+        className={`mb-3 grid grid-cols-2 gap-2 md:mb-6 md:gap-3 ${
+          hasAgency ? "lg:grid-cols-4" : "sm:grid-cols-2 lg:grid-cols-3"
         }`}
       >
         <KpiCard
-          label="Месячный оклад"
+          label="Оклад"
           value={data.monthlySalary}
           share={grandTotal}
           color={SLICE_COLORS.salary}
         />
         <KpiCard
-          label="Итого подтв. / заверш."
+          label="Подтв. / заверш."
           value={data.estimatedSalary}
           share={grandTotal}
           color={SLICE_COLORS.shifts}
@@ -458,7 +487,7 @@ function PayrollDashboard({
           />
         )}
         <KpiCard
-          label="Ожидается (посчитано)"
+          label="Ожидается"
           value={data.pendingTotal}
           color={SLICE_COLORS.pending}
           hint="не входит в итого"
@@ -466,7 +495,7 @@ function PayrollDashboard({
       </div>
 
       {showCharts && (
-        <Card className="mb-6 p-4 md:p-5">
+        <Card className="mb-6 hidden p-4 md:block md:p-5">
           <div className="grid gap-6 lg:grid-cols-2 lg:items-center">
             <PayrollCompositionChart
               slices={composition.map((s) => ({
@@ -490,7 +519,7 @@ function PayrollDashboard({
       <Section
         title="Ожидаемые смены"
         rows={data.pending}
-        className="mt-6"
+        className="mt-3 md:mt-6"
       />
 
       {hasAgency && (
@@ -498,13 +527,13 @@ function PayrollDashboard({
           <AgencySection
             title="Агентские менеджера"
             rows={data.agencyConfirmed ?? []}
-            className="mt-6"
+            className="mt-3 md:mt-6"
           />
           {(data.agencyPending?.length ?? 0) > 0 && (
             <AgencySection
               title="Ожидаемые агентские"
               rows={data.agencyPending}
-              className="mt-6"
+              className="mt-3 md:mt-6"
             />
           )}
         </>
@@ -559,15 +588,15 @@ function KpiCard({
   const pct =
     share && share > 0 ? Math.round((value / share) * 100) : null;
   return (
-    <Card className="p-5">
-      <p className="text-xs uppercase tracking-[0.15em] text-[var(--muted)]">
+    <Card className="p-3 md:p-5">
+      <p className="text-caption uppercase tracking-[0.12em] text-[var(--muted)] md:text-xs md:tracking-[0.15em]">
         {label}
       </p>
-      <p className="mt-1 text-3xl font-medium tracking-tight tabular-nums">
+      <p className="mt-0.5 text-xl font-medium tracking-tight tabular-nums md:mt-1 md:text-3xl">
         {formatMoney(value)}
       </p>
       {pct != null && (
-        <div className="mt-3 h-1 overflow-hidden rounded-full bg-[var(--line)]">
+        <div className="mt-2 h-1 overflow-hidden rounded-full bg-[var(--line)] md:mt-3">
           <div
             className="h-full rounded-full"
             style={{ width: `${Math.min(100, pct)}%`, background: color }}
@@ -575,7 +604,9 @@ function KpiCard({
         </div>
       )}
       {hint && (
-        <p className="mt-1.5 text-caption text-[var(--muted)]">{hint}</p>
+        <p className="mt-1 line-clamp-2 text-caption text-[var(--muted)] md:mt-1.5">
+          {hint}
+        </p>
       )}
     </Card>
   );
@@ -591,12 +622,34 @@ function Section({
   className?: string;
 }) {
   const { sorted, sort, onSort } = useTableSort(rows, payrollSortValue);
+  const cards: DataCardItem[] = sorted.map((r) => {
+    const life = asLifecycle(r.quote.lifecycle);
+    return {
+      id: r.id,
+      title: r.quote.eventName || "Без названия",
+      subtitle: [r.quote.date || "—", r.specialty.name]
+        .filter(Boolean)
+        .join(" · "),
+      href: `/quotes/${r.quote.id}`,
+      trailing: (
+        <span className="font-medium tabular-nums">
+          {formatMoney(r.pay + (r.montageAmount ?? 0))}
+        </span>
+      ),
+      fields: [
+        ...(life
+          ? [{ label: "Статус", value: <StatusBadge status={life} /> }]
+          : []),
+        { label: "Расчёт", value: payDetail(r), block: true },
+      ],
+    };
+  });
   return (
     <section
       className={`rounded-xl border border-[var(--line)] bg-[var(--panel)] ${className}`}
     >
-      <div className="flex items-baseline justify-between gap-3 border-b border-[var(--line)] px-4 py-3">
-        <h2 className="font-display text-lg">{title}</h2>
+      <div className="flex items-baseline justify-between gap-3 border-b border-[var(--line)] px-3 py-2 md:px-4 md:py-3">
+        <h2 className="font-display text-base md:text-lg">{title}</h2>
         {rows.length > 0 && (
           <p className="text-sm tabular-nums text-[var(--muted)]">
             {formatMoney(
@@ -607,12 +660,15 @@ function Section({
       </div>
       {rows.length === 0 ? (
         <EmptyState
+          className="py-6 md:py-16"
           title="Нет назначений"
           description="За этот период смены не начислялись."
         />
       ) : (
-        <div className="data-table-shell overflow-x-auto">
-          <table className="data-table w-full min-w-[600px] text-sm">
+        <>
+          <DataCards className="p-2 md:hidden" items={cards} />
+          <div className="data-table-shell hidden overflow-x-auto md:block">
+            <table className="data-table w-full min-w-[600px] text-sm">
             <thead className="bg-[var(--table-head)] text-xs uppercase text-[var(--muted)]">
               <tr>
                 <SortableTh
@@ -705,6 +761,7 @@ function Section({
             </tbody>
           </table>
         </div>
+        </>
       )}
     </section>
   );
@@ -720,12 +777,40 @@ function AgencySection({
   className?: string;
 }) {
   const { sorted, sort, onSort } = useTableSort(rows, agencySortValue);
+  const cards: DataCardItem[] = sorted.map((r) => {
+    const life = asLifecycle(r.quote.lifecycle);
+    return {
+      id: r.id,
+      title: r.quote.eventName || "Без названия",
+      subtitle: r.quote.date || "—",
+      href: `/calculations/${r.quote.id}`,
+      trailing: (
+        <span className="font-medium tabular-nums">
+          {formatMoney(r.agencyTotal)}
+        </span>
+      ),
+      fields: [
+        ...(life
+          ? [{ label: "Статус", value: <StatusBadge status={life} /> }]
+          : []),
+        {
+          label: "По фирмам",
+          value:
+            r.byCompany
+              .filter((c) => c.agency > 0)
+              .map((c) => `${c.short} ${formatMoney(c.agency)}`)
+              .join(" · ") || "—",
+          block: true,
+        },
+      ],
+    };
+  });
   return (
     <section
       className={`rounded-xl border border-[var(--line)] bg-[var(--panel)] ${className}`}
     >
-      <div className="flex items-baseline justify-between gap-3 border-b border-[var(--line)] px-4 py-3">
-        <h2 className="font-display text-lg">{title}</h2>
+      <div className="flex items-baseline justify-between gap-3 border-b border-[var(--line)] px-3 py-2 md:px-4 md:py-3">
+        <h2 className="font-display text-base md:text-lg">{title}</h2>
         {rows.length > 0 && (
           <p className="text-sm tabular-nums text-[var(--muted)]">
             {formatMoney(rows.reduce((s, r) => s + r.agencyTotal, 0))}
@@ -734,11 +819,14 @@ function AgencySection({
       </div>
       {rows.length === 0 ? (
         <EmptyState
+          className="py-6 md:py-16"
           title="Нет агентских за период"
           description="Комиссия появится по вашим подтверждённым проектам."
         />
       ) : (
-        <div className="data-table-shell overflow-x-auto">
+        <>
+          <DataCards className="p-2 md:hidden" items={cards} />
+          <div className="data-table-shell hidden overflow-x-auto md:block">
           <table className="data-table w-full min-w-[560px] text-sm">
             <thead className="bg-[var(--table-head)] text-xs uppercase text-[var(--muted)]">
               <tr>
@@ -819,6 +907,7 @@ function AgencySection({
             </tbody>
           </table>
         </div>
+        </>
       )}
     </section>
   );

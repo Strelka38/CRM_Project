@@ -58,6 +58,7 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import {
   ActionSheet,
   Button,
+  CollapsibleNotice,
   LIFECYCLE_LABELS,
   LIFECYCLE_STATUSES,
   PaymentFlags,
@@ -145,7 +146,7 @@ const LIFE_OPTS: { value: Lifecycle; label: string }[] =
 const ACTION_ICON = "size-4 sm:size-[1.125rem]";
 
 const PANE_TAB =
-  "relative -mb-px shrink-0 rounded-t-lg border border-b-0 px-3 py-2 text-xs whitespace-nowrap transition-colors sm:text-sm";
+  "relative -mb-px shrink-0 rounded-t-md border border-b-0 px-2 py-1 text-xs whitespace-nowrap transition-colors md:rounded-t-lg md:px-3 md:py-2 md:text-sm";
 
 function resizeItemNameField(element: HTMLTextAreaElement | null) {
   if (!element) return;
@@ -241,7 +242,8 @@ export function QuoteEditor({
   const [dropKey, setDropKey] = useState<string | null>(null);
   const [catalogOver, setCatalogOver] = useState(false);
   const [catalogGapIndex, setCatalogGapIndex] = useState<number | null>(null);
-  const catalogInSheet = useIsMobile();
+  const isMobile = useIsMobile();
+  const catalogInSheet = isMobile;
   const [catalogSheetOpen, setCatalogSheetOpen] = useState(false);
   const [actionsSheetOpen, setActionsSheetOpen] = useState(false);
   const tableRef = useRef<HTMLDivElement>(null);
@@ -388,6 +390,11 @@ export function QuoteEditor({
       )
       .catch(() => {});
   }, [isManager]);
+
+  useEffect(() => {
+    if (!isMobile || editorPane !== "team") return;
+    goToPane(viewQuote ? "quote" : "spec");
+  }, [isMobile, editorPane, viewQuote]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -676,6 +683,11 @@ export function QuoteEditor({
     const qs = params.toString();
     router.replace(`/quotes/${quoteId}${qs ? `?${qs}` : ""}`, { scroll: false });
   }
+
+  useEffect(() => {
+    if (!isMobile) return;
+    if (editorPane === "docs" || editorPane === "team") goToPane("spec");
+  }, [editorPane, isMobile]);
 
   async function saveNow() {
     if (!meta) return;
@@ -1164,9 +1176,9 @@ export function QuoteEditor({
     : null;
 
   return (
-    <div className="mx-auto flex w-full max-w-[1920px] flex-col gap-3 px-2 py-3 md:px-3">
-      <header className="flex flex-col gap-2">
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
+    <div className="mx-auto flex w-full max-w-[1920px] flex-col gap-2 px-2 py-2 md:gap-3 md:px-3 md:py-3">
+      <header className="flex flex-col gap-1">
+        <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
           <button
             type="button"
             onClick={() => router.push("/quotes")}
@@ -1174,25 +1186,22 @@ export function QuoteEditor({
           >
             ← {isManager ? "Сметы" : "Мероприятия"}
           </button>
-          <label className="flex min-w-0 items-center gap-1 text-sm">
+          <label className="flex shrink-0 items-center gap-1 text-sm">
             <span className="shrink-0 text-[var(--muted)]">№</span>
             <input
-              className="field w-14 px-1.5 py-1 text-center tabular-nums"
+              className="field quote-chrome-field quote-chrome-num px-1 text-center tabular-nums"
               value={meta.proposalNumber}
               aria-label="Номер КП"
               disabled={!isManager}
               onChange={(e) => updateMeta("proposalNumber", e.target.value)}
             />
           </label>
-          <input
-            className="field min-w-[8rem] flex-1 py-1 font-medium"
-            value={meta.eventName}
-            placeholder="Название мероприятия"
-            aria-label="Название мероприятия"
-            disabled={!isManager}
-            onChange={(e) => updateMeta("eventName", e.target.value)}
-          />
-          <p className="text-caption text-[var(--muted)]">
+          <p
+            className={cn(
+              "ml-auto shrink-0 text-caption text-[var(--muted)]",
+              !saving && !error && !importUnmatched && "hidden md:block",
+            )}
+          >
             {saving
               ? "Сохранение…"
               : savedAt
@@ -1205,10 +1214,18 @@ export function QuoteEditor({
                 } в каталоге, оставлены как свободные строки`
               : ""}
           </p>
+          <input
+            className="field quote-chrome-field min-w-0 flex-1 font-medium md:basis-full"
+            value={meta.eventName}
+            placeholder="Название мероприятия"
+            aria-label="Название мероприятия"
+            disabled={!isManager}
+            onChange={(e) => updateMeta("eventName", e.target.value)}
+          />
         </div>
-        <div className="flex flex-wrap items-end gap-x-3 border-b border-[var(--line)]">
+        <div className="flex items-end gap-1 border-b border-[var(--line)] md:gap-x-3">
           <div
-            className="flex flex-1 flex-wrap items-end gap-1 overflow-visible"
+            className="flex min-w-0 flex-1 flex-nowrap items-end gap-0.5 overflow-x-hidden md:gap-1 md:overflow-visible"
             role="tablist"
             aria-label="Разделы карточки сметы"
           >
@@ -1224,8 +1241,9 @@ export function QuoteEditor({
             )
               .filter(([id]) => {
                 if (id === "quote") return viewQuote;
-                if (id === "docs") return isManager;
+                if (id === "docs") return isManager && !isMobile;
                 if (id === "history") return showHistory;
+                if (id === "team") return !isMobile;
                 return true;
               })
               .map(([id, label]) => (
@@ -1246,14 +1264,14 @@ export function QuoteEditor({
                 </button>
               ))}
           </div>
-          <div className="flex w-full shrink-0 flex-wrap justify-end gap-1.5 pb-1.5 md:ml-auto md:w-auto">
+          <div className="relative z-10 flex shrink-0 items-center gap-1 pb-1 md:gap-1.5 md:pb-1.5">
             {isManager && (
               <>
                 <button
                   type="button"
                   disabled={zoneSummary.itemCount === 0}
                   onClick={() => setExportOpen(true)}
-                  className="shrink-0 rounded-md bg-[var(--solid)] px-2.5 py-1.5 text-xs whitespace-nowrap text-[var(--on-solid)] disabled:opacity-40 sm:text-sm"
+                  className="h-8 shrink-0 rounded-md bg-[var(--solid)] px-2.5 text-xs whitespace-nowrap text-[var(--on-solid)] disabled:opacity-40 sm:text-sm"
                 >
                   Excel
                 </button>
@@ -1263,7 +1281,7 @@ export function QuoteEditor({
                   type="button"
                   variant="icon"
                   size="sm"
-                  className="tap-target md:hidden"
+                  className="h-8 min-h-8 w-8 md:hidden"
                   onClick={() => setActionsSheetOpen(true)}
                   aria-label="Действия со сметой"
                 >
@@ -1390,11 +1408,21 @@ export function QuoteEditor({
       </header>
 
       {stockIssues.length > 0 && (
-        <div className="rounded-xl border border-amber-500/40 bg-amber-500/15 px-4 py-3 text-sm">
-          <p className="font-medium">
-            Смета сохранена. Не хватает на складе (можно субаренда):
-          </p>
-          <ul className="mt-1 list-disc pl-5">
+        <CollapsibleNotice
+          storageKey="bs-crm-stock-warning"
+          title="Не хватает на складе"
+          summary={`${stockIssues.length} ${
+            stockIssues.length % 10 === 1 && stockIssues.length % 100 !== 11
+              ? "позиция"
+              : stockIssues.length % 10 >= 2 &&
+                  stockIssues.length % 10 <= 4 &&
+                  (stockIssues.length % 100 < 12 || stockIssues.length % 100 > 14)
+                ? "позиции"
+                : "позиций"
+          } · можно субаренда`}
+          className="rounded-xl border border-amber-500/40 bg-amber-500/15 text-sm"
+        >
+          <ul className="list-disc px-4 pb-3 pl-8 md:px-5 md:pl-9">
             {stockIssues.map((s) => (
               <li key={s.catalogItemId || s.name}>
                 {s.name}: не хватает{" "}
@@ -1403,7 +1431,7 @@ export function QuoteEditor({
               </li>
             ))}
           </ul>
-        </div>
+        </CollapsibleNotice>
       )}
       {lineNotice ? (
         <div className="rounded-xl border border-[var(--line)] bg-[var(--panel-muted)] px-4 py-2 text-sm">
@@ -1415,8 +1443,8 @@ export function QuoteEditor({
         <section className="rounded-xl border border-[var(--line)] bg-[var(--panel)] p-3 [&_.field]:px-2.5 [&_.field]:py-1.5">
           <div className="grid items-start gap-3 xl:grid-cols-[minmax(0,1.15fr)_minmax(22rem,0.85fr)]">
             <div className="grid gap-2.5">
-              <div className="flex flex-wrap items-end gap-x-3 gap-y-1.5">
-                <label className="w-[11.5rem] min-w-0 text-caption text-[var(--muted)]">
+              <div className="flex flex-col gap-2 md:flex-row md:flex-wrap md:items-end md:gap-x-3">
+                <label className="min-w-0 text-caption text-[var(--muted)] md:w-[11.5rem]">
                   Статус КП
                   <select
                     className="field mt-0.5 text-sm"
@@ -1434,29 +1462,31 @@ export function QuoteEditor({
                     ))}
                   </select>
                 </label>
-                <label className="w-[8.5rem] min-w-0 text-caption text-[var(--muted)]">
-                  Создана
-                  <p className="mt-0.5 text-sm text-[var(--ink)]">
-                    {formatIsoRuDate(meta.createdAt)}
-                  </p>
-                </label>
-                <div className="ml-auto min-w-0">
-                  <div className="mb-0.5 text-caption text-[var(--muted)]">
-                    Оплата
+                <div className="grid grid-cols-[auto_minmax(0,1fr)] items-end gap-x-4 gap-y-1 md:contents">
+                  <label className="min-w-0 text-caption text-[var(--muted)] md:w-[8.5rem]">
+                    Создана
+                    <p className="mt-0.5 text-sm tabular-nums text-[var(--ink)]">
+                      {formatIsoRuDate(meta.createdAt)}
+                    </p>
+                  </label>
+                  <div className="min-w-0 md:ml-auto">
+                    <div className="mb-0.5 text-caption text-[var(--muted)]">
+                      Оплата
+                    </div>
+                    <PaymentFlags
+                      invoiceSent={meta.invoiceSent}
+                      paid={meta.paid}
+                      paymentComment={meta.paymentComment}
+                      disabled={!isManager}
+                      onChange={(patch) => {
+                        setMeta((prev) => (prev ? { ...prev, ...patch } : prev));
+                      }}
+                    />
                   </div>
-                  <PaymentFlags
-                    invoiceSent={meta.invoiceSent}
-                    paid={meta.paid}
-                    paymentComment={meta.paymentComment}
-                    disabled={!isManager}
-                    onChange={(patch) => {
-                      setMeta((prev) => (prev ? { ...prev, ...patch } : prev));
-                    }}
-                  />
                 </div>
               </div>
 
-              <div className="grid gap-x-3 gap-y-2 sm:grid-cols-2">
+              <div className="grid grid-cols-2 gap-x-3 gap-y-2">
                 <DateRangePicker
                   dense
                   date={meta.date}
@@ -1523,7 +1553,7 @@ export function QuoteEditor({
                     );
                   }}
                 />
-                <div className="text-caption text-[var(--muted)]">
+                <div className="col-span-2 text-caption text-[var(--muted)] sm:col-span-1">
                   <span className="flex items-baseline justify-between gap-2">
                     Площадка
                     {meta.venueId && isManager ? (
@@ -1580,7 +1610,7 @@ export function QuoteEditor({
                     }
                   />
                 </div>
-                <label className="text-caption text-[var(--muted)]">
+                <label className="col-span-2 text-caption text-[var(--muted)] sm:col-span-1">
                   Менеджер
                   {isManager && managers.length > 0 ? (
                     <select
@@ -1619,7 +1649,7 @@ export function QuoteEditor({
                     />
                   )}
                 </label>
-                <label className="text-caption text-[var(--muted)]">
+                <label className="col-span-2 text-caption text-[var(--muted)] sm:col-span-1">
                   Заказчик
                   <ClientQuickSearch
                     value={meta.client}
@@ -1644,7 +1674,7 @@ export function QuoteEditor({
                     }
                   />
                 </label>
-                <label className="text-caption text-[var(--muted)]">
+                <label className="col-span-2 text-caption text-[var(--muted)] sm:col-span-1">
                   Контактная информация
                   <input
                     className="field mt-0.5 text-sm"
@@ -1657,7 +1687,7 @@ export function QuoteEditor({
                     }
                   />
                 </label>
-                <div className="grid grid-cols-[minmax(0,1fr)_4.75rem] items-end gap-2">
+                <div className="col-span-2 grid grid-cols-[minmax(0,1fr)_4.75rem] items-end gap-2">
                   <label className="field flex items-center gap-2 text-sm">
                     <input
                       type="checkbox"
@@ -1713,7 +1743,7 @@ export function QuoteEditor({
         </section>
       ) : null}
 
-      {editorPane === "team" ? (
+      {editorPane === "team" && !isMobile ? (
         <section className="rounded-xl border border-[var(--line)] bg-[var(--panel)] p-3">
           <div className="grid items-start gap-4 lg:grid-cols-2">
             <QuoteAssignments
@@ -1750,7 +1780,7 @@ export function QuoteEditor({
                 onClose={() => setCatalogSheetOpen(false)}
                 labelledBy="quote-catalog-sheet"
               >
-                <div className="flex min-h-0 flex-col">
+                <div className="flex h-full min-h-0 flex-1 flex-col">
                   <div className="flex items-center gap-2 border-b border-[var(--line)] px-4 py-3">
                     <h2
                       id="quote-catalog-sheet"
@@ -2243,12 +2273,12 @@ export function QuoteEditor({
           </p>
 
           {isManager ? (
-          <div className="flex flex-wrap gap-1.5">
+          <div className="quote-dense flex flex-wrap gap-1">
               {catalogInSheet ? (
                 <button
                   type="button"
                   onClick={() => setCatalogSheetOpen(true)}
-                  className="tap-target w-full rounded-md border border-[var(--accent)]/40 px-2.5 py-1.5 text-xs text-[var(--accent)]"
+                  className="min-h-11 w-full rounded-sm border border-[var(--accent)]/40 px-2 py-2 text-[11px] text-[var(--accent)] md:min-h-0 md:rounded-md md:px-2.5 md:py-1.5 md:text-xs"
                 >
                   Добавить из каталога
                 </button>
@@ -2256,14 +2286,14 @@ export function QuoteEditor({
               <button
                 type="button"
                 onClick={addSection}
-                className="tap-target flex-1 rounded-md border border-[var(--line)] px-2.5 py-1.5 text-xs md:flex-none"
+                className="min-h-11 flex-1 rounded-sm border border-[var(--line)] px-2 py-2 text-[11px] md:min-h-0 md:flex-none md:rounded-md md:px-2.5 md:py-1.5 md:text-xs"
               >
                 + Раздел
               </button>
               <button
                 type="button"
                 onClick={addCustomItem}
-                className="tap-target flex-1 rounded-md border border-[var(--line)] px-2.5 py-1.5 text-xs md:flex-none"
+                className="min-h-11 flex-1 rounded-sm border border-[var(--line)] px-2 py-2 text-[11px] md:min-h-0 md:flex-none md:rounded-md md:px-2.5 md:py-1.5 md:text-xs"
               >
                 + Позиция
               </button>
@@ -2273,27 +2303,27 @@ export function QuoteEditor({
         </>
       )}
 
-      <section className="flex flex-col gap-2 rounded-lg border border-[var(--line)] bg-[var(--bg)]/95 px-3 py-2 sm:flex-row sm:items-end sm:justify-between">
+      <section className="quote-dense flex flex-col gap-1 rounded-md border border-[var(--line)] bg-[var(--bg)]/95 px-2 py-1.5 sm:flex-row sm:items-end sm:justify-between md:gap-2 md:rounded-lg md:px-3 md:py-2">
         <div>
-          <p className="text-xs uppercase tracking-wider text-[var(--muted)]">
+          <p className="text-[10px] uppercase tracking-wider text-[var(--muted)] md:text-xs">
             Итого по блоку
           </p>
-          <p className="font-display text-2xl">
+          <p className="font-display text-sm tabular-nums md:text-2xl">
             {formatMoney(blockTotals.payable)}
           </p>
-          <p className="text-xs text-[var(--muted)]">
+          <p className="text-[10px] text-[var(--muted)] md:text-xs">
             {blockTotals.name} · позиций: {blockTotals.itemCount} · без скидки{" "}
             {formatMoney(blockTotals.subtotal)}
           </p>
         </div>
         <div className="sm:text-right">
-          <p className="text-xs uppercase tracking-wider text-[var(--muted)]">
+          <p className="text-[10px] uppercase tracking-wider text-[var(--muted)] md:text-xs">
             Итого к оплате
           </p>
-          <p className="font-display text-2xl">
+          <p className="font-display text-sm tabular-nums md:text-2xl">
             {formatMoney(zoneSummary.payable)}
           </p>
-          <p className="text-xs text-[var(--muted)]">
+          <p className="text-[10px] text-[var(--muted)] md:text-xs">
             Позиций: {zoneSummary.itemCount} · без скидки{" "}
             {formatMoney(zoneSummary.subtotal)} · скидка{" "}
             {formatMoney(zoneSummary.discount)} ·{" "}
@@ -2335,7 +2365,7 @@ export function QuoteEditor({
         </div>
       ) : null}
 
-      {openedPanes.has("docs") ? (
+      {openedPanes.has("docs") && !isMobile ? (
         <div className={editorPane === "docs" ? "" : "hidden"}>
           <QuoteDocumentsPanel
             quoteId={quoteId}

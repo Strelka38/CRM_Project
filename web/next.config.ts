@@ -10,6 +10,8 @@ const dockerCpus = Math.max(
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  // LAN phone testing: Next 16 blocks unknown Host in dev (login POST / HMR).
+  allowedDevOrigins: ["192.168.0.102"],
   // Silence Next 16 Turbopack vs webpack-config conflict in `next dev`
   turbopack: {},
   typescript: {

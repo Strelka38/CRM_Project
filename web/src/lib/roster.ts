@@ -78,6 +78,11 @@ export type RosterItem = {
   specialtyId: string | null;
   /** Монтаж или демонтаж, если слот из блока монтажников. */
   mountDuty: "mount" | "demount" | null;
+  /** Подпись зоны (как «монтаж»), не слот назначения. */
+  zoneMark: boolean;
+  zoneId: string | null;
+  zoneName: string | null;
+  zoneSortOrder: number;
   /** Индекс пустого слота той же роли в этот день — чтобы склеить ×N по дням. */
   slotOrdinal: number;
   /** Фирмы менеджера, который завёл смету / запись. */
@@ -221,6 +226,10 @@ function atomicItem(
     | "mountEnd"
     | "demountStart"
     | "demountEnd"
+    | "zoneMark"
+    | "zoneId"
+    | "zoneName"
+    | "zoneSortOrder"
   > & {
     slotOrdinal?: number;
     firmOwners?: CatalogOwnerValue[];
@@ -228,12 +237,20 @@ function atomicItem(
     mountEnd?: string | null;
     demountStart?: string | null;
     demountEnd?: string | null;
+    zoneMark?: boolean;
+    zoneId?: string | null;
+    zoneName?: string | null;
+    zoneSortOrder?: number;
   },
 ): RosterItem {
   return {
     ...partial,
     specialtyId: partial.specialtyId ?? null,
     mountDuty: partial.mountDuty ?? null,
+    zoneMark: Boolean(partial.zoneMark),
+    zoneId: partial.zoneId ?? null,
+    zoneName: partial.zoneName ?? null,
+    zoneSortOrder: partial.zoneSortOrder ?? 9999,
     slotOrdinal: partial.slotOrdinal ?? 0,
     firmOwners: partial.firmOwners ?? [],
     mountStart: partial.mountStart ?? null,
@@ -348,6 +365,7 @@ export function buildQuoteRosterItems(q: RosterQuoteInput): RosterItem[] {
   const eventDays = workingDayCount(q.durationDays);
   const eventStartKey = formatDateKey(eventStart);
   const firmOwners = [...(q.firmOwners || [])];
+  const zoneById = new Map((q.zones || []).map((z) => [z.id, z]));
   const dutyWindows = quoteDutyWindows(q, eventStart, eventDays);
   const mountKeys = rangeKeys(dutyWindows.mount.start, dutyWindows.mount.end);
   const demountKeys = rangeKeys(
@@ -412,6 +430,8 @@ export function buildQuoteRosterItems(q: RosterQuoteInput): RosterItem[] {
           })();
     for (const win of windows) {
       const keys = rangeKeys(win.start, win.end);
+      const zoneId = a.zoneId || null;
+      const zone = zoneId ? zoneById.get(zoneId) : undefined;
       items.push(
         atomicItem({
           id: win.id,
@@ -427,6 +447,14 @@ export function buildQuoteRosterItems(q: RosterQuoteInput): RosterItem[] {
           name,
           role: win.role,
           mountDuty: win.mountDuty,
+          zoneId,
+          zoneName: zone?.name?.trim() || null,
+          zoneSortOrder:
+            zone?.sortOrder != null && Number.isFinite(zone.sortOrder)
+              ? Number(zone.sortOrder)
+              : zoneId
+                ? 500
+                : 9999,
           title,
           subtitle: win.role,
           start: keys.start,
@@ -475,10 +503,62 @@ export function buildQuoteRosterItems(q: RosterQuoteInput): RosterItem[] {
       }),
     );
   }
+  const eventZoneIds = [
+    ...new Set(
+      items
+        .filter((i) => i.assignmentKind === "EVENT" && i.zoneId)
+        .map((i) => i.zoneId!),
+    ),
+  ];
+  if (eventZoneIds.length >= 2) {
+    for (const zoneId of eventZoneIds) {
+      const zoneItems = items.filter(
+        (i) => i.assignmentKind === "EVENT" && i.zoneId === zoneId,
+      );
+      if (zoneItems.length === 0) continue;
+      const zone = zoneById.get(zoneId);
+      const zoneName = zone?.name?.trim() || zoneItems[0]?.zoneName || "Зона";
+      const starts = zoneItems.map((i) => i.start).sort();
+      const ends = zoneItems.map((i) => i.end).sort();
+      items.push(
+        atomicItem({
+          id: `qa:${q.id}:zone:${zoneId}`,
+          source: "quote",
+          kind: "EVENT",
+          assignmentKind: "EVENT",
+          quoteId: q.id,
+          entryId: null,
+          assignmentIds: [],
+          userId: null,
+          vacant: true,
+          freelancer: false,
+          name: "",
+          role: zoneName,
+          mountDuty: null,
+          zoneMark: true,
+          zoneId,
+          zoneName,
+          zoneSortOrder: zoneItems[0]?.zoneSortOrder ?? 500,
+          title,
+          subtitle: zoneName,
+          start: starts[0]!,
+          end: ends[ends.length - 1]!,
+          dayIndexStart: null,
+          dayIndexEnd: null,
+          eventStart: eventStartKey,
+          eventDays,
+          resizable: false,
+          specialtyId: null,
+          firmOwners,
+          ...dutyDates,
+        }),
+      );
+    }
+  }
   const vacantOrd = new Map<string, number>();
   for (const item of items) {
     if (!item.vacant) continue;
-    const key = `${item.start}\t${item.assignmentKind || ""}\t${item.role}`;
+    const key = `${item.start}\t${item.assignmentKind || ""}\t${item.role}\t${item.zoneId || ""}`;
     const n = vacantOrd.get(key) || 0;
     item.slotOrdinal = n;
     vacantOrd.set(key, n + 1);
@@ -605,11 +685,15 @@ function mergeKey(item: RosterItem): string {
     item.source,
     item.quoteId || item.entryId || "",
     item.assignmentKind || item.kind,
+    item.zoneId || "",
+    item.zoneMark ? "zone-mark" : "",
     item.userId || (item.freelancer ? `fl:${item.name}` : "vacant"),
     item.role,
     item.vacant
       ? item.assignmentIds.length === 0
-        ? "vac:open"
+        ? item.zoneMark
+          ? "vac:zone"
+          : "vac:open"
         : `vac:${item.slotOrdinal}`
       : "filled",
   ].join("\t");
@@ -948,16 +1032,25 @@ export function rosterItemMatchesFirms(
 }
 
 export function isOpenMountDropSlot(
-  item: Pick<RosterItem, "vacant" | "assignmentIds" | "mountDuty">,
+  item: Pick<RosterItem, "vacant" | "assignmentIds" | "mountDuty" | "zoneMark">,
 ): boolean {
+  if (item.zoneMark) return false;
   return item.vacant && item.assignmentIds.length === 0 && item.mountDuty != null;
 }
 
 /** Пустой монтаж/демонтаж — подпись дня, не слот сотрудника. */
 export function isRosterDutyMark(
-  item: Pick<RosterItem, "vacant" | "mountDuty">,
+  item: Pick<RosterItem, "vacant" | "mountDuty" | "zoneMark">,
 ): boolean {
+  if (item.zoneMark) return false;
   return Boolean(item.vacant && item.mountDuty);
+}
+
+/** Подпись зоны в сросте — как «монтаж», без обводки. */
+export function isRosterZoneMark(
+  item: Pick<RosterItem, "zoneMark">,
+): boolean {
+  return Boolean(item.zoneMark);
 }
 
 export function dutyMarkKey(
@@ -972,15 +1065,19 @@ export function collapseRosterDutyMarks(items: RosterItem[]): RosterItem[] {
     items.filter(isOpenMountDropSlot).map(dutyMarkKey),
   );
   return items.filter((item) => {
+    if (isRosterZoneMark(item)) return true;
     if (!isRosterDutyMark(item) || isOpenMountDropSlot(item)) return true;
     return !openKeys.has(dutyMarkKey(item));
   });
 }
 
 export function isVacantInstallerSlot(
-  item: Pick<RosterItem, "vacant" | "assignmentKind" | "mountDuty" | "assignmentIds">,
+  item: Pick<
+    RosterItem,
+    "vacant" | "assignmentKind" | "mountDuty" | "assignmentIds" | "zoneMark"
+  >,
 ): boolean {
-  if (!item.vacant) return false;
+  if (!item.vacant || item.zoneMark) return false;
   if (isOpenMountDropSlot(item)) return false;
   return item.assignmentKind === "MOUNT" || item.mountDuty != null;
 }
@@ -1067,11 +1164,52 @@ export function eachDateKey(start: string, end: string): string[] {
   return out;
 }
 
-/** Занятые слоты выше пустых: «Копняев» над свободным «демонтаж», не под ним. */
+/** Занятые слоты выше пустых; зоны группами; подпись зоны — над слотами зоны. */
 export function compareRosterLaneItems(
-  a: Pick<RosterItem, "vacant" | "name" | "role" | "assignmentIds" | "mountDuty">,
-  b: Pick<RosterItem, "vacant" | "name" | "role" | "assignmentIds" | "mountDuty">,
+  a: Pick<
+    RosterItem,
+    | "vacant"
+    | "name"
+    | "role"
+    | "assignmentIds"
+    | "mountDuty"
+    | "zoneMark"
+    | "zoneId"
+    | "zoneName"
+    | "zoneSortOrder"
+    | "assignmentKind"
+  >,
+  b: Pick<
+    RosterItem,
+    | "vacant"
+    | "name"
+    | "role"
+    | "assignmentIds"
+    | "mountDuty"
+    | "zoneMark"
+    | "zoneId"
+    | "zoneName"
+    | "zoneSortOrder"
+    | "assignmentKind"
+  >,
 ): number {
+  const aMount = a.mountDuty || a.assignmentKind === "MOUNT" ? 0 : 1;
+  const bMount = b.mountDuty || b.assignmentKind === "MOUNT" ? 0 : 1;
+  if (aMount !== bMount) return aMount - bMount;
+
+  const aZoneOrd = a.zoneSortOrder ?? 9999;
+  const bZoneOrd = b.zoneSortOrder ?? 9999;
+  if (aZoneOrd !== bZoneOrd) {
+    return aZoneOrd - bZoneOrd;
+  }
+  const aZone = a.zoneName || a.zoneId || "";
+  const bZone = b.zoneName || b.zoneId || "";
+  if (aZone !== bZone) return aZone.localeCompare(bZone, "ru");
+
+  const aZoneMark = isRosterZoneMark(a) ? 0 : 1;
+  const bZoneMark = isRosterZoneMark(b) ? 0 : 1;
+  if (aZoneMark !== bZoneMark) return aZoneMark - bZoneMark;
+
   const aVac = a.vacant ? 1 : 0;
   const bVac = b.vacant ? 1 : 0;
   if (aVac !== bVac) return aVac - bVac;
@@ -1088,7 +1226,16 @@ export function packRosterLanes<
     span: number;
     item: Pick<
       RosterItem,
-      "vacant" | "name" | "role" | "assignmentIds" | "mountDuty"
+      | "vacant"
+      | "name"
+      | "role"
+      | "assignmentIds"
+      | "mountDuty"
+      | "zoneMark"
+      | "zoneId"
+      | "zoneName"
+      | "zoneSortOrder"
+      | "assignmentKind"
     >;
   },
 >(segs: T[]): Array<T & { lane: number }> {
@@ -1121,6 +1268,59 @@ export function packRosterGroupOffsets(
     }
     return offset;
   });
+}
+
+/**
+ * Упаковка группы по фактической высоте в каждом столбце.
+ * Демонтаж в конце не «бронирует» полную высоту мероприятия на этот день —
+ * следующие события поднимаются вверх, а не уходят колбасой вниз.
+ */
+export function packRosterGroupSkyline(
+  opts: {
+    startCol: number;
+    endExclusive: number;
+    /** Высота группы в столбце относительно базы (0 = пусто). */
+    columnHeights: number[];
+  },
+  colHeight: number[] = [],
+): number {
+  const { startCol, endExclusive, columnHeights } = opts;
+  let offset = 0;
+  for (let c = startCol; c < endExclusive; c++) {
+    const used = columnHeights[c - startCol] ?? 0;
+    if (used <= 0) continue;
+    offset = Math.max(offset, colHeight[c] ?? 0);
+  }
+  for (let c = startCol; c < endExclusive; c++) {
+    const used = columnHeights[c - startCol] ?? 0;
+    if (used <= 0) continue;
+    colHeight[c] = Math.max(colHeight[c] ?? 0, offset + used);
+  }
+  return offset;
+}
+
+/** Одна полоска в общий «небоскрёб» колонок — без прямоугольника на все дни. */
+export function placeRosterSegOnSkyline(
+  opts: { startCol: number; span: number },
+  colHeight: number[] = [],
+): number {
+  const end = opts.startCol + opts.span;
+  let lane = 0;
+  for (let c = opts.startCol; c < end; c++) {
+    lane = Math.max(lane, colHeight[c] ?? 0);
+  }
+  for (let c = opts.startCol; c < end; c++) {
+    colHeight[c] = lane + 1;
+  }
+  return lane;
+}
+
+/** Монтаж/демонтаж — «бахрома», не расширяет прямоугольник мероприятия. */
+export function isRosterFringeItem(
+  item: Pick<RosterItem, "mountDuty" | "zoneMark">,
+): boolean {
+  if (item.zoneMark) return false;
+  return item.mountDuty != null;
 }
 
 export function collectBusyDates(
