@@ -41,7 +41,7 @@ function Atmosphere() {
         className="absolute inset-0"
         style={{
           background:
-            "radial-gradient(ellipse at 20% 10%, rgba(236,20,254,0.38) 0%, transparent 45%), radial-gradient(ellipse at 85% 75%, rgba(0,158,227,0.42) 0%, transparent 42%), radial-gradient(ellipse at 50% 100%, rgba(67,113,234,0.25) 0%, transparent 40%), linear-gradient(165deg, #070a12 0%, #101827 45%, #0c2438 100%)",
+            "radial-gradient(ellipse at 20% 10%, var(--login-atmosphere-magenta) 0%, transparent 45%), radial-gradient(ellipse at 85% 75%, var(--login-atmosphere-cyan) 0%, transparent 42%), radial-gradient(ellipse at 50% 100%, var(--login-atmosphere-blue) 0%, transparent 40%), var(--login-atmosphere-base)",
         }}
       />
       <div
@@ -54,8 +54,8 @@ function Atmosphere() {
             "radial-gradient(ellipse at center, black 20%, transparent 75%)",
         }}
       />
-      <div className="pointer-events-none absolute -left-20 top-1/4 size-64 rounded-full bg-[#ec14fe]/20 blur-3xl" />
-      <div className="pointer-events-none absolute -right-16 bottom-1/4 size-72 rounded-full bg-[#009ee3]/25 blur-3xl" />
+      <div className="pointer-events-none absolute -left-20 top-1/4 size-64 rounded-full bg-[var(--login-orb-magenta)]/20 blur-3xl" />
+      <div className="pointer-events-none absolute -right-16 bottom-1/4 size-72 rounded-full bg-[var(--login-orb-cyan)]/25 blur-3xl" />
     </>
   );
 }

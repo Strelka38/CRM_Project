@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { formatDateKey, parseEventDate } from "@/lib/dates";
+import { parseEventDate } from "@/lib/dates";
 import {
   CALENDAR_ENTRY_INCLUDE,
   canCompleteTask,
   canMutateEntry,
+  entrySpanUtc,
+  localFromUtcDate,
+  serializeCalendarEntry,
 } from "@/lib/calendar-entries";
 import { clearOpenTaskNotifications } from "@/lib/notifications";
 import { requireSession } from "@/lib/session";
@@ -19,6 +22,7 @@ const lineSchema = z.object({
 
 const patchSchema = z.object({
   date: z.string().optional(),
+  durationDays: z.number().int().positive().optional(),
   title: z.string().optional(),
   note: z.string().optional(),
   startTime: z.string().nullable().optional(),
@@ -29,28 +33,6 @@ const patchSchema = z.object({
   lines: z.array(lineSchema).optional(),
   completed: z.boolean().optional(),
 });
-
-function dateOnly(d: Date): Date {
-  return new Date(
-    Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()),
-  );
-}
-
-function serialize(entry: {
-  date: Date;
-  [key: string]: unknown;
-}) {
-  return {
-    ...entry,
-    date: formatDateKey(
-      new Date(
-        entry.date.getUTCFullYear(),
-        entry.date.getUTCMonth(),
-        entry.date.getUTCDate(),
-      ),
-    ),
-  };
-}
 
 export async function GET(_req: NextRequest, ctx: Ctx) {
   try {
@@ -63,7 +45,7 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     if (!entry) {
       return NextResponse.json({ error: "Не найдено" }, { status: 404 });
     }
-    return NextResponse.json(serialize(entry));
+    return NextResponse.json(serializeCalendarEntry(entry));
   } catch (e) {
     if (e instanceof Response) return e;
     console.error("GET /api/calendar/entries/[id]", e);
@@ -83,6 +65,8 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
       select: {
         id: true,
         kind: true,
+        date: true,
+        durationDays: true,
         createdById: true,
         assignees: { select: { userId: true } },
       },
@@ -121,7 +105,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
         where: { id },
         include: CALENDAR_ENTRY_INCLUDE,
       });
-      return NextResponse.json(serialize(entry!));
+      return NextResponse.json(serializeCalendarEntry(entry!));
     }
 
     if (
@@ -134,16 +118,26 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
     ) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
-    let nextDate: Date | undefined;
-    if (body.date !== undefined) {
-      const parsed = parseEventDate(body.date);
+    let nextSpan:
+      | { date: Date; endDate: Date; durationDays: number }
+      | undefined;
+    if (body.date !== undefined || body.durationDays !== undefined) {
+      const parsed =
+        body.date !== undefined
+          ? parseEventDate(body.date)
+          : localFromUtcDate(existing.date);
       if (!parsed) {
         return NextResponse.json(
           { error: "Некорректная дата" },
           { status: 400 },
         );
       }
-      nextDate = dateOnly(parsed);
+      nextSpan = entrySpanUtc(
+        parsed,
+        existing.kind === "DAY_OFF"
+          ? (body.durationDays ?? existing.durationDays)
+          : 1,
+      );
     }
 
     if (existing.kind === "RENTAL") {
@@ -195,15 +189,6 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
           { status: 400 },
         );
       }
-      if (
-        (body.startTime !== undefined && !body.startTime?.trim()) ||
-        (body.endTime !== undefined && !body.endTime?.trim())
-      ) {
-        return NextResponse.json(
-          { error: "Укажите время с и до" },
-          { status: 400 },
-        );
-      }
     }
 
     await prisma.$transaction(async (tx) => {
@@ -230,14 +215,17 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
       await tx.calendarEntry.update({
         where: { id },
         data: {
-          ...(nextDate ? { date: nextDate } : {}),
+          ...(nextSpan
+            ? {
+                date: nextSpan.date,
+                endDate: nextSpan.endDate,
+                durationDays: nextSpan.durationDays,
+              }
+            : {}),
           ...(body.title !== undefined ? { title: body.title.trim() } : {}),
           ...(body.note !== undefined ? { note: body.note.trim() } : {}),
-          ...(existing.kind === "DAY_OFF" && body.startTime !== undefined
-            ? { startTime: body.startTime?.trim() || null }
-            : {}),
-          ...(existing.kind === "DAY_OFF" && body.endTime !== undefined
-            ? { endTime: body.endTime?.trim() || null }
+          ...(existing.kind === "DAY_OFF"
+            ? { startTime: null, endTime: null }
             : {}),
           ...(existing.kind === "RENTAL" && body.responsibleUserId !== undefined
             ? { responsibleUserId: body.responsibleUserId }
@@ -253,7 +241,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
       where: { id },
       include: CALENDAR_ENTRY_INCLUDE,
     });
-    return NextResponse.json(serialize(entry!));
+    return NextResponse.json(serializeCalendarEntry(entry!));
   } catch (e) {
     if (e instanceof Response) return e;
     if (e instanceof z.ZodError) {

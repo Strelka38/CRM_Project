@@ -3,7 +3,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { type PickedCatalogItem } from "@/components/CatalogPicker";
+import { type PickedCatalogItem, type PickedKit } from "@/components/CatalogPicker";
 import { CatalogReplaceDropTarget } from "@/components/CatalogReplaceDropTarget";
 import { QuoteCatalogSidebar } from "@/components/QuoteCatalogSidebar";
 import { ClientQuickSearch } from "@/components/ClientQuickSearch";
@@ -16,6 +16,10 @@ import { QuoteDocumentsPanel } from "@/components/QuoteDocumentsModal";
 import { QuoteAssignments } from "@/components/QuoteAssignments";
 import { QuoteHistoryPanel } from "@/components/QuoteHistoryModal";
 import { QuoteSummary } from "@/components/QuoteSummary";
+import {
+  DAY_MODE_OPTIONS,
+  QuoteEstimateCards,
+} from "@/components/QuoteEstimateCards";
 import {
   ApplyTemplateModal,
   DuplicateQuoteModal,
@@ -36,6 +40,7 @@ import {
 } from "@/lib/quote-defaults";
 import {
   isGroupHeader,
+  moveBlockInGroups,
   reorderBlocksByDrop,
 } from "@/lib/quote-block-groups";
 import {
@@ -51,11 +56,15 @@ import {
 } from "@/lib/quote-schedule";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import {
+  ActionSheet,
+  Button,
   LIFECYCLE_LABELS,
   LIFECYCLE_STATUSES,
   PaymentFlags,
+  SideDrawer,
   type LifecycleStatus,
 } from "@/components/ui";
+import { useIsMobile } from "@/components/LayoutDensityProvider";
 import { cn } from "@/lib/cn";
 import {
   BRIGADIER_QUOTE_PATCH_KEYS,
@@ -63,7 +72,7 @@ import {
 } from "@/lib/roles";
 import { DEFAULT_CASHLESS_PERCENT } from "@/lib/pricing";
 import { isStatsLifecycle } from "@/lib/lifecycle";
-import { parseEventDate } from "@/lib/dates";
+import { formatIsoRuDate, parseEventDate } from "@/lib/dates";
 import {
   rangeFromWorkingDayIndexes,
   peakItemQtyByWorkingDay,
@@ -132,9 +141,6 @@ const LIFE_OPTS: { value: Lifecycle; label: string }[] =
     value,
     label: LIFECYCLE_LABELS[value],
   }));
-
-const ACTION_BTN =
-  "inline-flex shrink-0 items-center justify-center rounded-md border border-[var(--line)] px-2 py-1.5 disabled:opacity-40";
 
 const ACTION_ICON = "size-4 sm:size-[1.125rem]";
 
@@ -235,6 +241,9 @@ export function QuoteEditor({
   const [dropKey, setDropKey] = useState<string | null>(null);
   const [catalogOver, setCatalogOver] = useState(false);
   const [catalogGapIndex, setCatalogGapIndex] = useState<number | null>(null);
+  const catalogInSheet = useIsMobile();
+  const [catalogSheetOpen, setCatalogSheetOpen] = useState(false);
+  const [actionsSheetOpen, setActionsSheetOpen] = useState(false);
   const tableRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState("");
   const [stockIssues, setStockIssues] = useState<
@@ -507,6 +516,15 @@ export function QuoteEditor({
     );
   }, [blocks, meta?.durationDays, zones]);
 
+  const neededByKit = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const block of blocks) {
+      if (block.type !== "ITEM" || !block.kitId || block.catalogItemId) continue;
+      map.set(block.kitId, (map.get(block.kitId) || 0) + (Number(block.qty) || 0));
+    }
+    return map;
+  }, [blocks]);
+
   const catalogIdsKey = useMemo(() => {
     const ids = [
       ...new Set(
@@ -770,6 +788,16 @@ export function QuoteEditor({
     if (next) applyZoneOrder(next);
   }
 
+  /** Перемещение стрелками — мобильная замена drag, который спорит со скроллом. */
+  function moveBlock(key: string, dir: -1 | 1) {
+    if (!activeZoneId) return;
+    const zone = blocks
+      .filter((b) => b.zoneId === activeZoneId)
+      .sort((a, b) => a.sortOrder - b.sortOrder);
+    const next = moveBlockInGroups(zone, key, dir);
+    if (next) applyZoneOrder(next);
+  }
+
   function requireZone(): string | null {
     if (activeZoneId) return activeZoneId;
     if (zones[0]) {
@@ -914,6 +942,44 @@ export function QuoteEditor({
       zoneId,
       itemKind: item.itemKind || "EQUIPMENT",
     };
+  }
+
+  function addFromKit(kit: PickedKit, qty = 1) {
+    const zoneId = requireZone();
+    if (!zoneId) return;
+    const addQty = Math.max(1, Math.round(qty) || 1);
+    const sectionTitle =
+      kit.category?.path.split("/")[0] || kit.category?.name || "Комплекты";
+    setLineNotice("");
+    setBlocks((prev) => {
+      const existing = prev.find(
+        (b) =>
+          b.type === "ITEM" &&
+          b.kitId === kit.id &&
+          !b.catalogItemId &&
+          b.zoneId === zoneId,
+      );
+      if (existing) {
+        return prev.map((b) =>
+          b.key === existing.key
+            ? { ...b, qty: (Number(b.qty) || 0) + addQty }
+            : b,
+        );
+      }
+      return insertAfterSection(prev, zoneId, sectionTitle, {
+        key: uid(),
+        type: "ITEM",
+        sortOrder: 0,
+        name: kit.name,
+        qty: addQty,
+        unitPrice: kit.computedPrice,
+        dayMode: "FIXED1",
+        catalogItemId: null,
+        kitId: kit.id,
+        zoneId,
+        itemKind: "EQUIPMENT",
+      });
+    });
   }
 
   function replaceBlockFromCatalog(key: string, item: PickedCatalogItem) {
@@ -1180,7 +1246,7 @@ export function QuoteEditor({
                 </button>
               ))}
           </div>
-          <div className="ml-auto flex shrink-0 flex-wrap justify-end gap-1.5 pb-1.5">
+          <div className="flex w-full shrink-0 flex-wrap justify-end gap-1.5 pb-1.5 md:ml-auto md:w-auto">
             {isManager && (
               <>
                 <button
@@ -1191,12 +1257,30 @@ export function QuoteEditor({
                 >
                   Excel
                 </button>
-                <button
+                {/* На мобильном шесть иконок без подписей нечитаемы — прячем
+                    их в шит, где у каждого действия есть название. */}
+                <Button
                   type="button"
+                  variant="icon"
+                  size="sm"
+                  className="tap-target md:hidden"
+                  onClick={() => setActionsSheetOpen(true)}
+                  aria-label="Действия со сметой"
+                >
+                  <svg viewBox="0 0 24 24" className="size-5" fill="currentColor" aria-hidden>
+                    <circle cx="5" cy="12" r="1.6" />
+                    <circle cx="12" cy="12" r="1.6" />
+                    <circle cx="19" cy="12" r="1.6" />
+                  </svg>
+                </Button>
+                <div className="hidden flex-wrap justify-end gap-1.5 md:flex">
+                <Button
+                  type="button"
+                  variant="icon"
+                  size="sm"
                   onClick={() => setDuplicateOpen(true)}
                   title="Копировать"
                   aria-label="Копировать"
-                  className={ACTION_BTN}
                 >
                   <svg
                     viewBox="0 0 24 24"
@@ -1209,13 +1293,14 @@ export function QuoteEditor({
                     <rect x="8" y="8" width="12" height="12" rx="2" />
                     <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" />
                   </svg>
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
+                  variant="icon"
+                  size="sm"
                   onClick={() => setTemplateOpen(true)}
                   title="В шаблон"
                   aria-label="В шаблон"
-                  className={ACTION_BTN}
                 >
                   <svg
                     viewBox="0 0 24 24"
@@ -1229,14 +1314,15 @@ export function QuoteEditor({
                     <path d="M14.5 3.5V9h5" />
                     <path d="M12 13v6M9 16h6" />
                   </svg>
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
+                  variant="icon"
+                  size="sm"
                   disabled={saving}
                   onClick={() => setFromTemplateOpen(true)}
                   title="Из шаблона"
                   aria-label="Из шаблона"
-                  className={ACTION_BTN}
                 >
                   <svg
                     viewBox="0 0 24 24"
@@ -1250,14 +1336,15 @@ export function QuoteEditor({
                     <path d="M14.5 3.5V9h5" />
                     <path d="M12 12.5v6M12 18.5l-2.2-2.2M12 18.5l2.2-2.2" />
                   </svg>
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
+                  variant="icon"
+                  size="sm"
                   disabled={saving}
                   onClick={() => void saveNow()}
                   title={saving ? "Сохранение…" : "Сохранить"}
                   aria-label={saving ? "Сохранение…" : "Сохранить"}
-                  className={ACTION_BTN}
                 >
                   <svg
                     viewBox="0 0 24 24"
@@ -1270,14 +1357,16 @@ export function QuoteEditor({
                     <path d="M5 5h11l3 3v11H5V5Z" />
                     <path d="M8 5v5h8V5M8 19v-6h8v6" />
                   </svg>
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
+                  variant="icon"
+                  size="sm"
                   disabled={saving || deleting}
                   onClick={() => setDeleteOpen(true)}
                   title="Удалить смету"
                   aria-label="Удалить смету"
-                  className={cn(ACTION_BTN, "text-[var(--danger)] hover:bg-red-500/15")}
+                  className="text-[var(--danger)] hover:bg-red-500/15"
                 >
                   <svg
                     viewBox="0 0 24 24"
@@ -1292,7 +1381,8 @@ export function QuoteEditor({
                     <path d="M6 7l1 13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-13" />
                     <path d="M10 11v6M14 11v6" />
                   </svg>
-                </button>
+                </Button>
+                </div>
               </>
             )}
           </div>
@@ -1344,15 +1434,12 @@ export function QuoteEditor({
                     ))}
                   </select>
                 </label>
-                {meta.createdAt ? (
-                  <p className="pb-2 text-caption text-[var(--muted)]">
-                    {new Date(meta.createdAt).toLocaleDateString("ru-RU", {
-                      day: "numeric",
-                      month: "short",
-                      year: "numeric",
-                    })}
+                <label className="w-[8.5rem] min-w-0 text-caption text-[var(--muted)]">
+                  Создана
+                  <p className="mt-0.5 text-sm text-[var(--ink)]">
+                    {formatIsoRuDate(meta.createdAt)}
                   </p>
-                ) : null}
+                </label>
                 <div className="ml-auto min-w-0">
                   <div className="mb-0.5 text-caption text-[var(--muted)]">
                     Оплата
@@ -1655,13 +1742,55 @@ export function QuoteEditor({
       {editorPane === "quote" ? (
         <div className="flex min-h-0 flex-col gap-2 lg:flex-row lg:items-start">
           {isManager ? (
-          <QuoteCatalogSidebar
-            onPickItem={addFromCatalog}
-            eventDate={insertZoneSchedule.date || meta.date}
-            durationDays={insertZoneSchedule.durationDays}
-            zoneName={insertZoneName}
-            currentQtyByItem={neededByItem}
-          />
+            // На узком экране каталог колонкой съедает половину первого экрана,
+            // и смета уходит под сгиб. Поэтому там он живёт в шите по кнопке.
+            catalogInSheet ? (
+              <SideDrawer
+                open={catalogSheetOpen}
+                onClose={() => setCatalogSheetOpen(false)}
+                labelledBy="quote-catalog-sheet"
+              >
+                <div className="flex min-h-0 flex-col">
+                  <div className="flex items-center gap-2 border-b border-[var(--line)] px-4 py-3">
+                    <h2
+                      id="quote-catalog-sheet"
+                      className="min-w-0 flex-1 truncate text-title font-medium"
+                    >
+                      Каталог
+                    </h2>
+                    <button
+                      type="button"
+                      onClick={() => setCatalogSheetOpen(false)}
+                      className="tap-target -mr-1 rounded-md px-3 text-sm text-[var(--accent)]"
+                    >
+                      Готово
+                    </button>
+                  </div>
+                  <div className="min-h-0 flex-1">
+                    <QuoteCatalogSidebar
+                      embedded
+                      onPickItem={addFromCatalog}
+                      onPickKit={addFromKit}
+                      eventDate={insertZoneSchedule.date || meta.date}
+                      durationDays={insertZoneSchedule.durationDays}
+                      zoneName={insertZoneName}
+                      currentQtyByItem={neededByItem}
+                      currentQtyByKit={neededByKit}
+                    />
+                  </div>
+                </div>
+              </SideDrawer>
+            ) : (
+              <QuoteCatalogSidebar
+                onPickItem={addFromCatalog}
+                onPickKit={addFromKit}
+                eventDate={insertZoneSchedule.date || meta.date}
+                durationDays={insertZoneSchedule.durationDays}
+                zoneName={insertZoneName}
+                currentQtyByItem={neededByItem}
+                currentQtyByKit={neededByKit}
+              />
+            )
           ) : null}
           <div className="flex min-w-0 flex-1 flex-col gap-2">
       <QuoteZoneTabs
@@ -1734,10 +1863,40 @@ export function QuoteEditor({
             disabled={!isManager}
             className="min-w-0 border-0 p-0 disabled:opacity-90"
           >
+          {/* Смета карточками. Ветку выбирает CSS, а не JS: после SSR первый
+              кадр должен быть правильным, иначе на телефоне мелькает таблица. */}
+          <QuoteEstimateCards
+            className="md:hidden"
+            blocks={zoneBlocks}
+            canEdit={canEditQuote}
+            lineFor={(key) => calcByKey.get(key)}
+            shortfallFor={(block) => {
+              const itemId = block.catalogItemId || null;
+              if (!itemId || (block.kitId && !block.catalogItemId)) return 0;
+              const stock = stockMap[itemId];
+              const needed = neededByItem.get(itemId) || 0;
+              if (!stock || stock.unlimited || needed <= stock.available) {
+                return 0;
+              }
+              return needed - stock.available;
+            }}
+            sectionSubtotal={(title) =>
+              zoneCalc.sections.find((s) => s.title === title)?.subtotal ?? 0
+            }
+            onUpdate={(key, patch) => updateBlock(key, patch)}
+            onRemove={removeBlock}
+            onMove={moveBlock}
+            emptyMessage={
+              canEditQuote
+                ? "Пока пусто. Добавьте раздел или позицию кнопками ниже."
+                : "В этой зоне пока нет позиций"
+            }
+          />
+
           <div
             ref={tableRef}
             className={cn(
-              "data-table-shell quote-estimate-table-wrap",
+              "data-table-shell quote-estimate-table-wrap hidden md:block",
               catalogOver && "ring-2 ring-inset ring-[var(--accent)]",
             )}
             onDragOver={canEditQuote ? onCatalogTableDragOver : undefined}
@@ -2014,10 +2173,11 @@ export function QuoteEditor({
                             })
                           }
                         >
-                          <option value="HALF_EXTRA">1-й 100% / +50%</option>
-                          <option value="FULL_DAYS">Полные дни</option>
-                          <option value="FIXED1">Фикс 1</option>
-                          <option value="FIXED2">Фикс 2</option>
+                          {DAY_MODE_OPTIONS.map((opt) => (
+                            <option key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </option>
+                          ))}
                         </select>
                       </td>
                       <td className="px-1.5 py-1">
@@ -2073,7 +2233,9 @@ export function QuoteEditor({
               </tbody>
             </table>
           </div>
-          <p className="text-caption text-[var(--muted)]">
+          {/* Подсказка про drag и расшифровка складских колонок — только там,
+              где есть и drag, и эти колонки. */}
+          <p className="hidden text-caption text-[var(--muted)] md:block">
             {canEditQuote
               ? "Тяните ⠿ за ручку: раздел переносится вместе с позициями. Позиции из каталога можно перетащить в таблицу. "
               : ""}
@@ -2082,17 +2244,26 @@ export function QuoteEditor({
 
           {isManager ? (
           <div className="flex flex-wrap gap-1.5">
+              {catalogInSheet ? (
+                <button
+                  type="button"
+                  onClick={() => setCatalogSheetOpen(true)}
+                  className="tap-target w-full rounded-md border border-[var(--accent)]/40 px-2.5 py-1.5 text-xs text-[var(--accent)]"
+                >
+                  Добавить из каталога
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={addSection}
-                className="rounded-md border border-[var(--line)] px-2.5 py-1.5 text-xs"
+                className="tap-target flex-1 rounded-md border border-[var(--line)] px-2.5 py-1.5 text-xs md:flex-none"
               >
                 + Раздел
               </button>
               <button
                 type="button"
                 onClick={addCustomItem}
-                className="rounded-md border border-[var(--line)] px-2.5 py-1.5 text-xs"
+                className="tap-target flex-1 rounded-md border border-[var(--line)] px-2.5 py-1.5 text-xs md:flex-none"
               >
                 + Позиция
               </button>
@@ -2204,6 +2375,51 @@ export function QuoteEditor({
             }}
           />
         </div>
+      ) : null}
+
+      {isManager ? (
+        <ActionSheet
+          open={actionsSheetOpen}
+          onClose={() => setActionsSheetOpen(false)}
+          title={`КП № ${meta.proposalNumber}`}
+          groups={[
+            {
+              items: [
+                {
+                  label: saving ? "Сохранение…" : "Сохранить сейчас",
+                  disabled: saving,
+                  onSelect: () => void saveNow(),
+                },
+                {
+                  label: "Копировать смету",
+                  hint: "Создать дубль с новыми датами",
+                  onSelect: () => setDuplicateOpen(true),
+                },
+              ],
+            },
+            {
+              title: "Шаблоны",
+              items: [
+                { label: "Сохранить как шаблон", onSelect: () => setTemplateOpen(true) },
+                {
+                  label: "Заполнить из шаблона",
+                  disabled: saving,
+                  onSelect: () => setFromTemplateOpen(true),
+                },
+              ],
+            },
+            {
+              items: [
+                {
+                  label: "Удалить смету",
+                  danger: true,
+                  disabled: saving || deleting,
+                  onSelect: () => setDeleteOpen(true),
+                },
+              ],
+            },
+          ]}
+        />
       ) : null}
 
       <ExportQuoteModal

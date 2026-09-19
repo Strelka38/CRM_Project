@@ -1,12 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { formatDateKey, parseEventDate } from "@/lib/dates";
+import { parseEventDate } from "@/lib/dates";
 import {
   CALENDAR_ENTRY_INCLUDE,
   canCreateEntryKind,
+  entrySpanUtc,
+  overlappingEntryWhere,
+  serializeCalendarEntry,
 } from "@/lib/calendar-entries";
+import { ensureQuoteSchemaColumns } from "@/lib/ensure-schema";
 import { requireSession } from "@/lib/session";
+
+let ensureOnce: Promise<void> | null = null;
+
+function ensureSchemaOnce() {
+  if (!ensureOnce) {
+    ensureOnce = ensureQuoteSchemaColumns().catch((e) => {
+      ensureOnce = null;
+      throw e;
+    });
+  }
+  return ensureOnce;
+}
 
 const lineSchema = z.object({
   catalogItemId: z.string().min(1),
@@ -16,6 +32,7 @@ const lineSchema = z.object({
 const createSchema = z.object({
   kind: z.enum(["RENTAL", "TASK", "DAY_OFF"]),
   date: z.string().min(1),
+  durationDays: z.number().int().positive().optional(),
   title: z.string().optional(),
   note: z.string().optional(),
   startTime: z.string().nullable().optional(),
@@ -26,29 +43,16 @@ const createSchema = z.object({
   lines: z.array(lineSchema).optional(),
 });
 
-function dateOnly(d: Date): Date {
-  return new Date(
-    Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()),
-  );
-}
-
 export async function GET(req: NextRequest) {
   try {
     await requireSession();
+    await ensureSchemaOnce();
     const fromRaw = req.nextUrl.searchParams.get("from");
     const toRaw = req.nextUrl.searchParams.get("to");
     const from = parseEventDate(fromRaw || undefined);
     const to = parseEventDate(toRaw || undefined);
 
-    const where =
-      from && to
-        ? {
-            date: {
-              gte: dateOnly(from),
-              lte: dateOnly(to),
-            },
-          }
-        : {};
+    const where = from && to ? overlappingEntryWhere(from, to) : {};
 
     const entries = await prisma.calendarEntry.findMany({
       where,
@@ -56,14 +60,7 @@ export async function GET(req: NextRequest) {
       include: CALENDAR_ENTRY_INCLUDE,
     });
 
-    return NextResponse.json(
-      entries.map((e) => ({
-        ...e,
-        date: formatDateKey(
-          new Date(e.date.getUTCFullYear(), e.date.getUTCMonth(), e.date.getUTCDate()),
-        ),
-      })),
-    );
+    return NextResponse.json(entries.map(serializeCalendarEntry));
   } catch (e) {
     if (e instanceof Response) return e;
     console.error("GET /api/calendar/entries", e);
@@ -77,6 +74,8 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const session = await requireSession();
+    await ensureSchemaOnce();
+    await ensureSchemaOnce();
     const body = createSchema.parse(await req.json());
 
     if (!canCreateEntryKind(session.user.role, body.kind)) {
@@ -93,6 +92,10 @@ export async function POST(req: NextRequest) {
     const assigneeIds = [...new Set(body.assigneeIds || [])];
     const lines = body.lines || [];
     let clientId: string | null = null;
+    const span = entrySpanUtc(
+      day,
+      body.kind === "DAY_OFF" ? body.durationDays : 1,
+    );
 
     if (body.kind === "RENTAL" && body.clientId) {
       const client = await prisma.client.findUnique({
@@ -100,7 +103,10 @@ export async function POST(req: NextRequest) {
         select: { id: true },
       });
       if (!client) {
-        return NextResponse.json({ error: "Клиент не найден" }, { status: 400 });
+        return NextResponse.json(
+          { error: "Клиент не найден" },
+          { status: 400 },
+        );
       }
       clientId = client.id;
     }
@@ -142,18 +148,14 @@ export async function POST(req: NextRequest) {
           { status: 400 },
         );
       }
-      if (!body.startTime?.trim() || !body.endTime?.trim()) {
-        return NextResponse.json(
-          { error: "Укажите время с и до" },
-          { status: 400 },
-        );
-      }
     }
 
     const entry = await prisma.calendarEntry.create({
       data: {
         kind: body.kind,
-        date: dateOnly(day),
+        date: span.date,
+        endDate: span.endDate,
+        durationDays: span.durationDays,
         title:
           body.kind === "DAY_OFF"
             ? title || "Выходной"
@@ -161,8 +163,8 @@ export async function POST(req: NextRequest) {
               ? title || "Аренда оборудования"
               : title,
         note,
-        startTime: body.kind === "DAY_OFF" ? body.startTime!.trim() : null,
-        endTime: body.kind === "DAY_OFF" ? body.endTime!.trim() : null,
+        startTime: null,
+        endTime: null,
         responsibleUserId:
           body.kind === "RENTAL" ? body.responsibleUserId : null,
         clientId: body.kind === "RENTAL" ? clientId : null,
@@ -186,13 +188,7 @@ export async function POST(req: NextRequest) {
       include: CALENDAR_ENTRY_INCLUDE,
     });
 
-    return NextResponse.json(
-      {
-        ...entry,
-        date: formatDateKey(day),
-      },
-      { status: 201 },
-    );
+    return NextResponse.json(serializeCalendarEntry(entry), { status: 201 });
   } catch (e) {
     if (e instanceof Response) return e;
     if (e instanceof z.ZodError) {

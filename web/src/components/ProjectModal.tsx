@@ -9,15 +9,18 @@ import {
   isChatImageFile,
   useFileDrop,
 } from "@/components/FileDrop";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { DuplicateQuoteModal } from "@/components/QuoteTemplateActions";
 import { SideDrawer } from "@/components/ui/SideDrawer";
-import { lifecycleLabel } from "@/components/ui";
+import { PeekHeader, lifecycleLabel } from "@/components/ui";
 import { cn } from "@/lib/cn";
+import { unscheduleQuotePatch } from "@/lib/calendar-event-actions";
 import {
   endDateFromDuration,
   formatRuDate,
   parseEventDate,
 } from "@/lib/dates";
-import { roleLabelRu } from "@/lib/roles";
+import { isQuoteOwnerRole, roleLabelRu } from "@/lib/roles";
 import { whoWorksView, type WhoWorksLine } from "@/lib/quote-assignment-days";
 
 type Assignment = {
@@ -164,10 +167,16 @@ export function ProjectModal({
   quoteId,
   open,
   onClose,
+  embedded = false,
+  onChanged,
+  onCopied,
 }: {
   quoteId: string | null;
   open: boolean;
   onClose: () => void;
+  embedded?: boolean;
+  onChanged?: () => void;
+  onCopied?: (id: string) => void;
 }) {
   const [project, setProject] = useState<Project | null>(null);
   const [brief, setBrief] = useState("");
@@ -186,6 +195,14 @@ export function ProjectModal({
     url: string;
     name: string;
   } | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [copyOpen, setCopyOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+  const [managers, setManagers] = useState<Array<{ id: string; name: string }>>(
+    [],
+  );
   const [briefSaved, setBriefSaved] = useState(false);
   const [briefError, setBriefError] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
@@ -249,6 +266,41 @@ export function ProjectModal({
   }, [load, open, quoteId]);
 
   useEffect(() => {
+    setEditing(false);
+    setCopyOpen(false);
+    setDeleteOpen(false);
+    setDeleteError("");
+  }, [quoteId, open]);
+
+  useEffect(() => {
+    if (!open || !project?.isManager) return;
+    let cancelled = false;
+    void fetch("/api/users")
+      .then((r) => (r.ok ? r.json() : []))
+      .then(
+        (
+          list: Array<{
+            id: string;
+            name: string;
+            role: string;
+            active: boolean;
+          }>,
+        ) => {
+          if (cancelled || !Array.isArray(list)) return;
+          setManagers(
+            list
+              .filter((u) => isQuoteOwnerRole(u.role) && u.active)
+              .map((u) => ({ id: u.id, name: u.name })),
+          );
+        },
+      )
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [open, project?.isManager]);
+
+  useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [comments]);
 
@@ -294,7 +346,7 @@ export function ProjectModal({
   }, [onClose, preview, chatImage]);
 
   useEffect(() => {
-    if (!project?.canEditBrief) return;
+    if (!editing || !project?.canEditBrief) return;
     if (brief === savedBriefRef.current) return;
     const t = setTimeout(async () => {
       const res = await fetch(`/api/quotes/${quoteId}/project`, {
@@ -313,7 +365,7 @@ export function ProjectModal({
       }
     }, 700);
     return () => clearTimeout(t);
-  }, [brief, project?.canEditBrief, quoteId]);
+  }, [brief, editing, project?.canEditBrief, quoteId]);
 
   useEffect(() => {
     return () => {
@@ -445,9 +497,43 @@ export function ProjectModal({
   const managerLabel = project ? projectManagerName(project) : "";
   const periodLabel = project ? eventPeriodLabel(project) : "";
   const canSend = Boolean(commentText.trim() || pendingImage);
-  const canManageAttachments = Boolean(
-    project?.canManageAttachments ?? project?.isManager,
+  const canManageAttachments =
+    editing &&
+    Boolean(project?.canManageAttachments ?? project?.isManager);
+  const canEditBriefNow = editing && Boolean(project?.canEditBrief);
+  const showFinanceLinks = editing && Boolean(project?.isManager);
+  const showEventMenu = Boolean(
+    project && (project.canEditBrief || project.isManager),
   );
+
+  async function unscheduleEvent() {
+    if (!quoteId) return;
+    setDeleting(true);
+    setDeleteError("");
+    try {
+      const res = await fetch(`/api/quotes/${quoteId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(unscheduleQuotePatch()),
+      });
+      const data = (await res.json().catch(() => null)) as {
+        error?: string;
+      } | null;
+      if (!res.ok) {
+        setDeleteError(
+          typeof data?.error === "string"
+            ? data.error
+            : "Не удалось убрать мероприятие из календаря",
+        );
+        return;
+      }
+      setDeleteOpen(false);
+      onChanged?.();
+      onClose();
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   function handleChatFiles(list: File[]) {
     if (list.length === 0) return;
@@ -483,78 +569,97 @@ export function ProjectModal({
       <SideDrawer
         open={open}
         onClose={onClose}
-        wide
+        wide={!embedded}
         labelledBy="project-title"
         zIndex={55}
+        embedded={embedded}
       >
         <div className="flex h-full min-h-0 flex-col overflow-hidden">
-          <div className="flex items-start justify-between gap-3 border-b border-[var(--line)] px-4 py-3">
-            <div className="min-w-0">
-              <p className="text-xs uppercase tracking-wider text-[var(--muted)]">
-                Мероприятие
-              </p>
-              {loading ? (
-                <p className="text-[var(--muted)]">Загрузка…</p>
-              ) : project ? (
-                <>
-                  <h2
-                    id="project-title"
-                    className="font-display truncate text-2xl text-[var(--ink)]"
-                  >
-                    {project.eventName || project.client || "Без названия"}
-                  </h2>
-                  <p className="text-sm text-[var(--muted)]">
-                    №{project.proposalNumber}
-                    {project.time ? ` · ${project.time}` : ""}
-                    {project.place ? ` · ${project.place}` : ""}
-                    {" · "}
-                    {lifecycleLabel(project.lifecycle)}
-                  </p>
-                  <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 text-sm">
-                    {periodLabel && (
-                      <p>
-                        <span className="text-[var(--muted)]">Мероприятие: </span>
-                        <span className="text-[var(--ink)]">{periodLabel}</span>
-                      </p>
-                    )}
+          <PeekHeader
+            onClose={onClose}
+            kind="Проект"
+            kindId="project-kind"
+            menuItems={
+              showEventMenu
+                ? [
+                    {
+                      id: "edit",
+                      label: "Edit",
+                      hidden: !project?.canEditBrief,
+                      disabled: editing,
+                      onSelect: () => setEditing(true),
+                    },
+                    {
+                      id: "copy",
+                      label: "Copy",
+                      hidden: !project?.isManager,
+                      onSelect: () => setCopyOpen(true),
+                    },
+                    {
+                      id: "delete",
+                      label: "Delete",
+                      danger: true,
+                      hidden: !project?.isManager,
+                      onSelect: () => setDeleteOpen(true),
+                    },
+                  ]
+                : undefined
+            }
+          >
+            {loading ? (
+              <p className="text-sm text-[var(--muted)]">Загрузка…</p>
+            ) : project ? (
+              <>
+                <h2
+                  id="project-title"
+                  className="font-display text-base font-medium leading-snug text-[var(--ink)]"
+                >
+                  {project.eventName || project.client || "Без названия"}
+                </h2>
+                <p className="mt-1 text-sm text-[var(--muted)]">
+                  №{project.proposalNumber}
+                  {project.time ? ` · ${project.time}` : ""}
+                  {project.place ? ` · ${project.place}` : ""}
+                  {" · "}
+                  {lifecycleLabel(project.lifecycle)}
+                </p>
+                <div className="mt-1.5 space-y-0.5 text-sm">
+                  {periodLabel && (
                     <p>
-                      <span className="text-[var(--muted)]">Монтаж: </span>
-                      <span className="text-[var(--ink)]">
-                        {dateRangeLabel(
-                          project.mountDate,
-                          project.mountDurationDays,
-                        ) || "—"}
-                      </span>
-                    </p>
-                    <p>
-                      <span className="text-[var(--muted)]">Демонтаж: </span>
-                      <span className="text-[var(--ink)]">
-                        {dateRangeLabel(
-                          project.demountDate,
-                          project.demountDurationDays,
-                        ) || "—"}
-                      </span>
-                    </p>
-                  </div>
-                  {managerLabel && (
-                    <p className="mt-0.5 text-sm text-[var(--ink)]">
-                      <span className="text-[var(--muted)]">Менеджер: </span>
-                      {managerLabel}
+                      <span className="text-[var(--muted)]">Даты: </span>
+                      <span className="text-[var(--ink)]">{periodLabel}</span>
                     </p>
                   )}
-                </>
-              ) : (
-                <p className="text-[var(--danger)]">{error || "Ошибка"}</p>
-              )}
-            </div>
-            <button
-              type="button"
-              onClick={onClose}
-              className="shrink-0 text-sm text-[var(--muted)] hover:text-[var(--ink)]"
-            >
-              Закрыть
-            </button>
-          </div>
+                  <p>
+                    <span className="text-[var(--muted)]">Монтаж: </span>
+                    <span className="text-[var(--ink)]">
+                      {dateRangeLabel(
+                        project.mountDate,
+                        project.mountDurationDays,
+                      ) || "—"}
+                    </span>
+                  </p>
+                  <p>
+                    <span className="text-[var(--muted)]">Демонтаж: </span>
+                    <span className="text-[var(--ink)]">
+                      {dateRangeLabel(
+                        project.demountDate,
+                        project.demountDurationDays,
+                      ) || "—"}
+                    </span>
+                  </p>
+                  {managerLabel ? (
+                    <p>
+                      <span className="text-[var(--muted)]">Менеджер: </span>
+                      <span className="text-[var(--ink)]">{managerLabel}</span>
+                    </p>
+                  ) : null}
+                </div>
+              </>
+            ) : (
+              <p className="text-sm text-[var(--danger)]">{error || "Ошибка"}</p>
+            )}
+          </PeekHeader>
 
           {project && (
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -564,13 +669,13 @@ export function ProjectModal({
                     <h3 className="text-xs font-medium uppercase tracking-wider text-[var(--muted)]">
                       ТЗ к мероприятию
                     </h3>
-                    {project.canEditBrief && briefSaved && (
+                    {canEditBriefNow && briefSaved && (
                       <span className="text-caption text-[var(--muted)]">
                         сохранено
                       </span>
                     )}
                   </div>
-                  {project.canEditBrief ? (
+                  {canEditBriefNow ? (
                     <>
                       <textarea
                         className="field min-h-[96px] resize-y"
@@ -594,6 +699,7 @@ export function ProjectModal({
                   )}
                 </section>
 
+                {attachments.length > 0 || canManageAttachments ? (
                 <section
                   className={cn(
                     "rounded-lg border px-2.5 py-2 transition-colors",
@@ -664,7 +770,7 @@ export function ProjectModal({
                               type="checkbox"
                               className="mt-0.5 size-3.5 shrink-0 accent-[var(--accent)]"
                               checked={Boolean(a.invoiceSent)}
-                              disabled={!project.isManager}
+                              disabled={!editing || !project.isManager}
                               title="Счёт отправлен"
                               aria-label="Счёт отправлен"
                               onChange={() => void toggleInvoiceSent(a)}
@@ -712,6 +818,7 @@ export function ProjectModal({
                     </>
                   )}
                 </section>
+                ) : null}
 
                 <section className="space-y-4">
                       <div>
@@ -792,7 +899,7 @@ export function ProjectModal({
                 </section>
 
                 <div className="flex flex-wrap gap-2 pt-1">
-                  {project.isManager && (
+                  {showFinanceLinks && (
                     <>
                       <Link
                         href={`/quotes/${project.id}`}
@@ -1045,6 +1152,52 @@ export function ProjectModal({
           </div>
         </div>
       )}
+
+      {project && quoteId ? (
+        <DuplicateQuoteModal
+          open={copyOpen}
+          onClose={() => setCopyOpen(false)}
+          quoteId={quoteId}
+          managers={
+            managers.length
+              ? managers
+              : project.owner
+                ? [
+                    {
+                      id: project.owner.id,
+                      name: personName(project.owner),
+                    },
+                  ]
+                : []
+          }
+          defaultOwnerId={project.owner?.id || managers[0]?.id || ""}
+          initialDate={project.date}
+          initialDays={project.durationDays || 1}
+          onCreated={(id) => {
+            setCopyOpen(false);
+            onChanged?.();
+            onCopied?.(id);
+          }}
+        />
+      ) : null}
+
+      <ConfirmDialog
+        open={deleteOpen}
+        title="Убрать из календаря"
+        message={
+          deleteError ||
+          "Даты сметы будут очищены, статус станет «Отменено». Мероприятие уйдёт из календаря в раздел «Сметы» своего менеджера."
+        }
+        confirmLabel="Убрать"
+        busy={deleting}
+        onConfirm={() => void unscheduleEvent()}
+        onCancel={() => {
+          if (!deleting) {
+            setDeleteOpen(false);
+            setDeleteError("");
+          }
+        }}
+      />
     </>
   );
 }

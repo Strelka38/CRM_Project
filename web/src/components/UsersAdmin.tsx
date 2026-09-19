@@ -2,11 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { Button, DataCards, SortableTh, useTableSort } from "@/components/ui";
 import {
   DirectoryAddButton,
   DirectoryCardLink,
   DirectoryCsvMenu,
   DirectoryIconButton,
+  DirectoryMobileBar,
   DirectorySelectionActions,
   IconKey,
   IconPlusPerson,
@@ -16,6 +18,7 @@ import {
 } from "@/components/DirectoryToolbar";
 import { ResetUserPasswordModal } from "@/components/ResetUserPasswordModal";
 import { ownerShorts, type CatalogOwnerValue } from "@/lib/catalog-owner";
+import { cn } from "@/lib/cn";
 import { formatMoney } from "@/lib/format";
 import {
   assignableRoles,
@@ -36,6 +39,27 @@ type UserRow = {
   createdAt: string;
   specialties?: Array<{ specialty: { id?: string; name: string } }>;
 };
+
+function userSortValue(u: UserRow, key: string) {
+  switch (key) {
+    case "name":
+      return u.name;
+    case "email":
+      return u.email;
+    case "owners":
+      return ownerShorts(u.owners);
+    case "salary":
+      return u.monthlySalary;
+    case "specialties":
+      return (u.specialties || []).map((s) => s.specialty.name).join(", ");
+    case "role":
+      return roleLabelRuTitle(u.role);
+    case "status":
+      return u.active ? 1 : 0;
+    default:
+      return null;
+  }
+}
 
 type SpecialtyOpt = { id: string; name: string };
 
@@ -65,6 +89,7 @@ export function UsersAdmin({ actorRole }: { actorRole: string }) {
   const selectAllRef = useRef<HTMLInputElement>(null);
   const createRoles = assignableRoles(actorRole);
   const canReset = canResetUserPassword(actorRole);
+  const { sorted, sort, onSort } = useTableSort(users, userSortValue);
 
   async function load() {
     const res = await fetch("/api/users");
@@ -211,7 +236,9 @@ export function UsersAdmin({ actorRole }: { actorRole: string }) {
         <p className="text-xs uppercase tracking-[0.15em] text-[var(--muted)]">
           База данных
         </p>
-        <h1 className="mt-1 text-3xl font-medium tracking-tight">Пользователи</h1>
+        <h1 className="mt-1 text-2xl font-medium tracking-tight md:text-3xl">
+          Пользователи
+        </h1>
         <p className="mt-1 text-sm text-[var(--muted)]">
           Менеджеров назначает только админ. Базовые ставки — во вкладке
           «Ставки», индивидуальные — в карточке сотрудника.
@@ -219,7 +246,84 @@ export function UsersAdmin({ actorRole }: { actorRole: string }) {
       </header>
 
       <section className="rounded-xl border border-[var(--line)] bg-[var(--panel)]">
-        <div className="flex w-full items-center gap-2 border-b border-[var(--line)] px-4 py-3">
+        <DirectoryMobileBar
+          primary={{
+            label: showCreate ? "Скрыть форму" : "Добавить пользователя",
+            onClick: () => setShowCreate((v) => !v),
+          }}
+          sheetTitle="Пользователи"
+          csv={{
+            busy: csvBusy,
+            onExport: () => void exportCsv(),
+            onImport: () => csvImportRef.current?.click(),
+          }}
+          selection={{
+            count: selected.size,
+            busy,
+            onDelete: () => setConfirmDelete(true),
+            deleteLabel: "Удалить",
+            // Три селекта не влезают в строку счётчика, поэтому идут под ней
+            // на всю ширину — каждый подписан своим первым пунктом.
+            extra: (
+              <div className="grid gap-2">
+                <select
+                  className="field text-sm"
+                  defaultValue=""
+                  disabled={busy}
+                  aria-label="Роль выбранных"
+                  onChange={(e) => {
+                    const role = e.target.value as AppRole;
+                    e.target.value = "";
+                    if (role) void bulk("role", { role });
+                  }}
+                >
+                  <option value="">Роль…</option>
+                  {createRoles.map((r) => (
+                    <option key={r} value={r}>
+                      {roleLabelRuTitle(r)}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  className="field text-sm"
+                  defaultValue=""
+                  disabled={busy || specialties.length === 0}
+                  aria-label="Должность выбранных"
+                  onChange={(e) => {
+                    const specialtyId = e.target.value;
+                    e.target.value = "";
+                    if (specialtyId) void bulk("addSpecialty", { specialtyId });
+                  }}
+                >
+                  <option value="">Должность…</option>
+                  {specialties.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  className="field text-sm"
+                  defaultValue=""
+                  disabled={busy}
+                  aria-label="Статус выбранных"
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    e.target.value = "";
+                    if (value === "on") void bulk("activate");
+                    if (value === "off") setConfirmDeactivate(true);
+                  }}
+                >
+                  <option value="">Статус…</option>
+                  <option value="on">Активен</option>
+                  <option value="off">Отключён</option>
+                </select>
+              </div>
+            ),
+          }}
+        />
+
+        <div className="hidden w-full items-center gap-2 border-b border-[var(--line)] px-4 py-3 md:flex">
           <DirectoryAddButton
             title="+ Пользователь"
             icon={<IconPlusPerson />}
@@ -299,18 +403,19 @@ export function UsersAdmin({ actorRole }: { actorRole: string }) {
               onImport={() => csvImportRef.current?.click()}
             />
           </div>
-          <input
-            ref={csvImportRef}
-            type="file"
-            accept=".csv,text/csv"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              e.target.value = "";
-              if (file) void importCsv(file);
-            }}
-          />
         </div>
+
+        <input
+          ref={csvImportRef}
+          type="file"
+          accept=".csv,text/csv"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = "";
+            if (file) void importCsv(file);
+          }}
+        />
         {csvMessage ? (
           <p className="border-b border-[var(--line)] px-4 py-2 text-xs text-[var(--muted)]">
             {csvMessage}
@@ -374,7 +479,97 @@ export function UsersAdmin({ actorRole }: { actorRole: string }) {
           </div>
         ) : null}
 
-        <div className="data-table-shell overflow-x-auto">
+        <div className="p-3 md:hidden">
+          <DataCards
+            items={sorted.map((u) => ({
+              id: u.id,
+              title: u.name,
+              subtitle: u.email || undefined,
+              href: `/users/${u.id}`,
+              fields: [
+                {
+                  label: "Статус",
+                  value: (
+                    <button
+                      type="button"
+                      onClick={() => void patchUser(u.id, { active: !u.active })}
+                      className={cn(
+                        "rounded-full border px-2 py-0.5 text-caption",
+                        u.active
+                          ? "border-[var(--accent)]/40 text-[var(--accent)]"
+                          : "border-[var(--danger)]/40 text-[var(--danger)]",
+                      )}
+                    >
+                      {u.active ? "Активен" : "Отключён"}
+                    </button>
+                  ),
+                },
+                // Роль остаётся редактируемой прямо в списке: это самое
+                // частое действие на этом экране.
+                {
+                  label: "Роль",
+                  value: canEditUserRole(actorRole, u.role) ? (
+                    <select
+                      className="field text-sm"
+                      value={u.role}
+                      onChange={(e) =>
+                        void patchUser(u.id, { role: e.target.value })
+                      }
+                    >
+                      {assignableRoles(actorRole).map((r) => (
+                        <option key={r} value={r}>
+                          {roleLabelRuTitle(r)}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    roleLabelRuTitle(u.role)
+                  ),
+                },
+                ...(ownerShorts(u.owners)
+                  ? [{ label: "Фирмы", value: ownerShorts(u.owners) }]
+                  : []),
+                ...(u.monthlySalary > 0
+                  ? [
+                      {
+                        label: "Оклад",
+                        value: (
+                          <span className="tabular-nums">
+                            {formatMoney(u.monthlySalary)}
+                          </span>
+                        ),
+                      },
+                    ]
+                  : []),
+                ...((u.specialties || []).length
+                  ? [
+                      {
+                        label: "Специальности",
+                        value: (u.specialties || [])
+                          .map((s) => s.specialty.name)
+                          .join(", "),
+                        block: true,
+                      },
+                    ]
+                  : []),
+              ],
+              actions: canReset ? (
+                <Button
+                  variant="secondary"
+                  className="tap-target"
+                  onClick={() => setResetUser({ id: u.id, name: u.name })}
+                >
+                  Сбросить пароль
+                </Button>
+              ) : undefined,
+            }))}
+            selectedIds={selected}
+            onToggleSelect={toggleOne}
+            emptyMessage="Пользователей пока нет"
+          />
+        </div>
+
+        <div className="data-table-shell hidden overflow-x-auto md:block">
           <table className="data-table data-table--editable w-full text-left text-sm">
             <thead className="bg-[var(--table-head)] text-xs uppercase text-[var(--muted)]">
               <tr>
@@ -387,18 +582,60 @@ export function UsersAdmin({ actorRole }: { actorRole: string }) {
                     aria-label="Выбрать все"
                   />
                 </th>
-                <th className="px-3 py-2 text-left">Имя</th>
-                <th className="px-3 py-2 text-left">Email</th>
-                <th className="px-3 py-2 text-left">Фирмы</th>
-                <th className="px-3 py-2 text-left">Оклад</th>
-                <th className="px-3 py-2 text-left">Специальности</th>
-                <th className="px-3 py-2 text-left">Роль</th>
-                <th className="px-3 py-2 text-left">Статус</th>
+                <SortableTh
+                  label="Имя"
+                  sortKey="name"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-3 py-2"
+                />
+                <SortableTh
+                  label="Email"
+                  sortKey="email"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-3 py-2"
+                />
+                <SortableTh
+                  label="Фирмы"
+                  sortKey="owners"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-3 py-2"
+                />
+                <SortableTh
+                  label="Оклад"
+                  sortKey="salary"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-3 py-2"
+                />
+                <SortableTh
+                  label="Специальности"
+                  sortKey="specialties"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-3 py-2"
+                />
+                <SortableTh
+                  label="Роль"
+                  sortKey="role"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-3 py-2"
+                />
+                <SortableTh
+                  label="Статус"
+                  sortKey="status"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-3 py-2"
+                />
                 <th className="w-20 px-3 py-2 text-left" />
               </tr>
             </thead>
             <tbody>
-              {users.map((u) => (
+              {sorted.map((u) => (
                 <tr
                   key={u.id}
                   className={`border-t border-[var(--line)] ${

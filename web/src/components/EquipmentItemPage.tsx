@@ -528,29 +528,28 @@ export function EquipmentItemPage({
 
     return (
       <div className="flex h-full min-h-0 flex-col">
-        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[var(--line)] px-4 py-3">
+        <div className="flex shrink-0 items-center gap-2 border-b border-[var(--line)] px-3 py-3">
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex size-8 shrink-0 items-center justify-center rounded-full text-lg leading-none text-[var(--muted)] hover:bg-[var(--ink)]/10 hover:text-[var(--ink)]"
+            aria-label="Закрыть"
+          >
+            ×
+          </button>
           <h2
             id="equipment-card-title"
-            className="truncate text-base font-semibold"
+            className="min-w-0 flex-1 truncate text-base font-semibold"
           >
             Карточка
           </h2>
-          <div className="flex shrink-0 items-center gap-2">
-            <button
-              type="button"
-              className="rounded-md border border-[var(--line)] px-3 py-1.5 text-sm hover:bg-[var(--panel-muted)]"
-              onClick={() => setDrawerOpen(true)}
-            >
-              Редактировать
-            </button>
-            <button
-              type="button"
-              className="text-sm text-[var(--muted)] hover:text-[var(--ink)]"
-              onClick={onClose}
-            >
-              Закрыть
-            </button>
-          </div>
+          <button
+            type="button"
+            className="rounded-md border border-[var(--line)] px-3 py-1.5 text-sm hover:bg-[var(--panel-muted)]"
+            onClick={() => setDrawerOpen(true)}
+          >
+            Редактировать
+          </button>
         </div>
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
           {error ? (

@@ -110,6 +110,14 @@ export function ownerShorts(owners: CatalogOwnerValue[] | null | undefined) {
     .join("+");
 }
 
+export function ownerShortsWithFallback(
+  savedLabel: string | null | undefined,
+  owners: CatalogOwnerValue[] | null | undefined,
+) {
+  const saved = String(savedLabel ?? "").trim();
+  return saved && saved !== "—" ? saved : ownerShorts(owners);
+}
+
 /** Делит сумму поровну между тегами фирм. Пустые owners → {}. */
 export function splitAmongOwners(
   amount: number,

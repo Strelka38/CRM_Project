@@ -2,10 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { DataCards, SortableTh, useTableSort } from "@/components/ui";
 import {
   DirectoryAddButton,
   DirectoryCardLink,
   DirectoryCsvMenu,
+  DirectoryMobileBar,
   DirectorySelectionActions,
   IconPlusFolder,
   downloadCsvExport,
@@ -26,6 +28,31 @@ type VehicleRow = {
   comment: string;
   active: boolean;
 };
+
+function vehicleSortValue(v: VehicleRow, key: string) {
+  switch (key) {
+    case "plate":
+      return v.plateNumber;
+    case "make":
+      return v.make;
+    case "model":
+      return v.model;
+    case "series":
+      return v.series;
+    case "certificate":
+      return v.certificateNumber;
+    case "fuel":
+      return v.fuelConsumption;
+    case "mileage":
+      return v.mileage;
+    case "rules":
+      return v.operatingRules;
+    case "comment":
+      return v.comment;
+    default:
+      return null;
+  }
+}
 
 const emptyForm = {
   plateNumber: "",
@@ -51,6 +78,7 @@ export function VehiclesAdmin() {
   const [csvMessage, setCsvMessage] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const csvImportRef = useRef<HTMLInputElement>(null);
+  const { sorted, sort, onSort } = useTableSort(vehicles, vehicleSortValue);
 
   async function load(search = q) {
     const params = new URLSearchParams();
@@ -179,14 +207,38 @@ export function VehiclesAdmin() {
         <p className="text-xs uppercase tracking-[0.15em] text-[var(--muted)]">
           Склад
         </p>
-        <h1 className="mt-1 text-3xl font-medium tracking-tight">Транспорт</h1>
+        <h1 className="mt-1 text-2xl font-medium tracking-tight md:text-3xl">
+          Транспорт
+        </h1>
         <p className="mt-1 text-sm text-[var(--muted)]">
           Корпоративный автопарк: госномера, модели, пробег и комментарии.
         </p>
       </header>
 
       <section className="rounded-xl border border-[var(--line)] bg-[var(--panel)]">
-        <div className="flex w-full items-center gap-2 border-b border-[var(--line)] px-4 py-3">
+        <DirectoryMobileBar
+          q={q}
+          onQ={setQ}
+          searchPlaceholder="Номер, марка, модель…"
+          primary={{
+            label: showCreate ? "Скрыть форму" : "Добавить транспорт",
+            onClick: () => setShowCreate((v) => !v),
+          }}
+          sheetTitle="Транспорт"
+          csv={{
+            busy: csvBusy,
+            onExport: () => void exportCsv(),
+            onImport: () => csvImportRef.current?.click(),
+          }}
+          selection={{
+            count: selected.size,
+            busy,
+            onCopy: () => void bulk("copy"),
+            onDelete: () => setConfirmDelete(true),
+          }}
+        />
+
+        <div className="hidden w-full items-center gap-2 border-b border-[var(--line)] px-4 py-3 md:flex">
           <DirectoryAddButton
             title="+ Транспорт"
             icon={<IconPlusFolder />}
@@ -212,18 +264,19 @@ export function VehiclesAdmin() {
               onImport={() => csvImportRef.current?.click()}
             />
           </div>
-          <input
-            ref={csvImportRef}
-            type="file"
-            accept=".csv,text/csv"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              e.target.value = "";
-              if (file) void importCsv(file);
-            }}
-          />
         </div>
+
+        <input
+          ref={csvImportRef}
+          type="file"
+          accept=".csv,text/csv"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = "";
+            if (file) void importCsv(file);
+          }}
+        />
         {csvMessage ? (
           <p className="border-b border-[var(--line)] px-4 py-2 text-xs text-[var(--muted)]">
             {csvMessage}
@@ -331,7 +384,47 @@ export function VehiclesAdmin() {
           </div>
         ) : null}
 
-        <div className="data-table-shell overflow-x-auto">
+        <div className="p-3 md:hidden">
+          <DataCards
+            items={sorted.map((v) => ({
+              id: v.id,
+              title: v.plateNumber,
+              subtitle:
+                [v.make, v.model, v.series].filter(Boolean).join(" ") ||
+                undefined,
+              href: `/vehicles/${v.id}`,
+              trailing: v.active ? undefined : (
+                <span className="text-caption text-[var(--muted)]">выкл</span>
+              ),
+              // Из десяти колонок оставляем то, по чему машину выбирают в
+              // поле: пробег и расход. Свидетельство и правила — в карточке.
+              fields: [
+                {
+                  label: "Пробег",
+                  value: (
+                    <span className="tabular-nums">{v.mileage || 0}</span>
+                  ),
+                },
+                {
+                  label: "Расход",
+                  value: (
+                    <span className="tabular-nums">
+                      {v.fuelConsumption || 0}
+                    </span>
+                  ),
+                },
+                ...(v.comment
+                  ? [{ label: "Комментарий", value: v.comment, block: true }]
+                  : []),
+              ],
+            }))}
+            selectedIds={selected}
+            onToggleSelect={toggleOne}
+            emptyMessage="Транспорта пока нет"
+          />
+        </div>
+
+        <div className="data-table-shell hidden overflow-x-auto md:block">
           <table className="data-table w-full min-w-[60rem] text-left text-sm">
             <thead className="bg-[var(--table-head)] text-xs uppercase text-[var(--muted)]">
               <tr>
@@ -343,20 +436,74 @@ export function VehiclesAdmin() {
                     aria-label="Выбрать все"
                   />
                 </th>
-                <th className="px-3 py-2 text-left">Номер</th>
-                <th className="px-3 py-2 text-left">Марка</th>
-                <th className="px-3 py-2 text-left">Модель</th>
-                <th className="px-3 py-2 text-left">Серия</th>
-                <th className="px-3 py-2 text-left">Свидетельство</th>
-                <th className="px-3 py-2 text-left">Расход</th>
-                <th className="px-3 py-2 text-left">Пробег</th>
-                <th className="px-3 py-2 text-left">Правила</th>
-                <th className="px-3 py-2 text-left">Комментарий</th>
+                <SortableTh
+                  label="Номер"
+                  sortKey="plate"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-3 py-2"
+                />
+                <SortableTh
+                  label="Марка"
+                  sortKey="make"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-3 py-2"
+                />
+                <SortableTh
+                  label="Модель"
+                  sortKey="model"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-3 py-2"
+                />
+                <SortableTh
+                  label="Серия"
+                  sortKey="series"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-3 py-2"
+                />
+                <SortableTh
+                  label="Свидетельство"
+                  sortKey="certificate"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-3 py-2"
+                />
+                <SortableTh
+                  label="Расход"
+                  sortKey="fuel"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-3 py-2"
+                />
+                <SortableTh
+                  label="Пробег"
+                  sortKey="mileage"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-3 py-2"
+                />
+                <SortableTh
+                  label="Правила"
+                  sortKey="rules"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-3 py-2"
+                />
+                <SortableTh
+                  label="Комментарий"
+                  sortKey="comment"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-3 py-2"
+                />
                 <th className="w-12 px-3 py-2 text-left" />
               </tr>
             </thead>
             <tbody>
-              {vehicles.map((v) => (
+              {sorted.map((v) => (
                 <tr
                   key={v.id}
                   className={`border-t border-[var(--line)] ${

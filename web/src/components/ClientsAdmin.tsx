@@ -2,10 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { DataCards, SortableTh, useTableSort } from "@/components/ui";
 import {
   DirectoryAddButton,
   DirectoryCardLink,
   DirectoryCsvMenu,
+  DirectoryMobileBar,
   DirectorySelectionActions,
   IconPlusDoc,
   IconPlusPerson,
@@ -14,6 +16,7 @@ import {
   uploadCsvImport,
 } from "@/components/DirectoryToolbar";
 import { LegalCardImport } from "@/components/LegalCardImport";
+import { cn } from "@/lib/cn";
 
 type ClientRow = {
   id: string;
@@ -25,6 +28,23 @@ type ClientRow = {
   active: boolean;
   _count?: { quotes: number };
 };
+
+function clientSortValue(c: ClientRow, key: string) {
+  switch (key) {
+    case "company":
+      return c.companyName;
+    case "contact":
+      return c.contactName;
+    case "phone":
+      return c.phone;
+    case "quotes":
+      return c._count?.quotes ?? 0;
+    case "status":
+      return c.active ? 1 : 0;
+    default:
+      return null;
+  }
+}
 
 export function ClientsAdmin() {
   const [clients, setClients] = useState<ClientRow[]>([]);
@@ -42,6 +62,7 @@ export function ClientsAdmin() {
   const [csvMessage, setCsvMessage] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const csvImportRef = useRef<HTMLInputElement>(null);
+  const { sorted, sort, onSort } = useTableSort(clients, clientSortValue);
 
   async function load(search = q) {
     const params = new URLSearchParams();
@@ -105,7 +126,7 @@ export function ClientsAdmin() {
   }
 
   function toggleAll() {
-    const ids = clients.map((c) => c.id);
+    const ids = sorted.map((c) => c.id);
     const all = ids.length > 0 && ids.every((id) => selected.has(id));
     setSelected(all ? new Set() : new Set(ids));
   }
@@ -165,18 +186,61 @@ export function ClientsAdmin() {
 
   return (
     <div className="w-full px-4 py-6 md:px-6">
-      <header className="mb-8 animate-fade-up">
+      <header className="animate-fade-up mb-5 md:mb-8">
         <p className="text-xs uppercase tracking-[0.15em] text-[var(--muted)]">
           База данных
         </p>
-        <h1 className="mt-1 text-3xl font-medium tracking-tight">Клиенты</h1>
+        <h1 className="mt-1 text-2xl font-medium tracking-tight md:text-3xl">
+          Клиенты
+        </h1>
         <p className="mt-1 text-sm text-[var(--muted)]">
           Профили заказчиков для КП и статистики прибыльности проектов.
         </p>
       </header>
 
       <section className="rounded-xl border border-[var(--line)] bg-[var(--panel)]">
-        <div className="flex w-full items-center gap-2 border-b border-[var(--line)] px-4 py-3">
+        <DirectoryMobileBar
+          q={q}
+          onQ={setQ}
+          searchPlaceholder="Компания, контакт, телефон…"
+          primary={{
+            label: showCreate ? "Скрыть форму" : "Добавить клиента",
+            onClick: () => setShowCreate((v) => !v),
+          }}
+          sheetTitle="Клиенты"
+          groups={[
+            {
+              title: "Создать",
+              items: [
+                {
+                  label: "Клиент вручную",
+                  hint: "Компания, контакт, телефон",
+                  icon: <IconPlusPerson />,
+                  onSelect: () => setShowCreate(true),
+                },
+                {
+                  label: "Из карточки предприятия",
+                  hint: "Распознать реквизиты из файла",
+                  icon: <IconPlusDoc />,
+                  onSelect: () => setShowCardImport(true),
+                },
+              ],
+            },
+          ]}
+          csv={{
+            busy: csvBusy,
+            onExport: () => void exportCsv(),
+            onImport: () => csvImportRef.current?.click(),
+          }}
+          selection={{
+            count: selected.size,
+            busy,
+            onCopy: () => void bulk("copy"),
+            onDelete: () => setConfirmDelete(true),
+          }}
+        />
+
+        <div className="hidden w-full items-center gap-2 border-b border-[var(--line)] px-4 py-3 md:flex">
           <DirectoryAddButton
             title="+ Клиент"
             icon={<IconPlusPerson />}
@@ -207,18 +271,19 @@ export function ClientsAdmin() {
               onImport={() => csvImportRef.current?.click()}
             />
           </div>
-          <input
-            ref={csvImportRef}
-            type="file"
-            accept=".csv,text/csv"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              e.target.value = "";
-              if (file) void importCsv(file);
-            }}
-          />
         </div>
+
+        <input
+          ref={csvImportRef}
+          type="file"
+          accept=".csv,text/csv"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = "";
+            if (file) void importCsv(file);
+          }}
+        />
         {csvMessage ? (
           <p className="border-b border-[var(--line)] px-4 py-2 text-xs text-[var(--muted)]">
             {csvMessage}
@@ -305,7 +370,69 @@ export function ClientsAdmin() {
           </div>
         ) : null}
 
-        <div className="data-table-shell overflow-x-auto">
+        <div className="p-3 md:hidden">
+          <DataCards
+            items={sorted.map((c) => ({
+              id: c.id,
+              title: c.companyName,
+              subtitle: c.inn ? `ИНН ${c.inn}` : undefined,
+              href: `/clients/${c.id}`,
+              // Пустые поля не показываем: на 390px строка «Контакт —» стоит
+              // столько же места, сколько заполненная, а смысла не несёт.
+              fields: [
+                {
+                  label: "Статус",
+                  value: (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void patchClient(c.id, { active: !c.active })
+                      }
+                      className={cn(
+                        "rounded-full border px-2 py-0.5 text-caption",
+                        c.active
+                          ? "border-[var(--accent)]/40 text-[var(--accent)]"
+                          : "border-[var(--danger)]/40 text-[var(--danger)]",
+                      )}
+                    >
+                      {c.active ? "Активен" : "Отключён"}
+                    </button>
+                  ),
+                },
+                ...(c.contactName
+                  ? [{ label: "Контакт", value: c.contactName }]
+                  : []),
+                ...(c.phone
+                  ? [
+                      {
+                        label: "Телефон",
+                        // На телефоне номер должен звонить по тапу.
+                        value: (
+                          <a
+                            href={`tel:${c.phone.replace(/[^\d+]/g, "")}`}
+                            className="text-[var(--accent)]"
+                          >
+                            {c.phone}
+                          </a>
+                        ),
+                      },
+                    ]
+                  : []),
+                {
+                  label: "КП",
+                  value: (
+                    <span className="tabular-nums">{c._count?.quotes ?? 0}</span>
+                  ),
+                },
+              ],
+            }))}
+            selectedIds={selected}
+            onToggleSelect={toggleOne}
+            emptyMessage="Клиентов пока нет"
+          />
+        </div>
+
+        <div className="data-table-shell hidden overflow-x-auto md:block">
           <table className="data-table w-full text-left text-sm">
             <thead className="bg-[var(--table-head)] text-xs uppercase text-[var(--muted)]">
               <tr>
@@ -317,16 +444,46 @@ export function ClientsAdmin() {
                     aria-label="Выбрать все"
                   />
                 </th>
-                <th className="px-3 py-2 text-left">Компания</th>
-                <th className="px-3 py-2 text-left">Контакт</th>
-                <th className="px-3 py-2 text-left">Телефон</th>
-                <th className="px-3 py-2 text-left">КП</th>
-                <th className="px-3 py-2 text-left">Статус</th>
+                <SortableTh
+                  label="Компания"
+                  sortKey="company"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-3 py-2"
+                />
+                <SortableTh
+                  label="Контакт"
+                  sortKey="contact"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-3 py-2"
+                />
+                <SortableTh
+                  label="Телефон"
+                  sortKey="phone"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-3 py-2"
+                />
+                <SortableTh
+                  label="КП"
+                  sortKey="quotes"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-3 py-2"
+                />
+                <SortableTh
+                  label="Статус"
+                  sortKey="status"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-3 py-2"
+                />
                 <th className="w-12 px-3 py-2 text-left" />
               </tr>
             </thead>
             <tbody>
-              {clients.map((c) => (
+              {sorted.map((c) => (
                 <tr
                   key={c.id}
                   className={`border-t border-[var(--line)] ${
@@ -370,7 +527,7 @@ export function ClientsAdmin() {
                   </td>
                 </tr>
               ))}
-              {clients.length === 0 && (
+              {sorted.length === 0 && (
                 <tr>
                   <td
                     colSpan={7}

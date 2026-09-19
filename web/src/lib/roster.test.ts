@@ -26,8 +26,9 @@ import {
   rosterItemMatchesFirms,
   isVacantInstallerSlot,
   isOpenMountDropSlot,
+  isRosterDutyMark,
+  collapseRosterDutyMarks,
   dateInRosterResizeWindow,
-  rosterRangeDuties,
   ROSTER_MOUNT_COLOR,
   ROSTER_MOUNT_SPECIALTY_QUERY,
 } from "./roster";
@@ -111,7 +112,22 @@ assert.equal(openMount.assignmentIds.length, 0);
 assert.equal(openMount.start, "2026-08-09");
 assert.equal(openDemount.start, "2026-08-12");
 assert.equal(isOpenMountDropSlot(openMount), true);
+assert.equal(isRosterDutyMark(openMount), true);
 assert.equal(isVacantInstallerSlot(openMount), false);
+const collapsedDuty = collapseRosterDutyMarks([
+  {
+    ...openMount,
+    id: "qa:sold:mount",
+    assignmentIds: ["sold-m"],
+  },
+  openMount,
+  openDemount,
+]);
+assert.equal(
+  collapsedDuty.filter((i) => i.vacant && i.mountDuty === "mount").length,
+  1,
+);
+assert.equal(collapsedDuty.some((i) => i.id === openMount.id), true);
 const allDays = quoteItems.find((i) => i.assignmentIds[0] === "a-all");
 assert.ok(allDays);
 assert.equal(allDays.start, "2026-08-10");
@@ -511,12 +527,28 @@ assert.equal(
     {
       eventStart: "2026-08-10",
       eventDays: 2,
-      mountStart: "2026-08-09",
-      mountEnd: "2026-08-09",
-      demountStart: "2026-08-12",
-      demountEnd: "2026-08-12",
     },
     "2026-08-09",
+  ),
+  false,
+);
+assert.equal(
+  dateInRosterResizeWindow(
+    {
+      eventStart: "2026-08-10",
+      eventDays: 2,
+    },
+    "2026-08-08",
+  ),
+  false,
+);
+assert.equal(
+  dateInRosterResizeWindow(
+    {
+      eventStart: "2026-08-10",
+      eventDays: 2,
+    },
+    "2026-08-10",
   ),
   true,
 );
@@ -525,27 +557,10 @@ assert.equal(
     {
       eventStart: "2026-08-10",
       eventDays: 2,
-      mountStart: "2026-08-09",
-      mountEnd: "2026-08-09",
-      demountStart: "2026-08-12",
-      demountEnd: "2026-08-12",
     },
-    "2026-08-08",
+    "2026-08-12",
   ),
   false,
-);
-assert.deepEqual(
-  rosterRangeDuties(
-    {
-      mountStart: "2026-08-09",
-      mountEnd: "2026-08-09",
-      demountStart: "2026-08-12",
-      demountEnd: "2026-08-12",
-    },
-    "2026-08-09",
-    "2026-08-11",
-  ),
-  ["mount"],
 );
 
 const shmQuote = buildQuoteRosterItems({

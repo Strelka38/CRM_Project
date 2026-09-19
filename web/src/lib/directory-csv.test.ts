@@ -157,6 +157,7 @@ assert.equal(kits.errors.length, 0);
 assert.equal(kits.rows[0].name, "Свет сцена");
 assert.equal(kits.rows[0].components.length, 2);
 assert.equal(kits.rows[0].components[0].catalogItemId, "item1");
+assert.equal(kits.rows[0].showInCatalog, false);
 assert.equal(
   kitToCsvCells({
     id: "k1",
@@ -164,6 +165,7 @@ assert.equal(
     description: null,
     sortOrder: 0,
     active: true,
+    showInCatalog: true,
     category: null,
     components: kits.rows[0].components.map((c) => ({
       qty: c.qty,
@@ -172,6 +174,23 @@ assert.equal(
     })),
   })[1],
   "Свет сцена",
+);
+assert.equal(
+  kitToCsvCells({
+    id: "k1",
+    name: kits.rows[0].name,
+    description: null,
+    sortOrder: 0,
+    active: true,
+    showInCatalog: true,
+    category: null,
+    components: kits.rows[0].components.map((c) => ({
+      qty: c.qty,
+      catalogItemId: c.catalogItemId,
+      catalogItem: { name: c.name },
+    })),
+  })[6],
+  "1",
 );
 
 const quoteCsv = toCsv([
@@ -182,7 +201,7 @@ const quotes = parseQuoteCsv(quoteCsv);
 assert.equal(quotes.errors.length, 0);
 assert.equal(quotes.rows[0].eventName, "Свадьба");
 assert.equal(quotes.rows[0].paid, true);
-assert.equal(quoteToCsvCells({
+const quoteCells = quoteToCsvCells({
   id: "q1",
   proposalNumber: "42",
   eventName: "Свадьба",
@@ -196,4 +215,11 @@ assert.equal(quoteToCsvCells({
   invoiceSent: false,
   paid: true,
   paymentComment: "",
-})[2], "Свадьба");
+  specialistRequests:
+    "Иван Иванов — Видеоинженер; Нужно назначить — Звукорежиссёр",
+});
+assert.equal(quoteCells[2], "Свадьба");
+assert.equal(
+  quoteCells[13],
+  "Иван Иванов — Видеоинженер; Нужно назначить — Звукорежиссёр",
+);

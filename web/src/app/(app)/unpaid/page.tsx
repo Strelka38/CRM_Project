@@ -5,9 +5,12 @@ import {
   EmptyState,
   PageHeader,
   PaymentFlags,
+  SortableTh,
   StatusBadge,
+  useTableSort,
   type LifecycleStatus,
   LIFECYCLE_LABELS,
+  lifecycleLabel,
 } from "@/components/ui";
 import {
   DirectoryCardLink,
@@ -19,6 +22,8 @@ import {
   postBulkAction,
   uploadCsvImport,
 } from "@/components/DirectoryToolbar";
+
+import { dateSortValue } from "@/lib/table-sort";
 
 type Quote = {
   id: string;
@@ -32,6 +37,29 @@ type Quote = {
   lifecycle: string;
 };
 
+function unpaidSortValue(q: Quote, key: string) {
+  switch (key) {
+    case "number": {
+      const n = Number(q.proposalNumber);
+      return Number.isFinite(n) && q.proposalNumber.trim() !== ""
+        ? n
+        : q.proposalNumber;
+    }
+    case "event":
+      return q.eventName;
+    case "date":
+      return dateSortValue(q.date);
+    case "client":
+      return q.client;
+    case "lifecycle":
+      return lifecycleLabel(q.lifecycle);
+    case "paid":
+      return (q.paid ? 2 : 0) + (q.invoiceSent ? 1 : 0);
+    default:
+      return null;
+  }
+}
+
 export default function UnpaidPage() {
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -40,6 +68,7 @@ export default function UnpaidPage() {
   const [csvMessage, setCsvMessage] = useState("");
   const [error, setError] = useState("");
   const csvImportRef = useRef<HTMLInputElement>(null);
+  const { sorted, sort, onSort } = useTableSort(quotes, unpaidSortValue);
 
   async function load() {
     const res = await fetch("/api/quotes?unpaid=1");
@@ -203,16 +232,53 @@ export default function UnpaidPage() {
                       aria-label="Выбрать все"
                     />
                   </th>
-                  <th className="px-3 py-2 text-left">КП</th>
-                  <th className="px-3 py-2 text-left">Дата</th>
-                  <th className="px-3 py-2 text-left">Клиент</th>
-                  <th className="px-3 py-2 text-left">Статус</th>
-                  <th className="px-3 py-2 text-left">Оплата</th>
+                  <SortableTh
+                    label="№"
+                    sortKey="number"
+                    state={sort}
+                    onSort={onSort}
+                    className="w-px whitespace-nowrap px-3 py-2"
+                  />
+                  <SortableTh
+                    label="Мероприятие"
+                    sortKey="event"
+                    state={sort}
+                    onSort={onSort}
+                    className="px-3 py-2"
+                  />
+                  <SortableTh
+                    label="Дата"
+                    sortKey="date"
+                    state={sort}
+                    onSort={onSort}
+                    className="px-3 py-2"
+                  />
+                  <SortableTh
+                    label="Клиент"
+                    sortKey="client"
+                    state={sort}
+                    onSort={onSort}
+                    className="px-3 py-2"
+                  />
+                  <SortableTh
+                    label="Статус"
+                    sortKey="lifecycle"
+                    state={sort}
+                    onSort={onSort}
+                    className="px-3 py-2"
+                  />
+                  <SortableTh
+                    label="Оплата"
+                    sortKey="paid"
+                    state={sort}
+                    onSort={onSort}
+                    className="px-3 py-2"
+                  />
                   <th className="w-12 px-3 py-2 text-left" />
                 </tr>
               </thead>
               <tbody>
-                {quotes.map((q) => (
+                {sorted.map((q) => (
                   <tr
                     key={q.id}
                     className={`border-t border-[var(--line)] transition-colors hover:bg-subtle ${
@@ -227,9 +293,11 @@ export default function UnpaidPage() {
                         aria-label={`Выбрать № ${q.proposalNumber}`}
                       />
                     </td>
-                    <td className="px-3 py-2 text-left">
+                    <td className="px-3 py-2 text-left whitespace-nowrap tabular-nums">
                       № {q.proposalNumber}
-                      {q.eventName ? ` — ${q.eventName}` : ""}
+                    </td>
+                    <td className="px-3 py-2 text-left">
+                      {q.eventName || "—"}
                     </td>
                     <td className="px-3 py-2 text-left text-[var(--muted)]">
                       {q.date || "—"}

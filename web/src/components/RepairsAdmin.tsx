@@ -5,15 +5,19 @@ import Link from "next/link";
 import {
   Button,
   Card,
+  DataCards,
   EmptyState,
   Modal,
   PageHeader,
+  SortableTh,
   TableSkeleton,
+  useTableSort,
 } from "@/components/ui";
 import { EquipmentRepairFormModal } from "@/components/EquipmentRepairFormModal";
 import { EquipmentQrScannerModal } from "@/components/EquipmentQrScannerModal";
 import { formatUnitId } from "@/lib/equipment-id";
 import { faultTypeLabel } from "@/lib/equipment-repairs";
+import { dateSortValue } from "@/lib/table-sort";
 
 type RepairRow = {
   id: string;
@@ -91,6 +95,23 @@ function unitIdLabel(row: RepairRow) {
   return row.unit.label ? `${id} · ${row.unit.label}` : id;
 }
 
+function repairSortValue(r: RepairRow, key: string) {
+  switch (key) {
+    case "unit":
+      return r.unit.catalogItem.name;
+    case "fault":
+      return faultTypeLabel(r.faultType);
+    case "date":
+      return dateSortValue(r.reportedAt);
+    case "reporter":
+      return reporterName(r.reportedBy);
+    case "comment":
+      return r.comment;
+    default:
+      return null;
+  }
+}
+
 function scrollToRepairRow(id: string) {
   const nodes = document.querySelectorAll<HTMLElement>(`[data-repair-id="${id}"]`);
   const visible = [...nodes].find((node) => node.offsetParent !== null) ?? nodes[0];
@@ -113,6 +134,7 @@ export function RepairsAdmin() {
     token: string;
     label: string;
   } | null>(null);
+  const { sorted, sort, onSort } = useTableSort(rows, repairSortValue);
 
   async function load() {
     setLoading(true);
@@ -322,56 +344,48 @@ export function RepairsAdmin() {
           />
         ) : (
           <>
-            <ul className="divide-y divide-[var(--line)] md:hidden">
-              {rows.map((r) => (
-                <li
-                  key={r.id}
-                  data-repair-id={r.id}
-                  className={`flex items-start gap-2 px-3 py-3 text-left ${rowClass(r.id)}`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={selectedIds.has(r.id)}
-                    aria-label={`Выбрать ${r.unit.catalogItem.name}`}
-                    className="mt-1 size-4 shrink-0 accent-[var(--accent)]"
-                    onChange={() => toggleRow(r.id)}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-caption uppercase tracking-wider text-[var(--muted)]">
-                      {r.unit.catalogItem.category?.path || "Оборудование"}
-                    </p>
-                    <Link
-                      href={`/q/${r.unit.qrToken}`}
-                      className="font-medium text-[var(--accent-deep)] hover:text-[var(--accent)] hover:underline"
-                    >
-                      {unitTitle(r)}
-                    </Link>
-                    <p className="mt-0.5 text-xs text-[var(--muted)]">
-                      ID {unitIdLabel(r)}
-                    </p>
-                    <p className="mt-1.5 text-sm text-[var(--ink)]">
-                      {faultTypeLabel(r.faultType)}
-                    </p>
-                    <p className="mt-0.5 text-xs text-[var(--muted)]">
-                      {fmtDt(r.reportedAt)} · {reporterName(r.reportedBy)}
-                    </p>
-                    {r.comment ? (
-                      <p className="mt-1 line-clamp-2 text-sm text-[var(--ink)]">
-                        {r.comment}
-                      </p>
-                    ) : null}
-                    <button
-                      type="button"
-                      className="mt-2 text-sm text-[var(--accent-deep)] hover:underline"
+            <div className="p-3 md:hidden">
+              <DataCards
+                items={sorted.map((r) => ({
+                  id: r.id,
+                  title: unitTitle(r),
+                  subtitle: `ID ${unitIdLabel(r)}`,
+                  href: `/q/${r.unit.qrToken}`,
+                  fields: [
+                    {
+                      label: "Неисправность",
+                      value: faultTypeLabel(r.faultType),
+                    },
+                    {
+                      label: "Списана",
+                      value: `${fmtDt(r.reportedAt)} · ${reporterName(r.reportedBy)}`,
+                      block: true,
+                    },
+                    ...(r.comment
+                      ? [
+                          {
+                            label: "Комментарий",
+                            value: r.comment,
+                            block: true,
+                          },
+                        ]
+                      : []),
+                  ],
+                  actions: (
+                    <Button
+                      variant="secondary"
+                      className="tap-target"
                       disabled={busy}
                       onClick={() => openReturn([r])}
                     >
                       Вернуть на склад
-                    </button>
-                  </div>
-                </li>
-              ))}
-            </ul>
+                    </Button>
+                  ),
+                }))}
+                selectedIds={selectedIds}
+                onToggleSelect={toggleRow}
+              />
+            </div>
             <div className="data-table-shell hidden overflow-x-auto md:block">
               <table className="data-table w-full text-left text-sm">
               <thead className="bg-[var(--table-head)] text-caption uppercase tracking-wider text-[var(--muted)]">
@@ -385,16 +399,46 @@ export function RepairsAdmin() {
                       onChange={toggleAll}
                     />
                   </th>
-                  <th className="px-4 py-3">Единица</th>
-                  <th className="px-4 py-3">Тип поломки</th>
-                  <th className="px-4 py-3">Дата</th>
-                  <th className="px-4 py-3">Кто указал</th>
-                  <th className="px-4 py-3">Комментарий</th>
+                  <SortableTh
+                    label="Единица"
+                    sortKey="unit"
+                    state={sort}
+                    onSort={onSort}
+                    className="px-4 py-3"
+                  />
+                  <SortableTh
+                    label="Тип поломки"
+                    sortKey="fault"
+                    state={sort}
+                    onSort={onSort}
+                    className="px-4 py-3"
+                  />
+                  <SortableTh
+                    label="Дата"
+                    sortKey="date"
+                    state={sort}
+                    onSort={onSort}
+                    className="px-4 py-3"
+                  />
+                  <SortableTh
+                    label="Кто указал"
+                    sortKey="reporter"
+                    state={sort}
+                    onSort={onSort}
+                    className="px-4 py-3"
+                  />
+                  <SortableTh
+                    label="Комментарий"
+                    sortKey="comment"
+                    state={sort}
+                    onSort={onSort}
+                    className="px-4 py-3"
+                  />
                   <th className="px-4 py-3"> </th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r) => (
+                {sorted.map((r) => (
                   <tr
                     key={r.id}
                     data-repair-id={r.id}

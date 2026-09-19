@@ -29,16 +29,29 @@ export async function GET(req: NextRequest) {
       });
 
       if (forQuote) {
-        const visible = await prisma.catalogItem.findMany({
-          where: {
-            active: true,
-            showInCatalog: true,
-            itemKind: { not: "COMPONENT" },
-          },
-          select: { category: { select: { path: true } } },
-        });
+        const [visibleItems, visibleKits] = await Promise.all([
+          prisma.catalogItem.findMany({
+            where: {
+              active: true,
+              showInCatalog: true,
+              itemKind: { not: "COMPONENT" },
+            },
+            select: { category: { select: { path: true } } },
+          }),
+          prisma.kit.findMany({
+            where: {
+              active: true,
+              showInCatalog: true,
+              categoryId: { not: null },
+            },
+            select: { category: { select: { path: true } } },
+          }),
+        ]);
         const visiblePaths = new Set(
-          visible.map((v) => v.category.path).filter(Boolean),
+          [
+            ...visibleItems.map((v) => v.category.path),
+            ...visibleKits.map((v) => v.category?.path),
+          ].filter((path): path is string => Boolean(path)),
         );
         const keep = new Set<string>();
         for (const path of visiblePaths) {

@@ -20,6 +20,7 @@ import {
   requireSession,
 } from "@/lib/session";
 import { notifyManagersOfNewEvent } from "@/lib/notifications";
+import { staffCoverageLines } from "@/lib/quote-assignment-days";
 
 const quoteSelect = {
   id: true,
@@ -35,6 +36,33 @@ const quoteSelect = {
   paid: true,
   paymentComment: true,
   owner: { select: { name: true } },
+  zones: {
+    orderBy: { sortOrder: "asc" as const },
+    select: { id: true, workingDayIndexes: true },
+  },
+  assignments: {
+    orderBy: { createdAt: "asc" as const },
+    select: {
+      id: true,
+      kind: true,
+      dayIndex: true,
+      userId: true,
+      isFreelancer: true,
+      freelancerName: true,
+      specialtyId: true,
+      zoneId: true,
+      specialty: { select: { id: true, name: true } },
+      zone: { select: { id: true, name: true } },
+      user: {
+        select: {
+          id: true,
+          name: true,
+          firstName: true,
+          lastName: true,
+        },
+      },
+    },
+  },
 } as const;
 
 export async function GET(req: NextRequest) {
@@ -60,7 +88,19 @@ export async function GET(req: NextRequest) {
     const name = unpaid ? `unpaid-${stamp}.csv` : `quotes-${stamp}.csv`;
     return csvFileResponse(name, [
       [...QUOTE_CSV_HEADERS],
-      ...quotes.map((q) => quoteToCsvCells(q)),
+      ...quotes.map((q) =>
+        quoteToCsvCells({
+          ...q,
+          specialistRequests: staffCoverageLines(
+            q.assignments,
+            q.durationDays,
+            q.date,
+            q.zones,
+          )
+            .map((line) => line.text)
+            .join("; "),
+        }),
+      ),
     ]);
   } catch (e) {
     if (e instanceof Response) return e;

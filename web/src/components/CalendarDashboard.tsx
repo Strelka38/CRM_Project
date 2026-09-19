@@ -123,7 +123,7 @@ export function CalendarDashboard({
 
   if (!data) {
     return (
-      <div className="rounded-2xl border border-[var(--line)] bg-[var(--panel)] px-4 py-5 text-sm text-[var(--muted)]">
+      <div className="rounded-2xl border border-[var(--line)] bg-[var(--panel)] px-4 py-5 pl-14 text-sm text-[var(--muted)]">
         Загрузка…
       </div>
     );
@@ -139,7 +139,7 @@ export function CalendarDashboard({
       : null;
   return (
     <div className="flex flex-col gap-4 rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-3.5">
-      <header className="px-1 pt-0.5 pr-12">
+      <header className="px-1 pt-0.5 pl-14">
         <div className="min-w-0">
           <p className="font-display text-xl leading-tight text-[var(--ink)]">
             {hello}
@@ -320,14 +320,13 @@ export function CalendarDashToggle({
         strokeWidth="2"
         strokeLinecap="round"
         strokeLinejoin="round"
-        className="size-4"
+        className={cn(
+          "size-4 transition-transform duration-300 ease-out",
+          !collapsed && "rotate-180",
+        )}
         aria-hidden
       >
-        {collapsed ? (
-          <path d="M15 6 9 12l6 6" />
-        ) : (
-          <path d="M9 6l6 6-6 6" />
-        )}
+        <path d="M9 6l6 6-6 6" />
       </svg>
       {hasAlerts ? (
         <span className="absolute -right-0.5 -top-0.5 size-2.5 rounded-full bg-red-600 ring-2 ring-[var(--panel)]" />

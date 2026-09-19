@@ -1,4 +1,4 @@
-import type { CatalogOwner } from "@prisma/client";
+import type { CatalogOwner, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { dayOffsOverlappingQuote } from "@/lib/day-off-conflicts";
 import { notifyEmployeeOfAssignment } from "@/lib/notifications";
@@ -34,6 +34,93 @@ type PersonFields = {
   freelancerName: string;
   owners: CatalogOwner[];
 };
+
+type Db = Prisma.TransactionClient | typeof prisma;
+
+/** Пустой запрос той же должности: сначала точная зона, потом любой, потом all-days. */
+async function findVacantQuoteAssignment(
+  db: Db,
+  opts: {
+    quoteId: string;
+    specialtyId: string | null;
+    kind: "EVENT" | "MOUNT";
+    zoneId?: string | null;
+    dayIndex: number | null;
+    excludeIds?: string[];
+  },
+) {
+  if (!opts.specialtyId) return null;
+  const base: Prisma.QuoteAssignmentWhereInput = {
+    quoteId: opts.quoteId,
+    specialtyId: opts.specialtyId,
+    kind: opts.kind,
+    userId: null,
+    isFreelancer: false,
+    ...(opts.excludeIds?.length ? { id: { notIn: opts.excludeIds } } : {}),
+  };
+
+  if (opts.zoneId != null) {
+    const exact = await db.quoteAssignment.findFirst({
+      where: { ...base, zoneId: opts.zoneId, dayIndex: opts.dayIndex },
+    });
+    if (exact) return exact;
+  }
+
+  const sameDay = await db.quoteAssignment.findFirst({
+    where: { ...base, dayIndex: opts.dayIndex },
+  });
+  if (sameDay) return sameDay;
+
+  if (opts.dayIndex != null) {
+    if (opts.zoneId != null) {
+      const allDaysZone = await db.quoteAssignment.findFirst({
+        where: { ...base, zoneId: opts.zoneId, dayIndex: null },
+      });
+      if (allDaysZone) return allDaysZone;
+    }
+    const allDays = await db.quoteAssignment.findFirst({
+      where: { ...base, dayIndex: null },
+    });
+    if (allDays) return allDays;
+  }
+
+  return null;
+}
+
+async function ensureVacantQuoteAssignment(
+  db: Db,
+  opts: {
+    quoteId: string;
+    specialtyId: string | null;
+    kind: "EVENT" | "MOUNT";
+    zoneId?: string | null;
+    dayIndex: number | null;
+  },
+) {
+  const existing = await findVacantQuoteAssignment(db, opts);
+  if (existing) return existing;
+  if (!opts.specialtyId) {
+    throw new Error("Нельзя создать пустой слот без специальности");
+  }
+  return db.quoteAssignment.create({
+    data: {
+      quoteId: opts.quoteId,
+      userId: null,
+      isFreelancer: false,
+      freelancerName: "",
+      owners: [],
+      specialtyId: opts.specialtyId,
+      kind: opts.kind,
+      zoneId: opts.zoneId ?? null,
+      dayIndex: opts.dayIndex,
+      payMode: "SHIFT",
+      hours: null,
+      rateOverride: null,
+      bonus: 0,
+      montageAmount: 0,
+    },
+  });
+}
 
 function dateOnlyUtc(d: Date): Date {
   return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
@@ -938,20 +1025,12 @@ export async function applyRosterShiftToDay(
           },
         });
         for (const dayIndex of move.vacateDays) {
-          await tx.quoteAssignment.create({
-            data: {
-              quoteId: quote.id,
-              ...emptyPersonData,
-              specialtyId: template.specialtyId,
-              kind: template.kind,
-              zoneId: template.zoneId,
-              dayIndex,
-              payMode: "SHIFT",
-              hours: null,
-              rateOverride: null,
-              bonus: 0,
-              montageAmount: 0,
-            },
+          await ensureVacantQuoteAssignment(tx, {
+            quoteId: quote.id,
+            specialtyId: template.specialtyId,
+            kind: template.kind,
+            zoneId: template.zoneId,
+            dayIndex,
           });
         }
       }
@@ -983,21 +1062,22 @@ export async function applyRosterShiftToDay(
             : null;
         if (already) continue;
 
-        const vacant = await tx.quoteAssignment.findFirst({
-          where: {
-            quoteId: quote.id,
-            specialtyId: template.specialtyId,
-            kind: template.kind,
-            zoneId: template.zoneId,
-            dayIndex,
-            userId: null,
-            isFreelancer: false,
-          },
+        const vacant = await findVacantQuoteAssignment(tx, {
+          quoteId: quote.id,
+          specialtyId: template.specialtyId,
+          kind: template.kind,
+          zoneId: template.zoneId,
+          dayIndex,
+          excludeIds: assignments.map((a) => a.id),
         });
         if (vacant) {
           await tx.quoteAssignment.update({
             where: { id: vacant.id },
-            data: person,
+            data: {
+              ...person,
+              dayIndex,
+              zoneId: vacant.zoneId ?? template.zoneId,
+            },
           });
           continue;
         }
@@ -1034,7 +1114,6 @@ export async function applyRosterSpan(opts: {
   fromDay: number;
   toDay: number;
   forcePast?: boolean;
-  addDuties?: Array<"mount" | "demount">;
 }) {
   await assertQuoteNotPast(opts.quoteId, opts.forcePast);
   const quote = await prisma.quote.findUnique({
@@ -1054,10 +1133,6 @@ export async function applyRosterSpan(opts: {
     throw new Error("Слот монтажа нельзя растянуть по дням шоу");
   }
 
-  const addDuties = [...new Set(opts.addDuties || [])].filter(
-    (d): d is "mount" | "demount" => d === "mount" || d === "demount",
-  );
-
   const plan = planAssignmentSpan({
     quoteId: quote.id,
     assignmentIds: assignments.map((a) => a.id),
@@ -1066,7 +1141,7 @@ export async function applyRosterSpan(opts: {
     fromDay: opts.fromDay,
     toDay: opts.toDay,
   });
-  if (!plan && addDuties.length === 0) {
+  if (!plan) {
     throw new Error("Нельзя растянуть слот за пределы мероприятия");
   }
 
@@ -1132,16 +1207,13 @@ export async function applyRosterSpan(opts: {
         }
       }
       for (const dayIndex of plan.createDayIndexes) {
-        const vacant = await tx.quoteAssignment.findFirst({
-          where: {
-            quoteId: quote.id,
-            specialtyId: template.specialtyId,
-            kind: template.kind,
-            zoneId: template.zoneId,
-            dayIndex,
-            userId: null,
-            isFreelancer: false,
-          },
+        const vacant = await findVacantQuoteAssignment(tx, {
+          quoteId: quote.id,
+          specialtyId: template.specialtyId,
+          kind: template.kind,
+          zoneId: template.zoneId,
+          dayIndex,
+          excludeIds: [template.id, ...plan.keepIds, ...plan.vacateIds],
         });
         if (vacant) {
           await tx.quoteAssignment.update({
@@ -1154,6 +1226,8 @@ export async function applyRosterSpan(opts: {
               payMode: template.payMode,
               hours: template.hours,
               rateOverride: template.rateOverride,
+              dayIndex,
+              zoneId: vacant.zoneId ?? template.zoneId,
             },
           });
           continue;
@@ -1178,20 +1252,12 @@ export async function applyRosterSpan(opts: {
         });
       }
       for (const dayIndex of plan.createVacantDayIndexes) {
-        await tx.quoteAssignment.create({
-          data: {
-            quoteId: quote.id,
-            ...emptyPersonData,
-            specialtyId: template.specialtyId,
-            kind: template.kind,
-            zoneId: template.zoneId,
-            dayIndex,
-            payMode: "SHIFT",
-            hours: null,
-            rateOverride: null,
-            bonus: 0,
-            montageAmount: 0,
-          },
+        await ensureVacantQuoteAssignment(tx, {
+          quoteId: quote.id,
+          specialtyId: template.specialtyId,
+          kind: template.kind,
+          zoneId: template.zoneId,
+          dayIndex,
         });
       }
     });
@@ -1199,24 +1265,6 @@ export async function applyRosterSpan(opts: {
     const msg = uniqueErrorMessage(e);
     if (msg) throw new Error(msg);
     throw e;
-  }
-
-  if (addDuties.length) {
-    const person = await quoteSlotPerson(opts.assignmentIds);
-    if (person.userId || person.isFreelancer) {
-      for (const duty of addDuties) {
-        await applyOpenMountAssign(
-          {
-            source: "quote",
-            quoteId: opts.quoteId,
-            assignmentIds: [],
-            mountDuty: duty,
-          },
-          person,
-          "skip",
-        );
-      }
-    }
   }
 }
 

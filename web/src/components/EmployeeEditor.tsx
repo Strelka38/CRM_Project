@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { ChangePasswordModal } from "@/components/ChangePasswordModal";
 import { ResetUserPasswordModal } from "@/components/ResetUserPasswordModal";
 import { OwnerTagsPicker } from "@/components/OwnerTagsPicker";
+import { Button, PageHeader, SortableTh, useTableSort, lifecycleLabel } from "@/components/ui";
 import {
   normalizeOwners,
   ownerShorts,
@@ -22,6 +23,7 @@ import {
   type AppRole,
 } from "@/lib/roles";
 import { DEFAULT_TIMEZONE, TIMEZONES } from "@/lib/timezone";
+import { dateSortValue } from "@/lib/table-sort";
 
 type Specialty = {
   id: string;
@@ -73,6 +75,65 @@ type UserDetail = {
   }>;
 };
 
+type EmployeePayrollRow = NonNullable<UserDetail["payrollRows"]>[number];
+type EmployeePayoutRow = NonNullable<UserDetail["payoutHistory"]>[number];
+
+function employeePayrollSortValue(r: EmployeePayrollRow, key: string) {
+  switch (key) {
+    case "event":
+      return r.quote.eventName;
+    case "date":
+      return dateSortValue(r.quote.date);
+    case "role":
+      return r.specialty.name;
+    case "lifecycle":
+      return lifecycleLabel(r.quote.lifecycle);
+    case "amount":
+      return r.pay;
+    default:
+      return null;
+  }
+}
+
+function employeePayoutSortValue(r: EmployeePayoutRow, key: string) {
+  switch (key) {
+    case "period":
+      return r.periodYm;
+    case "kind":
+      return r.kind;
+    case "amount":
+      return r.amount;
+    case "paidAt":
+      return dateSortValue(r.paidAt);
+    default:
+      return null;
+  }
+}
+
+function ProfileCard({
+  title,
+  action,
+  children,
+  className = "",
+}: {
+  title: string;
+  action?: React.ReactNode;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <section
+      className={`rounded-xl border border-[var(--line)] bg-[var(--panel)] ${className}`}
+    >
+      <div className="flex flex-wrap items-center gap-2 border-b border-[var(--line)] bg-[var(--table-head)] px-4 py-2">
+        <h2 className="text-sm font-medium">{title}</h2>
+        {action ? <div className="ml-auto">{action}</div> : null}
+      </div>
+      {children}
+    </section>
+  );
+}
+
 export function EmployeeEditor({
   userId,
   selfView = false,
@@ -99,6 +160,13 @@ export function EmployeeEditor({
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
   const [masterTimezone, setMasterTimezone] = useState(DEFAULT_TIMEZONE);
+  const [specQuery, setSpecQuery] = useState("");
+  const payrollRows = user?.payrollRows ?? [];
+  const payoutHistory = user?.payoutHistory ?? [];
+  const { sorted: sortedPayroll, sort: payrollSort, onSort: onPayrollSort } =
+    useTableSort(payrollRows, employeePayrollSortValue);
+  const { sorted: sortedPayouts, sort: payoutSort, onSort: onPayoutSort } =
+    useTableSort(payoutHistory, employeePayoutSortValue);
   const canAdmin = isManager;
   const canChangeAgency = canEditAgency ?? isManager;
   const canChangeRole = canEditUserRole(
@@ -260,61 +328,78 @@ export function EmployeeEditor({
   const availableToAdd = allSpecialties.filter(
     (s) => !rows.some((r) => r.specialtyId === s.id),
   );
+  const specNeedle = specQuery.trim().toLowerCase();
+  const visibleRows = specNeedle
+    ? rows.filter((r) => r.name.toLowerCase().includes(specNeedle))
+    : rows;
+
+  function patchSpecialty(
+    specialtyId: string,
+    patch: { hourlyRate?: number; shiftRate?: number },
+  ) {
+    setRows((prev) =>
+      prev.map((x) => (x.specialtyId === specialtyId ? { ...x, ...patch } : x)),
+    );
+  }
+
+  const displayName =
+    [user.lastName, user.firstName, user.patronymic]
+      .map((x) => x.trim())
+      .filter(Boolean)
+      .join(" ") || user.name;
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-6 md:px-6">
-      <header className="mb-6 flex flex-wrap items-center justify-between gap-3 border-b border-[var(--line)] pb-4">
-        <button
-          type="button"
-          onClick={() =>
-            router.push(selfView ? "/calendar" : "/users")
-          }
-          className="rounded-md border border-[var(--line)] px-3 py-1.5 text-sm hover:bg-white/10"
-        >
-          ← Назад
-        </button>
-        <h1 className="font-display text-center text-2xl uppercase tracking-wide md:text-3xl">
-          {selfView ? "Мой профиль" : "Редактирование сотрудника"}
-        </h1>
-        <button
-          type="button"
-          disabled={saving}
-          onClick={async () => {
-            await saveProfile();
-            await saveSpecialties();
-          }}
-          className="rounded-md bg-[var(--accent)] px-4 py-2 text-sm text-white disabled:opacity-50"
-        >
-          {saving ? "Сохранение…" : "Сохранить"}
-        </button>
-      </header>
+    <div className="mx-auto max-w-6xl px-4 py-6 md:px-6">
+      <PageHeader
+        eyebrow={selfView ? "Аккаунт" : "Сотрудники"}
+        title={selfView ? "Мой профиль" : displayName || "Сотрудник"}
+        subtitle={`${roleLabelRuTitle(user.role)} · ${user.email}`}
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              onClick={() => router.push(selfView ? "/calendar" : "/users")}
+            >
+              ← Назад
+            </Button>
+            <Button
+              disabled={saving}
+              onClick={async () => {
+                await saveProfile();
+                await saveSpecialties();
+              }}
+            >
+              {saving ? "Сохранение…" : "Сохранить"}
+            </Button>
+          </div>
+        }
+      />
 
       {error && <p className="mb-4 text-sm text-[var(--danger)]">{error}</p>}
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <section className="rounded-xl border border-[var(--line)] bg-[var(--panel)]">
-          <h2 className="border-b border-[var(--line)] bg-[var(--table-head)] px-4 py-2 text-sm font-medium">
-            Основная информация
-          </h2>
+      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
+        <ProfileCard title="Основная информация">
           <div className="space-y-3 p-4">
-            {(
-              [
-                ["lastName", "Фамилия"],
-                ["firstName", "Имя"],
-                ["patronymic", "Отчество"],
-              ] as const
-            ).map(([key, label]) => (
-              <label key={key} className="block text-sm">
-                <span className="text-[var(--muted)]">{label}</span>
-                <input
-                  className="field mt-1"
-                  value={user[key]}
-                  onChange={(e) =>
-                    setUser({ ...user, [key]: e.target.value })
-                  }
-                />
-              </label>
-            ))}
+            <div className="grid gap-3 sm:grid-cols-3">
+              {(
+                [
+                  ["lastName", "Фамилия"],
+                  ["firstName", "Имя"],
+                  ["patronymic", "Отчество"],
+                ] as const
+              ).map(([key, label]) => (
+                <label key={key} className="block text-sm">
+                  <span className="text-[var(--muted)]">{label}</span>
+                  <input
+                    className="field mt-1"
+                    value={user[key]}
+                    onChange={(e) =>
+                      setUser({ ...user, [key]: e.target.value })
+                    }
+                  />
+                </label>
+              ))}
+            </div>
             <label className="block text-sm">
               <span className="text-[var(--muted)]">Комментарий</span>
               <textarea
@@ -455,27 +540,73 @@ export function EmployeeEditor({
               </>
             )}
           </div>
-        </section>
+        </ProfileCard>
 
-        <section className="space-y-4">
-          <div className="rounded-xl border border-[var(--line)] bg-[var(--panel)]">
-            <h2 className="border-b border-[var(--line)] bg-[var(--table-head)] px-4 py-2 text-sm font-medium">
-              Телефон
-            </h2>
-            <div className="p-4">
-              <input
-                className="field"
-                value={user.phone}
-                onChange={(e) => setUser({ ...user, phone: e.target.value })}
-                placeholder="+7…"
-              />
-            </div>
-          </div>
-          <div className="rounded-xl border border-[var(--line)] bg-[var(--panel)]">
-            <h2 className="border-b border-[var(--line)] bg-[var(--table-head)] px-4 py-2 text-sm font-medium">
-              Локация и время
-            </h2>
+        <div className="space-y-4">
+          <ProfileCard
+            title="Контакты"
+            action={
+              selfView ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPasswordOpen(true)}
+                >
+                  Сменить пароль
+                </Button>
+              ) : isAdmin ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setResetOpen(true)}
+                >
+                  Сбросить пароль
+                </Button>
+              ) : undefined
+            }
+          >
             <div className="space-y-3 p-4">
+              <label className="block text-sm">
+                <span className="text-[var(--muted)]">Телефон</span>
+                <input
+                  className="field mt-1"
+                  value={user.phone}
+                  onChange={(e) => setUser({ ...user, phone: e.target.value })}
+                  placeholder="+7…"
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="text-[var(--muted)]">E-mail</span>
+                {isAdmin ? (
+                  <>
+                    <input
+                      type="email"
+                      className="field mt-1"
+                      autoComplete="off"
+                      value={user.email}
+                      onChange={(e) =>
+                        setUser({ ...user, email: e.target.value })
+                      }
+                    />
+                    <p className="mt-1 text-xs text-[var(--muted)]">
+                      Логин для входа. После смены сотрудник входит по новому
+                      адресу.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="mt-1 font-medium">{user.email}</p>
+                    <p className="mt-1 text-xs text-[var(--muted)]">
+                      Логин нельзя изменить здесь
+                    </p>
+                  </>
+                )}
+              </label>
+            </div>
+          </ProfileCard>
+
+          <ProfileCard title="Локация и время">
+            <div className="grid gap-3 p-4 sm:grid-cols-2">
               <label className="block text-sm">
                 <span className="text-[var(--muted)]">Погода</span>
                 <select
@@ -509,7 +640,7 @@ export function EmployeeEditor({
                 </select>
               </label>
               {isAdmin && selfView ? (
-                <label className="block text-sm">
+                <label className="block text-sm sm:col-span-2">
                   <span className="text-[var(--muted)]">
                     Мастер-часовой пояс компании
                   </span>
@@ -531,61 +662,10 @@ export function EmployeeEditor({
                 </label>
               ) : null}
             </div>
-          </div>
-          <div className="rounded-xl border border-[var(--line)] bg-[var(--panel)]">
-            <h2 className="border-b border-[var(--line)] bg-[var(--table-head)] px-4 py-2 text-sm font-medium">
-              E-mail
-            </h2>
-            <div className="p-4 text-sm">
-              {isAdmin ? (
-                <label className="block">
-                  <input
-                    type="email"
-                    className="field"
-                    autoComplete="off"
-                    value={user.email}
-                    onChange={(e) =>
-                      setUser({ ...user, email: e.target.value })
-                    }
-                  />
-                  <p className="mt-1 text-xs text-[var(--muted)]">
-                    Логин для входа. После смены сотрудник входит по новому
-                    адресу.
-                  </p>
-                </label>
-              ) : (
-                <>
-                  <p className="font-medium">{user.email}</p>
-                  <p className="mt-1 text-xs text-[var(--muted)]">
-                    Логин нельзя изменить здесь
-                  </p>
-                </>
-              )}
-              {selfView && (
-                <button
-                  type="button"
-                  onClick={() => setPasswordOpen(true)}
-                  className="mt-3 rounded-md border border-[var(--line)] px-3 py-1.5 text-sm hover:bg-white/10"
-                >
-                  Сменить пароль
-                </button>
-              )}
-              {isAdmin && !selfView && (
-                <button
-                  type="button"
-                  onClick={() => setResetOpen(true)}
-                  className="mt-3 rounded-md border border-[var(--line)] px-3 py-1.5 text-sm hover:bg-white/10"
-                >
-                  Сбросить пароль
-                </button>
-              )}
-            </div>
-          </div>
-          <div className="rounded-xl border border-[var(--line)] bg-[var(--panel)]">
-            <h2 className="border-b border-[var(--line)] bg-[var(--table-head)] px-4 py-2 text-sm font-medium">
-              Оклад и ЗП
-            </h2>
-            <div className="space-y-3 p-4">
+          </ProfileCard>
+
+          <ProfileCard title="Оклад и ЗП">
+            <div className="grid gap-4 p-4 sm:grid-cols-2">
               <label className="block text-sm">
                 <span className="text-[var(--muted)]">
                   Фиксированный месячный оклад
@@ -622,124 +702,209 @@ export function EmployeeEditor({
                 </p>
               </div>
             </div>
-          </div>
-        </section>
+          </ProfileCard>
+        </div>
+      </div>
 
-        <section className="rounded-xl border border-[var(--line)] bg-[var(--panel)]">
-          <h2 className="border-b border-[var(--line)] bg-[var(--table-head)] px-4 py-2 text-sm font-medium">
-            Специальности
-          </h2>
-          <div className="data-table-shell overflow-x-auto p-2">
-            <table className="data-table data-table--editable w-full min-w-[560px] text-sm">
-              <thead className="text-xs uppercase text-[var(--muted)]">
-                <tr>
-                  <th className="px-2 py-1 text-left">Специальность</th>
-                  <th className="px-2 py-1 text-right">Ставка час</th>
-                  <th className="px-2 py-1 text-right">Ставка смена</th>
-                  <th className="w-10" />
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r, idx) => (
-                  <tr key={r.specialtyId} className="border-t border-[var(--line)]">
-                    <td className="px-2 py-2">{r.name}</td>
-                    <td className="px-2 py-2">
+      <ProfileCard
+        className="mt-4"
+        title={`Специальности${rows.length ? ` · ${rows.length}` : ""}`}
+        action={
+          rows.length > 0 ? (
+            <input
+              className="field w-44 py-1 text-sm"
+              value={specQuery}
+              onChange={(e) => setSpecQuery(e.target.value)}
+              placeholder="Найти…"
+              aria-label="Поиск специальности"
+            />
+          ) : undefined
+        }
+      >
+        <div className="max-h-[min(32rem,60vh)] overflow-auto">
+          {rows.length === 0 ? (
+            <p className="px-4 py-8 text-center text-sm text-[var(--muted)]">
+              Специальности не назначены
+            </p>
+          ) : visibleRows.length === 0 ? (
+            <p className="px-4 py-8 text-center text-sm text-[var(--muted)]">
+              Ничего не найдено
+            </p>
+          ) : (
+            <>
+              <ul className="divide-y divide-[var(--line)] md:hidden">
+                {visibleRows.map((r) => (
+                  <li key={r.specialtyId} className="px-4 py-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="min-w-0 font-medium">{r.name}</p>
                       {canAdmin ? (
-                        <input
-                          type="number"
-                          min={0}
-                          className="field text-right"
-                          value={r.hourlyRate}
-                          onChange={(e) => {
-                            const v = Math.max(0, Number(e.target.value) || 0);
-                            setRows((prev) =>
-                              prev.map((x, i) =>
-                                i === idx ? { ...x, hourlyRate: v } : x,
-                              ),
-                            );
-                          }}
-                        />
-                      ) : (
-                        <span className="block text-right tabular-nums">
-                          {formatMoney(r.hourlyRate)}
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-2 py-2">
-                      {canAdmin ? (
-                        <input
-                          type="number"
-                          min={0}
-                          className="field text-right"
-                          value={r.shiftRate}
-                          onChange={(e) => {
-                            const v = Math.max(0, Number(e.target.value) || 0);
-                            setRows((prev) =>
-                              prev.map((x, i) =>
-                                i === idx ? { ...x, shiftRate: v } : x,
-                              ),
-                            );
-                          }}
-                        />
-                      ) : (
-                        <span className="block text-right tabular-nums">
-                          {formatMoney(r.shiftRate)}
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-2 py-2">
-                      {canAdmin && (
                         <button
                           type="button"
-                          className="btn-icon text-[var(--danger)]"
+                          className="btn-icon shrink-0 text-[var(--danger)]"
+                          aria-label={`Убрать ${r.name}`}
                           onClick={() =>
-                            setRows((prev) => prev.filter((_, i) => i !== idx))
+                            setRows((prev) =>
+                              prev.filter((x) => x.specialtyId !== r.specialtyId),
+                            )
                           }
                         >
                           ×
                         </button>
-                      )}
-                    </td>
-                  </tr>
+                      ) : null}
+                    </div>
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      <label className="block text-xs text-[var(--muted)]">
+                        Час
+                        {canAdmin ? (
+                          <input
+                            type="number"
+                            min={0}
+                            className="field mt-1 text-right tabular-nums"
+                            value={r.hourlyRate}
+                            onChange={(e) =>
+                              patchSpecialty(r.specialtyId, {
+                                hourlyRate: Math.max(
+                                  0,
+                                  Number(e.target.value) || 0,
+                                ),
+                              })
+                            }
+                          />
+                        ) : (
+                          <span className="mt-1 block text-sm text-[var(--ink)] tabular-nums">
+                            {formatMoney(r.hourlyRate)}
+                          </span>
+                        )}
+                      </label>
+                      <label className="block text-xs text-[var(--muted)]">
+                        Смена
+                        {canAdmin ? (
+                          <input
+                            type="number"
+                            min={0}
+                            className="field mt-1 text-right tabular-nums"
+                            value={r.shiftRate}
+                            onChange={(e) =>
+                              patchSpecialty(r.specialtyId, {
+                                shiftRate: Math.max(
+                                  0,
+                                  Number(e.target.value) || 0,
+                                ),
+                              })
+                            }
+                          />
+                        ) : (
+                          <span className="mt-1 block text-sm text-[var(--ink)] tabular-nums">
+                            {formatMoney(r.shiftRate)}
+                          </span>
+                        )}
+                      </label>
+                    </div>
+                  </li>
                 ))}
-                {rows.length === 0 && (
+              </ul>
+              <table className="data-table data-table--editable data-table--sticky hidden w-full text-sm md:table">
+                <thead>
                   <tr>
-                    <td
-                      colSpan={4}
-                      className="px-2 py-4 text-center text-[var(--muted)]"
-                    >
-                      Специальности не назначены
-                    </td>
+                    <th className="text-left">Специальность</th>
+                    <th className="w-28 text-right">Час</th>
+                    <th className="w-28 text-right">Смена</th>
+                    {canAdmin ? <th className="w-10" /> : null}
                   </tr>
-                )}
-              </tbody>
-            </table>
-            {canAdmin && availableToAdd.length > 0 && (
-              <div className="mt-3 flex gap-2 px-2 pb-2">
-                <select
-                  className="field"
-                  value={addSpecialtyId}
-                  onChange={(e) => setAddSpecialtyId(e.target.value)}
-                >
-                  <option value="">Добавить специальность…</option>
-                  {availableToAdd.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
+                </thead>
+                <tbody>
+                  {visibleRows.map((r) => (
+                    <tr key={r.specialtyId}>
+                      <td>{r.name}</td>
+                      <td>
+                        {canAdmin ? (
+                          <input
+                            type="number"
+                            min={0}
+                            className="field py-1 text-right tabular-nums"
+                            value={r.hourlyRate}
+                            onChange={(e) =>
+                              patchSpecialty(r.specialtyId, {
+                                hourlyRate: Math.max(
+                                  0,
+                                  Number(e.target.value) || 0,
+                                ),
+                              })
+                            }
+                          />
+                        ) : (
+                          <span className="block text-right tabular-nums">
+                            {formatMoney(r.hourlyRate)}
+                          </span>
+                        )}
+                      </td>
+                      <td>
+                        {canAdmin ? (
+                          <input
+                            type="number"
+                            min={0}
+                            className="field py-1 text-right tabular-nums"
+                            value={r.shiftRate}
+                            onChange={(e) =>
+                              patchSpecialty(r.specialtyId, {
+                                shiftRate: Math.max(
+                                  0,
+                                  Number(e.target.value) || 0,
+                                ),
+                              })
+                            }
+                          />
+                        ) : (
+                          <span className="block text-right tabular-nums">
+                            {formatMoney(r.shiftRate)}
+                          </span>
+                        )}
+                      </td>
+                      {canAdmin ? (
+                        <td>
+                          <button
+                            type="button"
+                            className="btn-icon text-[var(--danger)]"
+                            aria-label={`Убрать ${r.name}`}
+                            onClick={() =>
+                              setRows((prev) =>
+                                prev.filter(
+                                  (x) => x.specialtyId !== r.specialtyId,
+                                ),
+                              )
+                            }
+                          >
+                            ×
+                          </button>
+                        </td>
+                      ) : null}
+                    </tr>
                   ))}
-                </select>
-                <button
-                  type="button"
-                  onClick={addSpecialty}
-                  className="rounded-md border border-[var(--line)] px-3 py-2 text-sm"
-                >
-                  +
-                </button>
-              </div>
-            )}
+                </tbody>
+              </table>
+            </>
+          )}
+        </div>
+        {canAdmin && availableToAdd.length > 0 ? (
+          <div className="flex gap-2 border-t border-[var(--line)] p-3">
+            <select
+              className="field min-w-0 flex-1"
+              value={addSpecialtyId}
+              onChange={(e) => setAddSpecialtyId(e.target.value)}
+            >
+              <option value="">Добавить специальность…</option>
+              {availableToAdd.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+            <Button variant="outline" onClick={addSpecialty}>
+              +
+            </Button>
           </div>
-        </section>
-      </div>
+        ) : null}
+      </ProfileCard>
 
       {(user.payrollRows?.length ?? 0) > 0 && (
         <section className="mt-4 rounded-xl border border-[var(--line)] bg-[var(--panel)] p-4">
@@ -748,15 +913,46 @@ export function EmployeeEditor({
             <table className="data-table w-full min-w-[600px] text-sm">
               <thead className="bg-[var(--table-head)] text-xs uppercase text-[var(--muted)]">
                 <tr>
-                  <th className="px-2 py-2 text-left">Мероприятие</th>
-                  <th className="px-2 py-2 text-left">Дата</th>
-                  <th className="px-2 py-2 text-left">Должность</th>
-                  <th className="px-2 py-2 text-left">Статус</th>
-                  <th className="px-2 py-2 text-right">Сумма</th>
+                  <SortableTh
+                    label="Мероприятие"
+                    sortKey="event"
+                    state={payrollSort}
+                    onSort={onPayrollSort}
+                    className="px-2 py-2"
+                  />
+                  <SortableTh
+                    label="Дата"
+                    sortKey="date"
+                    state={payrollSort}
+                    onSort={onPayrollSort}
+                    className="px-2 py-2"
+                  />
+                  <SortableTh
+                    label="Должность"
+                    sortKey="role"
+                    state={payrollSort}
+                    onSort={onPayrollSort}
+                    className="px-2 py-2"
+                  />
+                  <SortableTh
+                    label="Статус"
+                    sortKey="lifecycle"
+                    state={payrollSort}
+                    onSort={onPayrollSort}
+                    className="px-2 py-2"
+                  />
+                  <SortableTh
+                    label="Сумма"
+                    sortKey="amount"
+                    state={payrollSort}
+                    onSort={onPayrollSort}
+                    className="px-2 py-2"
+                    align="right"
+                  />
                 </tr>
               </thead>
               <tbody>
-                {user.payrollRows!.map((r) => (
+                {sortedPayroll.map((r) => (
                   <tr key={r.id} className="border-t border-[var(--line)]">
                     <td className="px-2 py-2">{r.quote.eventName || "—"}</td>
                     <td className="px-2 py-2">{r.quote.date || "—"}</td>
@@ -780,15 +976,40 @@ export function EmployeeEditor({
             <table className="data-table w-full min-w-[520px] text-sm">
               <thead className="bg-[var(--table-head)] text-xs uppercase text-[var(--muted)]">
                 <tr>
-                  <th className="px-2 py-2 text-left">Период</th>
-                  <th className="px-2 py-2 text-left">Тип</th>
-                  <th className="px-2 py-2 text-right">Сумма</th>
-                  <th className="px-2 py-2 text-left">Когда</th>
+                  <SortableTh
+                    label="Период"
+                    sortKey="period"
+                    state={payoutSort}
+                    onSort={onPayoutSort}
+                    className="px-2 py-2"
+                  />
+                  <SortableTh
+                    label="Тип"
+                    sortKey="kind"
+                    state={payoutSort}
+                    onSort={onPayoutSort}
+                    className="px-2 py-2"
+                  />
+                  <SortableTh
+                    label="Сумма"
+                    sortKey="amount"
+                    state={payoutSort}
+                    onSort={onPayoutSort}
+                    className="px-2 py-2"
+                    align="right"
+                  />
+                  <SortableTh
+                    label="Когда"
+                    sortKey="paidAt"
+                    state={payoutSort}
+                    onSort={onPayoutSort}
+                    className="px-2 py-2"
+                  />
                   <th className="px-2 py-2 text-left">Кто отметил</th>
                 </tr>
               </thead>
               <tbody>
-                {user.payoutHistory!.map((r) => (
+                {sortedPayouts.map((r) => (
                   <tr key={r.id} className="border-t border-[var(--line)]">
                     <td className="px-2 py-2">
                       {formatYearMonthLabel(parseYearMonth(r.periodYm))}

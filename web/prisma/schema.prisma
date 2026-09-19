@@ -98,6 +98,7 @@ enum SpecOverrideAction {
   RENAME
   SET_COMMENT
   REPLACE
+  DELETE
 }
 
 enum SpecExtraType {
@@ -397,18 +398,22 @@ model EquipmentRepairPhoto {
 }
 
 model Kit {
-  id          String           @id @default(cuid())
-  name        String
-  description String?
-  categoryId  String?
-  category    CatalogCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  basePrice   Float?
-  active      Boolean          @default(true)
-  sortOrder   Int              @default(0)
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
-  components  KitComponent[]
-  quoteBlocks QuoteBlock[]
+  id            String           @id @default(cuid())
+  name          String
+  description   String?
+  categoryId    String?
+  category      CatalogCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  basePrice     Float?
+  active        Boolean          @default(true)
+  /// Показывать комплект менеджеру в каталоге сметы. false = только склад / конструктор.
+  showInCatalog Boolean          @default(false)
+  sortOrder     Int              @default(0)
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  components    KitComponent[]
+  quoteBlocks   QuoteBlock[]
+
+  @@index([showInCatalog])
 }
 
 model KitComponent {
@@ -832,6 +837,7 @@ model SpecExtraBlock {
   name          String?
   qty           Float         @default(0)
   comment       String        @default("")
+  hidden        Boolean       @default(false)
   catalogItemId String?
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
@@ -926,9 +932,13 @@ model CalendarEntry {
   kind              CalendarEntryKind
   /// День записи (локальная дата без времени)
   date              DateTime          @db.Date
+  /// Длина записи в днях включительно (выходной может быть диапазоном)
+  durationDays      Int               @default(1)
+  /// Последний день записи (включительно), для overlap-запросов
+  endDate           DateTime          @db.Date
   title             String            @default("")
   note              String            @default("")
-  /// Выходной: начало/конец в формате HH:mm
+  /// Устарело для выходных: раньше хранили часы, теперь диапазон дат
   startTime         String?
   endTime           String?
   /// Аренда: ответственный за выдачу
@@ -949,6 +959,7 @@ model CalendarEntry {
   notifications     Notification[]
 
   @@index([date])
+  @@index([endDate])
   @@index([kind, date])
   @@index([createdById])
   @@index([responsibleUserId])

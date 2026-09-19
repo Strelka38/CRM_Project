@@ -2,10 +2,12 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { Button, SortableTh, useTableSort } from "@/components/ui";
 import {
   DirectoryAddButton,
   DirectoryCsvMenu,
   DirectoryIconButton,
+  DirectoryMobileBar,
   DirectorySelectionActions,
   IconPlusFolder,
   IconSave,
@@ -13,6 +15,7 @@ import {
   postBulkAction,
   uploadCsvImport,
 } from "@/components/DirectoryToolbar";
+import { cn } from "@/lib/cn";
 
 type CatalogService = {
   id: string;
@@ -31,6 +34,27 @@ type SpecialtyRow = {
   catalogItemIds?: string[];
   catalogItems?: CatalogService[];
 };
+
+function specialtySortValue(s: SpecialtyRow, key: string) {
+  switch (key) {
+    case "order":
+      return s.sortOrder;
+    case "name":
+      return s.name;
+    case "services":
+      return (s.catalogItems ?? []).map((item) => item.name).join(" ");
+    case "hour":
+      return s.hourlyRate;
+    case "shift":
+      return s.shiftRate;
+    case "description":
+      return s.description;
+    case "status":
+      return s.active ? 1 : 0;
+    default:
+      return null;
+  }
+}
 
 type Draft = {
   name: string;
@@ -219,6 +243,7 @@ export function RatesAdmin() {
       );
     });
   }, [specialties, services, q]);
+  const { sorted, sort, onSort } = useTableSort(filtered, specialtySortValue);
 
   function isDirty(s: SpecialtyRow): boolean {
     const d = drafts[s.id];
@@ -438,7 +463,9 @@ export function RatesAdmin() {
         <p className="text-xs uppercase tracking-[0.15em] text-[var(--muted)]">
           База данных
         </p>
-        <h1 className="mt-1 text-3xl font-medium tracking-tight">Ставки</h1>
+        <h1 className="mt-1 text-2xl font-medium tracking-tight md:text-3xl">
+          Ставки
+        </h1>
         <p className="mt-1 text-sm text-[var(--muted)]">
           Справочник специальностей и базовые ставки. К специальности можно
           привязать несколько услуг из каталога — при добавлении любой из них в
@@ -448,7 +475,30 @@ export function RatesAdmin() {
       </header>
 
       <section className="rounded-xl border border-[var(--line)] bg-[var(--panel)]">
-        <div className="flex w-full items-center gap-2 border-b border-[var(--line)] px-4 py-3">
+        <DirectoryMobileBar
+          q={q}
+          onQ={setQ}
+          searchPlaceholder="Поиск по названию…"
+          primary={{
+            label: showCreate ? "Скрыть форму" : "Добавить специальность",
+            onClick: () => setShowCreate((v) => !v),
+          }}
+          sheetTitle="Ставки"
+          csv={{
+            busy: csvBusy,
+            onExport: () => void exportCsv(),
+            onImport: () => csvImportRef.current?.click(),
+          }}
+          selection={{
+            count: selected.size,
+            busy,
+            onCopy: () => void bulk("copy"),
+            onDelete: () => setConfirmDelete(true),
+            deleteLabel: "Удалить",
+          }}
+        />
+
+        <div className="hidden w-full items-center gap-2 border-b border-[var(--line)] px-4 py-3 md:flex">
           <DirectoryAddButton
             title="+ Специальность"
             icon={<IconPlusFolder />}
@@ -475,18 +525,19 @@ export function RatesAdmin() {
               onImport={() => csvImportRef.current?.click()}
             />
           </div>
-          <input
-            ref={csvImportRef}
-            type="file"
-            accept=".csv,text/csv"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              e.target.value = "";
-              if (file) void importCsv(file);
-            }}
-          />
         </div>
+
+        <input
+          ref={csvImportRef}
+          type="file"
+          accept=".csv,text/csv"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = "";
+            if (file) void importCsv(file);
+          }}
+        />
         {csvMessage ? (
           <p className="border-b border-[var(--line)] px-4 py-2 text-xs text-[var(--muted)]">
             {csvMessage}
@@ -572,7 +623,143 @@ export function RatesAdmin() {
           </div>
         ) : null}
 
-        <div className="data-table-shell overflow-x-auto">
+        {/* Строка ставки редактируемая целиком, поэтому на мобильном это не
+            DataCards, а та же форма, развёрнутая по вертикали. */}
+        <ul className="flex flex-col gap-2 p-3 md:hidden">
+          {sorted.map((s) => {
+            const d = drafts[s.id] ?? toDraft(s);
+            const dirty = isDirty(s);
+            return (
+              <li
+                key={s.id}
+                className={cn(
+                  "rounded-xl border bg-[var(--panel)] px-3 py-3",
+                  selected.has(s.id)
+                    ? "border-[var(--accent)] bg-[var(--selected)]"
+                    : "border-[var(--line)]",
+                  !s.active && "opacity-60",
+                )}
+              >
+                <div className="flex items-center gap-2">
+                  <label className="tap-target -my-1.5 -ml-1 flex cursor-pointer items-center justify-center px-1">
+                    <input
+                      type="checkbox"
+                      className="size-4"
+                      checked={selected.has(s.id)}
+                      onChange={() => toggleOne(s.id)}
+                      aria-label={`Выбрать ${s.name}`}
+                    />
+                  </label>
+                  <input
+                    className="field min-w-0 flex-1 font-medium"
+                    value={d.name}
+                    onChange={(e) => updateDraft(s.id, { name: e.target.value })}
+                    aria-label="Название специальности"
+                  />
+                </div>
+
+                <div className="mt-2 grid grid-cols-[4rem_1fr_1fr] gap-2">
+                  <label className="text-caption uppercase tracking-[0.04em] text-[var(--muted)]">
+                    №
+                    <input
+                      type="number"
+                      className="field mt-1 text-sm"
+                      value={d.sortOrder}
+                      onChange={(e) =>
+                        updateDraft(s.id, { sortOrder: e.target.value })
+                      }
+                    />
+                  </label>
+                  <label className="text-caption uppercase tracking-[0.04em] text-[var(--muted)]">
+                    Час
+                    <input
+                      type="number"
+                      min={0}
+                      step={100}
+                      className="field mt-1 text-sm"
+                      value={d.hourlyRate}
+                      onChange={(e) =>
+                        updateDraft(s.id, { hourlyRate: e.target.value })
+                      }
+                    />
+                  </label>
+                  <label className="text-caption uppercase tracking-[0.04em] text-[var(--muted)]">
+                    Смена
+                    <input
+                      type="number"
+                      min={0}
+                      step={500}
+                      className="field mt-1 text-sm"
+                      value={d.shiftRate}
+                      onChange={(e) =>
+                        updateDraft(s.id, { shiftRate: e.target.value })
+                      }
+                    />
+                  </label>
+                </div>
+
+                <label className="mt-2 block text-caption uppercase tracking-[0.04em] text-[var(--muted)]">
+                  Описание
+                  <input
+                    className="field mt-1 text-sm"
+                    value={d.description}
+                    onChange={(e) =>
+                      updateDraft(s.id, { description: e.target.value })
+                    }
+                    placeholder="Описание…"
+                  />
+                </label>
+
+                <div className="mt-2">
+                  <p className="text-caption uppercase tracking-[0.04em] text-[var(--muted)]">
+                    Услуги
+                  </p>
+                  <div className="mt-1">
+                    <ServicePicker
+                      selectedIds={d.catalogItemIds}
+                      onChange={(catalogItemIds) =>
+                        updateDraft(s.id, { catalogItemIds })
+                      }
+                      services={services}
+                      takenIds={takenServiceIds(s.id)}
+                      extras={s.catalogItems ?? []}
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-3 flex items-center gap-2 border-t border-[var(--line)] pt-2.5">
+                  <button
+                    type="button"
+                    onClick={() => void toggleActive(s)}
+                    className={cn(
+                      "tap-target rounded-full border px-2.5 text-caption",
+                      s.active
+                        ? "border-[var(--accent)]/40 text-[var(--accent)]"
+                        : "border-[var(--danger)]/40 text-[var(--danger)]",
+                    )}
+                  >
+                    {s.active ? "Активна" : "Отключена"}
+                  </button>
+                  <Button
+                    variant="secondary"
+                    className="tap-target ml-auto"
+                    disabled={!dirty || savingId === s.id}
+                    onClick={() => void saveRow(s)}
+                  >
+                    {savingId === s.id ? "Сохраняем…" : "Сохранить"}
+                  </Button>
+                </div>
+              </li>
+            );
+          })}
+          {filtered.length === 0 ? (
+            <li className="rounded-xl border border-[var(--line)] bg-[var(--panel)] px-4 py-8 text-center text-sm text-[var(--muted)]">
+              Специальностей пока нет
+            </li>
+          ) : null}
+        </ul>
+
+        <div className="data-table-shell hidden overflow-x-auto md:block">
           <table className="data-table data-table--editable w-full text-left text-sm">
             <thead className="bg-[var(--table-head)] text-xs uppercase text-[var(--muted)]">
               <tr>
@@ -584,32 +771,60 @@ export function RatesAdmin() {
                     aria-label="Выбрать все"
                   />
                 </th>
-                <th className="w-px whitespace-nowrap px-2 py-2 text-left">
-                  №
-                </th>
-                <th className="w-px whitespace-nowrap px-2 py-2 text-left">
-                  Специальность
-                </th>
-                <th className="w-px whitespace-nowrap px-2 py-2 text-left">
-                  Услуги
-                </th>
-                <th className="w-px whitespace-nowrap px-2 py-2 text-left">
-                  Час
-                </th>
-                <th className="w-px whitespace-nowrap px-2 py-2 text-left">
-                  Смена
-                </th>
-                <th className="w-full min-w-[12rem] px-2 py-2 text-left">
-                  Описание
-                </th>
-                <th className="w-px whitespace-nowrap px-2 py-2 text-left">
-                  Статус
-                </th>
+                <SortableTh
+                  label="№"
+                  sortKey="order"
+                  state={sort}
+                  onSort={onSort}
+                  className="w-px whitespace-nowrap px-2 py-2"
+                />
+                <SortableTh
+                  label="Специальность"
+                  sortKey="name"
+                  state={sort}
+                  onSort={onSort}
+                  className="w-px whitespace-nowrap px-2 py-2"
+                />
+                <SortableTh
+                  label="Услуги"
+                  sortKey="services"
+                  state={sort}
+                  onSort={onSort}
+                  className="w-px whitespace-nowrap px-2 py-2"
+                />
+                <SortableTh
+                  label="Час"
+                  sortKey="hour"
+                  state={sort}
+                  onSort={onSort}
+                  className="w-px whitespace-nowrap px-2 py-2"
+                />
+                <SortableTh
+                  label="Смена"
+                  sortKey="shift"
+                  state={sort}
+                  onSort={onSort}
+                  className="w-px whitespace-nowrap px-2 py-2"
+                />
+                <SortableTh
+                  label="Описание"
+                  sortKey="description"
+                  state={sort}
+                  onSort={onSort}
+                  className="w-full min-w-[12rem] px-2 py-2"
+                />
+                <SortableTh
+                  label="Статус"
+                  sortKey="status"
+                  state={sort}
+                  onSort={onSort}
+                  className="w-px whitespace-nowrap px-2 py-2"
+                />
                 <th className="w-10 px-2 py-2 text-left" />
               </tr>
             </thead>
             <tbody>
-              {filtered.map((s) => {
+              {sorted.map((s) => {
                 const d = drafts[s.id] ?? toDraft(s);
                 const dirty = isDirty(s);
                 return (

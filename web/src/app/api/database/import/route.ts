@@ -5,35 +5,106 @@ import {
 } from "@/lib/database-backup";
 import { requireDatabaseBackup } from "@/lib/session";
 
-export const maxDuration = 300;
+export const maxDuration = 600;
 
 const MAX_BYTES = 50 * 1024 * 1024;
+
+async function readBackupPayload(req: NextRequest): Promise<
+  { ok: true; parsed: unknown } | { ok: false; response: NextResponse }
+> {
+  const contentLength = Number(req.headers.get("content-length") || 0);
+  if (contentLength > MAX_BYTES) {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { error: "Файл больше 50 МБ" },
+        { status: 400 },
+      ),
+    };
+  }
+
+  const contentType = req.headers.get("content-type") || "";
+  if (
+    contentType.includes("application/json") ||
+    contentType.includes("text/plain")
+  ) {
+    const text = await req.text();
+    if (Buffer.byteLength(text, "utf8") > MAX_BYTES) {
+      return {
+        ok: false,
+        response: NextResponse.json(
+          { error: "Файл больше 50 МБ" },
+          { status: 400 },
+        ),
+      };
+    }
+    try {
+      return { ok: true, parsed: JSON.parse(text) };
+    } catch {
+      return {
+        ok: false,
+        response: NextResponse.json(
+          { error: "Файл не является JSON" },
+          { status: 400 },
+        ),
+      };
+    }
+  }
+
+  let form: FormData;
+  try {
+    form = await req.formData();
+  } catch {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        {
+          error:
+            "Не удалось прочитать файл. Обычно так бывает, если бэкап больше 10 МБ — обновите страницу и импортируйте снова.",
+        },
+        { status: 400 },
+      ),
+    };
+  }
+  const file = form.get("file");
+  if (!(file instanceof File)) {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { error: "Файл обязателен" },
+        { status: 400 },
+      ),
+    };
+  }
+  if (file.size > MAX_BYTES) {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { error: "Файл больше 50 МБ" },
+        { status: 400 },
+      ),
+    };
+  }
+  try {
+    return { ok: true, parsed: JSON.parse(await file.text()) };
+  } catch {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { error: "Файл не является JSON" },
+        { status: 400 },
+      ),
+    };
+  }
+}
 
 export async function POST(req: NextRequest) {
   try {
     const session = await requireDatabaseBackup();
 
-    const form = await req.formData();
-    const file = form.get("file");
-    if (!(file instanceof File)) {
-      return NextResponse.json({ error: "Файл обязателен" }, { status: 400 });
-    }
-    if (file.size > MAX_BYTES) {
-      return NextResponse.json(
-        { error: "Файл больше 50 МБ" },
-        { status: 400 },
-      );
-    }
-
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(await file.text());
-    } catch {
-      return NextResponse.json(
-        { error: "Файл не является JSON" },
-        { status: 400 },
-      );
-    }
+    const payload = await readBackupPayload(req);
+    if (!payload.ok) return payload.response;
+    const parsed = payload.parsed;
 
     let backup;
     try {

@@ -21,6 +21,7 @@ export type EditableKit = {
   name: string;
   description?: string | null;
   categoryId?: string | null;
+  showInCatalog?: boolean;
   components: Array<{
     qty: number;
     catalogItem: { id: string; name: string; basePrice: number };
@@ -48,6 +49,7 @@ export function KitEditorModal({
 }: Props) {
   const [name, setName] = useState("");
   const [selectedCategoryId, setSelectedCategoryId] = useState("");
+  const [showInCatalog, setShowInCatalog] = useState(false);
   const [components, setComponents] = useState<KitComponentRow[]>([]);
   const [saving, setSaving] = useState(false);
 
@@ -56,6 +58,7 @@ export function KitEditorModal({
     if (kit) {
       setName(kit.name);
       setSelectedCategoryId(kit.categoryId || categoryId || "");
+      setShowInCatalog(kit.showInCatalog === true);
       setComponents(
         kit.components.map((c) => ({
           catalogItemId: c.catalogItem.id,
@@ -67,6 +70,7 @@ export function KitEditorModal({
     } else {
       setName("");
       setSelectedCategoryId(categoryId || "");
+      setShowInCatalog(false);
       setComponents([]);
     }
   }, [open, kit, categoryId]);
@@ -110,6 +114,7 @@ export function KitEditorModal({
       const payload = {
         name: name.trim(),
         categoryId: selectedCategoryId || null,
+        showInCatalog,
         components: components.map((c) => ({
           catalogItemId: c.catalogItemId,
           qty: c.qty,
@@ -208,6 +213,24 @@ export function KitEditorModal({
                   <p className="field mt-1">{categoryPath}</p>
                 </div>
               ) : null}
+
+              <label className="flex items-start gap-3 rounded-lg border border-[var(--line)] px-3 py-2 xl:col-span-2">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={showInCatalog}
+                  onChange={(e) => setShowInCatalog(e.target.checked)}
+                />
+                <span>
+                  <span className="block font-medium">
+                    Отображать в каталоге
+                  </span>
+                  <span className="text-caption text-[var(--muted)]">
+                    Если включить, менеджер увидит комплект в каталоге сметы.
+                    На складе он остаётся в любом случае.
+                  </span>
+                </span>
+              </label>
             </div>
 
             <div className="data-table-shell min-h-0 flex-1 overflow-auto">

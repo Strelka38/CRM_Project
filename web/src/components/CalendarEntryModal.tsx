@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
-import { Button } from "@/components/ui";
+import { PeekHeader } from "@/components/ui";
 import { SideDrawer } from "@/components/ui/SideDrawer";
 import {
   ENTRY_KIND_LABELS,
@@ -11,13 +11,14 @@ import {
   canMutateEntry,
   displayUserName,
 } from "@/lib/calendar-entries";
-import { formatRuDate, parseEventDate } from "@/lib/dates";
+import { addDays, formatRuDate, parseEventDate } from "@/lib/dates";
 import type { CalendarEntryKind } from "@/components/CalendarEntryFormModal";
 
 type EntryDetail = {
   id: string;
   kind: CalendarEntryKind;
   date: string;
+  durationDays?: number;
   title: string;
   note: string;
   startTime: string | null;
@@ -60,6 +61,7 @@ type Props = {
   onEdit: (entry: EntryDetail) => void;
   onDeleted: () => void;
   onChanged?: () => void;
+  embedded?: boolean;
 };
 
 export function CalendarEntryModal({
@@ -69,6 +71,7 @@ export function CalendarEntryModal({
   onEdit,
   onDeleted,
   onChanged,
+  embedded = false,
 }: Props) {
   const { data: session } = useSession();
   const [entry, setEntry] = useState<EntryDetail | null>(null);
@@ -123,8 +126,12 @@ export function CalendarEntryModal({
 
   const dayLabel = entry
     ? (() => {
-        const d = parseEventDate(entry.date);
-        return d ? formatRuDate(d) : entry.date;
+        const start = parseEventDate(entry.date);
+        if (!start) return entry.date;
+        const days = Math.max(1, entry.durationDays || 1);
+        if (days <= 1) return formatRuDate(start);
+        const end = addDays(start, days - 1);
+        return `${formatRuDate(start)} — ${formatRuDate(end)}`;
       })()
     : "";
 
@@ -136,7 +143,12 @@ export function CalendarEntryModal({
         method: "DELETE",
       });
       if (!res.ok) {
-        setError("Не удалось удалить");
+        const data = (await res.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        setError(
+          typeof data?.error === "string" ? data.error : "Не удалось удалить",
+        );
         return;
       }
       onDeleted();
@@ -164,20 +176,45 @@ export function CalendarEntryModal({
   }
 
   return (
-    <SideDrawer open={open} onClose={onClose} labelledBy="entry-title" zIndex={55}>
+    <SideDrawer
+      open={open}
+      onClose={onClose}
+      labelledBy="entry-title"
+      zIndex={55}
+      embedded={embedded}
+    >
       <div className="flex h-full min-h-0 flex-col overflow-hidden">
-        <div className="flex items-start justify-between gap-3 border-b border-[var(--line)] px-4 py-3">
-          <h2 id="entry-title" className="font-display text-xl text-[var(--ink)]">
-            {entry ? ENTRY_KIND_LABELS[entry.kind] : "Запись"}
-          </h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className="shrink-0 text-sm text-[var(--muted)] hover:text-[var(--ink)]"
-          >
-            Закрыть
-          </button>
-        </div>
+        <PeekHeader
+          onClose={onClose}
+          kind={
+            entry
+              ? entry.kind === "RENTAL"
+                ? "Аренда"
+                : ENTRY_KIND_LABELS[entry.kind]
+              : "Запись"
+          }
+          kindId="entry-title"
+          menuItems={
+            canEdit
+              ? [
+                  {
+                    id: "edit",
+                    label: "Edit",
+                    onSelect: () => {
+                      if (entry) onEdit(entry);
+                    },
+                  },
+                  {
+                    id: "delete",
+                    label: "Delete",
+                    danger: true,
+                    disabled: deleting,
+                    onSelect: () => void remove(),
+                  },
+                ]
+              : undefined
+          }
+        />
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
       {error && !entry ? (
         <p className="text-sm text-[var(--danger)]">{error}</p>
@@ -186,18 +223,11 @@ export function CalendarEntryModal({
       ) : (
         <div className="space-y-4">
           <div>
-            <p className="text-xs text-[var(--muted)]">Дата</p>
+            <p className="text-xs text-[var(--muted)]">
+              {entry.kind === "DAY_OFF" ? "Даты" : "Дата"}
+            </p>
             <p className="text-sm font-medium">{dayLabel}</p>
           </div>
-
-          {entry.kind === "DAY_OFF" && (
-            <div>
-              <p className="text-xs text-[var(--muted)]">Время</p>
-              <p className="text-sm font-medium">
-                {entry.startTime || "—"} — {entry.endTime || "—"}
-              </p>
-            </div>
-          )}
 
           {(entry.kind === "TASK" || entry.title) && (
             <div>
@@ -294,28 +324,6 @@ export function CalendarEntryModal({
 
           {error && (
             <p className="text-sm text-[var(--danger)]">{error}</p>
-          )}
-
-          {canEdit && (
-            <div className="flex justify-end gap-2">
-              <Button
-                type="button"
-                variant="danger-ghost"
-                size="sm"
-                disabled={deleting}
-                onClick={() => void remove()}
-              >
-                Удалить
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => onEdit(entry)}
-              >
-                Изменить
-              </Button>
-            </div>
           )}
         </div>
       )}

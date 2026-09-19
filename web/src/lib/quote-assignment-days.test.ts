@@ -157,24 +157,27 @@ assert.match(partial[0]!.text, /1 день/);
 
 assert.equal(formatDaysWithDates([2, 3], "25.08.2026").includes("2, 3 день"), true);
 
-const inherited = effectiveEventAssignments(
-  [
-    slot({ id: "shared", userId: "u1" }),
-    slot({ id: "d2", dayIndex: 2, userId: "u3" }),
-  ],
-  1,
-);
-assert.equal(inherited.length, 1);
-assert.equal(inherited[0].id, "shared");
-const day2 = effectiveEventAssignments(
-  [
-    slot({ id: "shared", userId: "u1" }),
-    slot({ id: "d2", dayIndex: 2, userId: "u3" }),
-  ],
-  2,
-);
-assert.equal(day2.length, 1);
-assert.equal(day2[0].id, "d2");
+const technician = { id: "spec-t", name: "Техник" };
+const mixedDays = [
+  slot({ id: "shared-sound", userId: "u1" }),
+  slot({ id: "shared-video", specialty: video, userId: "u2" }),
+  slot({
+    id: "tech-day1",
+    dayIndex: 1,
+    specialty: technician,
+    userId: null,
+  }),
+];
+const inherited = effectiveEventAssignments(mixedDays, 1);
+assert.equal(inherited.length, 3);
+assert.ok(inherited.some((a) => a.id === "shared-sound"));
+assert.ok(inherited.some((a) => a.id === "shared-video"));
+assert.ok(inherited.some((a) => a.id === "tech-day1"));
+const day2 = effectiveEventAssignments(mixedDays, 2);
+assert.equal(day2.length, 2);
+assert.ok(day2.every((a) => a.id !== "tech-day1"));
+assert.ok(day2.some((a) => a.id === "shared-sound"));
+assert.ok(day2.some((a) => a.id === "shared-video"));
 
 assert.notEqual(
   dayRosterFingerprint([slot({ id: "a", userId: "u1" })]),
@@ -210,5 +213,43 @@ const zoneDay1 = effectiveEventAssignments(
   { eventDays: 4, zones: [zoneA] },
 );
 assert.equal(zoneDay1.length, 1);
+
+const zonePlusTech = [
+  slot({ id: "za", zoneId: "zone-a", userId: "u1" }),
+  slot({
+    id: "tech-day1",
+    dayIndex: 1,
+    specialty: technician,
+    userId: null,
+  }),
+];
+const zoneDay1WithTech = effectiveEventAssignments(zonePlusTech, 1, {
+  eventDays: 4,
+  zones: [zoneA],
+});
+assert.equal(zoneDay1WithTech.length, 2);
+assert.ok(zoneDay1WithTech.some((a) => a.id === "za"));
+assert.ok(zoneDay1WithTech.some((a) => a.id === "tech-day1"));
+const zonePlusTechDay3 = [
+  slot({ id: "za", zoneId: "zone-a", userId: "u1" }),
+  slot({
+    id: "tech-day3",
+    dayIndex: 3,
+    specialty: technician,
+    userId: null,
+  }),
+];
+const zoneDay3WithTech = effectiveEventAssignments(zonePlusTechDay3, 3, {
+  eventDays: 4,
+  zones: [zoneA],
+});
+assert.equal(zoneDay3WithTech.length, 1);
+assert.equal(zoneDay3WithTech[0]?.id, "tech-day3");
+const zoneDay1NotReplaced = effectiveEventAssignments(zonePlusTechDay3, 1, {
+  eventDays: 4,
+  zones: [zoneA],
+});
+assert.equal(zoneDay1NotReplaced.length, 1);
+assert.equal(zoneDay1NotReplaced[0]?.id, "za");
 
 console.log("quote-assignment-days.test.ts: ok");

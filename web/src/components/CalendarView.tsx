@@ -4,6 +4,7 @@ import {
   useEffect,
   useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   type MouseEvent,
 } from "react";
@@ -43,7 +44,12 @@ import {
   parseEventDate,
   startOfDay,
 } from "@/lib/dates";
-import { canCreateCalendarProject, canOpenCalendarCreateMenu } from "@/lib/roles";
+import { lanesThatFit } from "@/lib/calendar-lanes";
+import { canOpenCalendarCreateMenu } from "@/lib/roles";
+import {
+  persistCalendarView,
+  readStoredCalendarView,
+} from "@/lib/view-position";
 
 type Quote = {
   id: string;
@@ -68,6 +74,7 @@ type CalendarEntryRow = {
   id: string;
   kind: CalendarEntryKind;
   date: string;
+  durationDays?: number;
   title: string;
   note: string;
   startTime: string | null;
@@ -132,19 +139,19 @@ type CalendarDensity = {
 };
 
 const DENSITY_TIMETREE: CalendarDensity = {
-  maxLanes: 4,
-  laneHeight: 16,
-  laneGap: 3,
-  dayNumHeight: 34,
-  overflowRow: 12,
+  maxLanes: 6,
+  laneHeight: 15,
+  laneGap: 2,
+  dayNumHeight: 28,
+  overflowRow: 16,
 };
 
 const DENSITY_TIMETREE_DESKTOP: CalendarDensity = {
-  maxLanes: 5,
-  laneHeight: 18,
-  laneGap: 4,
-  dayNumHeight: 40,
-  overflowRow: 14,
+  maxLanes: 6,
+  laneHeight: 16,
+  laneGap: 3,
+  dayNumHeight: 30,
+  overflowRow: 18,
 };
 
 const LIFE_FILTERS = LIFECYCLE_STATUSES;
@@ -247,15 +254,22 @@ function FilterChip({
   );
 }
 
-function weekRowHeight(d: CalendarDensity, segs: EventSeg[]) {
+function weekLaneStats(d: CalendarDensity, segs: EventSeg[]) {
   let maxLane = -1;
   let overflow = false;
   for (const s of segs) {
     if (s.lane > maxLane) maxLane = s.lane;
     if (s.lane >= d.maxLanes) overflow = true;
   }
-  const shown = Math.min(d.maxLanes, Math.max(2, maxLane + 1));
-  return d.dayNumHeight + shown * (d.laneHeight + d.laneGap) + (overflow ? d.overflowRow : 6);
+  const shown = Math.min(d.maxLanes, Math.max(1, maxLane + 1));
+  return {
+    shown,
+    overflow,
+    height:
+      d.dayNumHeight +
+      shown * (d.laneHeight + d.laneGap) +
+      (overflow ? d.overflowRow : 6),
+  };
 }
 
 function quoteLabel(q: Quote) {
@@ -282,9 +296,7 @@ function entryLabel(e: CalendarEntryRow) {
   if (e.kind === "DAY_OFF") {
     const u = e.assignees[0]?.user;
     const name = u ? personName(u) : "Выходной";
-    const time =
-      e.startTime && e.endTime ? ` ${e.startTime}–${e.endTime}` : "";
-    return `${name}${time}`;
+    return name;
   }
   if (e.kind === "TASK") return e.title || "Задача";
   const bits = [e.title?.trim(), e.client?.companyName].filter(Boolean);
@@ -392,6 +404,159 @@ function itemTimeLabel(item: CalItem): string {
   return "Весь день";
 }
 
+const RU_MONTHS = [
+  "январь",
+  "февраль",
+  "март",
+  "апрель",
+  "май",
+  "июнь",
+  "июль",
+  "август",
+  "сентябрь",
+  "октябрь",
+  "ноябрь",
+  "декабрь",
+] as const;
+
+function CalendarMonthYearJump({
+  year,
+  month,
+  onJump,
+}: {
+  year: number;
+  month: number;
+  onJump: (year: number, month: number) => void;
+}) {
+  const [open, setOpen] = useState<null | "month" | "year">(null);
+  const [yearFrom, setYearFrom] = useState(year - 4);
+  const boxRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDoc(e: Event) {
+      if (boxRef.current?.contains(e.target as Node)) return;
+      setOpen(null);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(null);
+    }
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const monthName = RU_MONTHS[month] ?? "";
+  const years = Array.from({ length: 12 }, (_, i) => yearFrom + i);
+
+  return (
+    <div ref={boxRef} className="relative flex flex-wrap items-baseline gap-x-2">
+      <h1 className="font-display flex flex-wrap items-baseline gap-x-2 text-2xl tracking-tight text-[var(--ink)]">
+        <button
+          type="button"
+          className="capitalize underline-offset-4 hover:underline"
+          aria-expanded={open === "month"}
+          aria-haspopup="listbox"
+          onClick={() => setOpen((v) => (v === "month" ? null : "month"))}
+        >
+          {monthName}
+        </button>
+        <button
+          type="button"
+          className="underline-offset-4 hover:underline"
+          aria-expanded={open === "year"}
+          aria-haspopup="listbox"
+          onClick={() => {
+            setYearFrom(year - 4);
+            setOpen((v) => (v === "year" ? null : "year"));
+          }}
+        >
+          {year} г.
+        </button>
+      </h1>
+
+      {open === "month" ? (
+        <div
+          role="listbox"
+          aria-label="Месяц"
+          className="absolute left-0 top-full z-40 mt-1.5 grid w-[17.5rem] grid-cols-3 gap-1 rounded-xl border border-[var(--line)] bg-[var(--panel)] p-2 shadow-xl"
+        >
+          {RU_MONTHS.map((label, i) => (
+            <button
+              key={label}
+              type="button"
+              role="option"
+              aria-selected={i === month}
+              className={cn(
+                "rounded-lg px-2 py-1.5 text-left text-sm capitalize hover:bg-[var(--ink)]/10",
+                i === month && "bg-[var(--ink)]/10 font-medium text-[var(--ink)]",
+              )}
+              onClick={() => {
+                onJump(year, i);
+                setOpen(null);
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      {open === "year" ? (
+        <div
+          role="listbox"
+          aria-label="Год"
+          className="absolute left-0 top-full z-40 mt-1.5 w-[17.5rem] rounded-xl border border-[var(--line)] bg-[var(--panel)] p-2 shadow-xl"
+        >
+          <div className="mb-1 flex items-center justify-between px-1">
+            <button
+              type="button"
+              className="flex size-7 items-center justify-center rounded-full text-[var(--muted)] hover:bg-[var(--ink)]/10 hover:text-[var(--ink)]"
+              aria-label="Предыдущие годы"
+              onClick={() => setYearFrom((v) => v - 12)}
+            >
+              ←
+            </button>
+            <span className="text-xs text-[var(--muted)]">
+              {years[0]}–{years[years.length - 1]}
+            </span>
+            <button
+              type="button"
+              className="flex size-7 items-center justify-center rounded-full text-[var(--muted)] hover:bg-[var(--ink)]/10 hover:text-[var(--ink)]"
+              aria-label="Следующие годы"
+              onClick={() => setYearFrom((v) => v + 12)}
+            >
+              →
+            </button>
+          </div>
+          <div className="grid grid-cols-3 gap-1">
+            {years.map((y) => (
+              <button
+                key={y}
+                type="button"
+                role="option"
+                aria-selected={y === year}
+                className={cn(
+                  "rounded-lg px-2 py-1.5 text-sm tabular-nums hover:bg-[var(--ink)]/10",
+                  y === year && "bg-[var(--ink)]/10 font-medium text-[var(--ink)]",
+                )}
+                onClick={() => {
+                  onJump(y, month);
+                  setOpen(null);
+                }}
+              >
+                {y}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 function DayAgenda({
   date,
@@ -399,6 +564,7 @@ function DayAgenda({
   canCreate,
   onOpen,
   onAdd,
+  onClose,
   headingId,
 }: {
   date: Date;
@@ -406,6 +572,7 @@ function DayAgenda({
   canCreate: boolean;
   onOpen: (item: CalItem) => void;
   onAdd?: (e: MouseEvent<HTMLButtonElement>) => void;
+  onClose?: () => void;
   headingId?: string;
 }) {
   const heading = date.toLocaleDateString("ru-RU", {
@@ -415,11 +582,21 @@ function DayAgenda({
   });
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 items-start justify-between gap-3 px-4 pb-3 pt-1">
-        <div className="min-w-0">
+      <div className="flex shrink-0 items-start gap-2 px-3 pb-3 pt-3">
+        {onClose ? (
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex size-8 shrink-0 items-center justify-center rounded-full text-lg leading-none text-[var(--muted)] hover:bg-[var(--ink)]/10 hover:text-[var(--ink)]"
+            aria-label="Закрыть"
+          >
+            ×
+          </button>
+        ) : null}
+        <div className="min-w-0 flex-1">
           <h2
             id={headingId}
-            className="font-display capitalize text-lg leading-tight text-[var(--ink)] sm:text-xl"
+            className="font-display capitalize text-xl leading-tight text-[var(--ink)]"
           >
             {heading}
           </h2>
@@ -438,30 +615,30 @@ function DayAgenda({
           Нет событий. {canCreate ? "Нажмите «Добавить», чтобы создать запись." : ""}
         </p>
       ) : (
-        <ul className="min-h-0 flex-1 space-y-2 overflow-y-auto px-3 pb-4">
+        <ul className="min-h-0 flex-1 space-y-1.5 overflow-y-auto px-3 pb-4">
           {items.map((item) => (
             <li key={`${item.type}-${item.id}`}>
               <button
                 type="button"
                 onClick={() => onOpen(item)}
-                className="flex w-full items-stretch gap-3 rounded-xl border border-[var(--line)] bg-[var(--bg)]/40 px-3 py-2.5 text-left transition-colors hover:border-[var(--accent)] hover:bg-[var(--bg)]"
+                className="flex w-full items-stretch gap-3 rounded-xl px-2 py-2 text-left transition-colors hover:bg-white/5"
               >
                 <span
-                  className="w-1 shrink-0 self-stretch rounded-full"
+                  className="w-1.5 shrink-0 self-stretch rounded-full"
                   style={{ background: item.color }}
                 />
-                <span className="w-16 shrink-0 pt-0.5 text-caption leading-tight text-[var(--muted)]">
+                <span className="w-[4.5rem] shrink-0 pt-0.5 text-[11px] leading-tight text-[var(--muted)]">
                   {itemTimeLabel(item)}
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-medium text-[var(--ink)]">
                     {item.label}
                   </span>
-                  <span className="text-caption text-[var(--muted)]">
+                  <span className="text-[11px] text-[var(--muted)]">
                     {item.subtitle}
                   </span>
                   {item.type === "quote" && item.quote.staffVacantCount ? (
-                    <span className="mt-0.5 block text-caption font-medium text-amber-700 dark:text-amber-300">
+                    <span className="mt-0.5 block text-[11px] font-medium text-amber-700 dark:text-amber-300">
                       {quoteStaffHint(item.quote)}
                     </span>
                   ) : null}
@@ -481,19 +658,22 @@ export function CalendarView() {
   const { data: session } = useSession();
   const role = session?.user?.role;
   const canCreate = canOpenCalendarCreateMenu(role);
-  const canCreateQuote = canCreateCalendarProject(role);
   const { showingDesktop } = useLayoutDensity();
+  const weeksRef = useRef<HTMLDivElement>(null);
+  const [fitLanes, setFitLanes] = useState(DENSITY_TIMETREE_DESKTOP.maxLanes);
 
   const [cursor, setCursor] = useState(() => {
     const d = new Date();
     return new Date(d.getFullYear(), d.getMonth(), 1);
   });
+  const [viewReady, setViewReady] = useState(false);
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [entries, setEntries] = useState<CalendarEntryRow[]>([]);
   const [openQuoteId, setOpenQuoteId] = useState<string | null>(null);
   const [openEntryId, setOpenEntryId] = useState<string | null>(null);
   const [selectedDay, setSelectedDay] = useState(() => startOfDay(new Date()));
   const [dayPanelOpen, setDayPanelOpen] = useState(false);
+  const [peekReturnToDay, setPeekReturnToDay] = useState(false);
   const [createMenu, setCreateMenu] = useState<CreateMenuState | null>(null);
   const [form, setForm] = useState<FormState | null>(null);
   const [creatingProject, setCreatingProject] = useState(false);
@@ -506,10 +686,21 @@ export function CalendarView() {
     try {
       setFilters(readStoredFilters());
       setDashOpen(localStorage.getItem("calendar.dashCollapsed") !== "1");
+      const stored = readStoredCalendarView();
+      if (stored) {
+        setCursor(stored.cursor);
+        setSelectedDay(stored.selectedDay);
+      }
     } catch {
       /* ignore */
     }
+    setViewReady(true);
   }, []);
+
+  useEffect(() => {
+    if (!viewReady) return;
+    persistCalendarView({ cursor, selectedDay });
+  }, [viewReady, cursor, selectedDay]);
 
   function toggleLifecycle(status: LifecycleStatus) {
     setFilters((prev) => {
@@ -608,9 +799,32 @@ export function CalendarView() {
   }, [searchParams, canCreate, router]);
 
   useEffect(() => {
+    if (!viewReady) return;
     reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reload when month window changes
-  }, [from, to]);
+  }, [from, to, viewReady]);
+
+  useEffect(() => {
+    if (!showingDesktop) return;
+    document.documentElement.classList.add("cal-lock-x");
+    return () => document.documentElement.classList.remove("cal-lock-x");
+  }, [showingDesktop]);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== "Escape") return;
+      if (form || createMenu) return;
+      if (openQuoteId || openEntryId) {
+        closeEventPeek();
+        return;
+      }
+      if (dayPanelOpen) closePeek();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // closePeek/closeEventPeek close over current flags
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form, createMenu, openQuoteId, openEntryId, dayPanelOpen, peekReturnToDay, searchParams, router]);
 
   const year = cursor.getFullYear();
   const month = cursor.getMonth();
@@ -663,12 +877,13 @@ export function CalendarView() {
       const start = parseEventDate(e.date);
       if (!start) continue;
       const day = startOfDay(start);
+      const days = Math.max(1, e.durationDays || 1);
       list.push({
         type: "entry",
         id: e.id,
         entry: e,
         start: day,
-        end: day,
+        end: addDays(day, days - 1),
         label: entryLabel(e),
         color: ENTRY_KIND_COLORS[e.kind],
         subtitle: ENTRY_KIND_LABELS[e.kind],
@@ -684,11 +899,6 @@ export function CalendarView() {
     });
   }, [weeks, items]);
 
-  const monthLabel = cursor.toLocaleDateString("ru-RU", {
-    month: "long",
-    year: "numeric",
-  });
-
   const todayKey = formatDateKey(new Date());
   const selectedKey = formatDateKey(selectedDay);
   const selectedItems = useMemo(
@@ -696,44 +906,73 @@ export function CalendarView() {
     [items, selectedDay],
   );
 
-  function shiftMonth(delta: number) {
-    const next = new Date(year, month + delta, 1);
+  function jumpTo(nextYear: number, nextMonth: number) {
+    const next = new Date(nextYear, nextMonth, 1);
     setCursor(next);
     const t = startOfDay(new Date());
-    if (t.getFullYear() === next.getFullYear() && t.getMonth() === next.getMonth()) {
+    if (
+      t.getFullYear() === next.getFullYear() &&
+      t.getMonth() === next.getMonth()
+    ) {
       setSelectedDay(t);
     } else {
       setSelectedDay(next);
     }
   }
 
+  function shiftMonth(delta: number) {
+    jumpTo(year, month + delta);
+  }
+
   function goToday() {
     const t = startOfDay(new Date());
     setCursor(new Date(t.getFullYear(), t.getMonth(), 1));
     setSelectedDay(t);
-    if (showingDesktop) setDayPanelOpen(true);
+    setOpenQuoteId(null);
+    setOpenEntryId(null);
+    setPeekReturnToDay(true);
+    setDayPanelOpen(true);
   }
 
-  function openItem(item: CalItem) {
+  function closePeek() {
+    setDayPanelOpen(false);
+    setOpenQuoteId(null);
+    setOpenEntryId(null);
+    setPeekReturnToDay(false);
+    if (searchParams.get("quote")) {
+      router.replace("/calendar", { scroll: false });
+    }
+  }
+
+  function closeEventPeek() {
+    setOpenQuoteId(null);
+    setOpenEntryId(null);
+    if (searchParams.get("quote")) {
+      router.replace("/calendar", { scroll: false });
+    }
+    if (peekReturnToDay) setDayPanelOpen(true);
+    else setDayPanelOpen(false);
+  }
+
+  function openItem(item: CalItem, fromDayList = false) {
     setCreateMenu(null);
-    if (item.type === "quote") setOpenQuoteId(item.id);
-    else setOpenEntryId(item.id);
+    setPeekReturnToDay(fromDayList);
+    if (item.type === "quote") {
+      setOpenEntryId(null);
+      setOpenQuoteId(item.id);
+    } else {
+      setOpenQuoteId(null);
+      setOpenEntryId(item.id);
+    }
   }
 
-  function onDayClick(e: MouseEvent<HTMLButtonElement>, day: Date) {
+  function onDayClick(day: Date) {
     const start = startOfDay(day);
     setSelectedDay(start);
-    const empty = itemsOnDay(items, start).length === 0;
-    if (empty && canCreate) {
-      setDayPanelOpen(false);
-      setCreateMenu({
-        date: start,
-        x: e.clientX,
-        y: e.clientY,
-      });
-      return;
-    }
     setCreateMenu(null);
+    setOpenQuoteId(null);
+    setOpenEntryId(null);
+    setPeekReturnToDay(true);
     setDayPanelOpen(true);
   }
 
@@ -791,8 +1030,40 @@ export function CalendarView() {
   }
 
   const tt = showingDesktop ? DENSITY_TIMETREE_DESKTOP : DENSITY_TIMETREE;
+  const density: CalendarDensity = showingDesktop
+    ? { ...tt, maxLanes: fitLanes }
+    : tt;
   const barFont = showingDesktop ? 11 : 10;
+
+  useLayoutEffect(() => {
+    if (!showingDesktop) {
+      setFitLanes(DENSITY_TIMETREE.maxLanes);
+      return;
+    }
+    const el = weeksRef.current;
+    if (!el) return;
+    const weekCount = weeks.length;
+    function measure() {
+      const h = el.clientHeight;
+      if (weekCount <= 0 || h <= 0) return;
+      setFitLanes(lanesThatFit(h / weekCount, DENSITY_TIMETREE_DESKTOP));
+    }
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    const vv = window.visualViewport;
+    vv?.addEventListener("resize", measure);
+    window.addEventListener("resize", measure);
+    return () => {
+      ro.disconnect();
+      vv?.removeEventListener("resize", measure);
+      window.removeEventListener("resize", measure);
+    };
+  }, [showingDesktop, weeks.length]);
   const weekdayLabels = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
+  const desktopPeekOpen =
+    showingDesktop && (dayPanelOpen || !!openQuoteId || !!openEntryId);
+  const dashVisible = dashOpen && !desktopPeekOpen;
 
   const monthNav = (
     <div className="flex shrink-0 items-center gap-1.5">
@@ -820,24 +1091,65 @@ export function CalendarView() {
     </div>
   );
 
+  const peekEvent = (
+    <>
+      {openQuoteId ? (
+        <ProjectModal
+          open
+          quoteId={openQuoteId}
+          embedded
+          onClose={closeEventPeek}
+          onChanged={reload}
+          onCopied={(id) => {
+            setOpenQuoteId(id);
+            reload();
+          }}
+        />
+      ) : openEntryId ? (
+        <CalendarEntryModal
+          open
+          entryId={openEntryId}
+          embedded
+          onClose={closeEventPeek}
+          onEdit={(entry) => {
+            setOpenEntryId(null);
+            setForm({
+              kind: entry.kind,
+              dateKey: entry.date,
+              entryId: entry.id,
+            });
+          }}
+          onDeleted={reload}
+          onChanged={reload}
+        />
+      ) : dayPanelOpen ? (
+        <DayAgenda
+          date={selectedDay}
+          items={selectedItems}
+          canCreate={canCreate}
+          onOpen={(item) => openItem(item, true)}
+          onAdd={openCreate}
+          onClose={closePeek}
+          headingId="cal-day-title"
+        />
+      ) : null}
+    </>
+  );
+
   return (
     <div
       className={cn(
-        "mx-auto w-full",
-        showingDesktop ? "px-4 py-5 md:px-6" : "px-0 pb-20 pt-1",
+        "w-full",
+        showingDesktop ? "cal-page" : "px-0 pb-20 pt-1",
       )}
     >
-      <div className={showingDesktop ? "relative" : "flex flex-col"}>
-        <div className="relative min-w-0 pb-16">
       <header
         className={cn(
           "flex items-center justify-between gap-2 py-2",
           showingDesktop ? "px-1" : "px-4",
         )}
       >
-          <h1 className="font-display capitalize text-2xl tracking-tight text-[var(--ink)]">
-          {monthLabel}
-        </h1>
+        <CalendarMonthYearJump year={year} month={month} onJump={jumpTo} />
         {monthNav}
       </header>
 
@@ -869,14 +1181,15 @@ export function CalendarView() {
         ))}
       </div>
 
-      <div className={cn("relative", showingDesktop && "px-1")}>
+      <div className="cal-tt">
+        <div className="cal-tt-main">
         {showingDesktop ? (
-          <div className="pointer-events-none absolute inset-0 z-20">
-            <div className="sticky top-[calc(var(--app-topbar-height)+0.75rem)] ml-auto w-[19.5rem]">
+          <div className="cal-dash-host pointer-events-none absolute inset-0 z-20 overflow-hidden">
+            <div className="sticky top-[calc(var(--app-topbar-height)+0.75rem)] mr-auto w-[19.5rem]">
               <aside
                 className={cn(
                   "cal-dash-overlay",
-                  !dashOpen && "is-closed",
+                  !dashVisible && "is-closed",
                   dashMotion && "is-motion",
                 )}
                 onTransitionEnd={(e) => {
@@ -885,10 +1198,14 @@ export function CalendarView() {
               >
                 <CalendarDashboard
                   onOpenQuote={(id) => {
+                    setPeekReturnToDay(false);
+                    setDayPanelOpen(false);
                     setOpenEntryId(null);
                     setOpenQuoteId(id);
                   }}
                   onOpenEntry={(id) => {
+                    setPeekReturnToDay(false);
+                    setDayPanelOpen(false);
                     setOpenQuoteId(null);
                     setOpenEntryId(id);
                   }}
@@ -896,17 +1213,19 @@ export function CalendarView() {
                   onAlertsChange={setDashAlerts}
                 />
               </aside>
-              <div className="cal-dash-fab-float">
-                <CalendarDashToggle
-                  collapsed={!dashOpen}
-                  hasAlerts={dashAlerts}
-                  onClick={toggleDash}
-                />
-              </div>
+              {!desktopPeekOpen ? (
+                <div className="cal-dash-fab-float">
+                  <CalendarDashToggle
+                    collapsed={!dashOpen}
+                    hasAlerts={dashAlerts}
+                    onClick={toggleDash}
+                  />
+                </div>
+              ) : null}
             </div>
           </div>
         ) : null}
-        <div className="grid grid-cols-7 px-0.5">
+        <div className="cal-tt-weekdays grid grid-cols-7">
           {weekdayLabels.map((d, i) => (
             <div
               key={d}
@@ -920,14 +1239,18 @@ export function CalendarView() {
           ))}
         </div>
 
+        <div ref={weeksRef} className="cal-tt-weeks">
         {weekLayouts.map(({ week, segs }, weekIdx) => {
-          const visibleSegs = segs.filter((s) => s.lane < tt.maxLanes);
-          const rowH = weekRowHeight(tt, segs);
+          const visibleSegs = segs.filter((s) => s.lane < density.maxLanes);
+          const { shown, height: rowH } = weekLaneStats(density, segs);
           return (
             <div
               key={weekIdx}
-              className="relative grid grid-cols-7"
-              style={{ height: rowH }}
+              className={cn(
+                "cal-tt-week relative grid grid-cols-7",
+                showingDesktop && "is-fill",
+              )}
+              style={showingDesktop ? undefined : { height: rowH }}
             >
               {week.map((day, col) => {
                 const key = formatDateKey(day);
@@ -937,7 +1260,7 @@ export function CalendarView() {
                 const weekend = day.getDay() === 0 || day.getDay() === 6;
                 const hiddenOnDay = segs.filter(
                   (s) =>
-                    s.lane >= tt.maxLanes &&
+                    s.lane >= density.maxLanes &&
                     col >= s.startCol &&
                     col < s.startCol + s.span,
                 ).length;
@@ -945,31 +1268,35 @@ export function CalendarView() {
                   <button
                     key={key}
                     type="button"
-                    onClick={(e) => onDayClick(e, day)}
-                    className="relative flex flex-col items-center pt-0.5"
+                    onClick={() => onDayClick(day)}
+                    className={cn(
+                      "cal-tt-cell relative flex flex-col items-center pt-0.5",
+                      isSelected && "is-selected",
+                      outside && "is-outside",
+                    )}
                   >
                     <span
                       className={cn(
                         "relative z-10 flex items-center justify-center rounded-full tabular-nums",
                         showingDesktop
-                          ? "size-[1.85rem] text-sm"
-                          : "size-[1.55rem] text-xs",
-                        isSelected &&
+                          ? "size-[1.7rem] text-[13px]"
+                          : "size-[1.45rem] text-xs",
+                        isToday &&
                           "bg-[var(--ink)] font-semibold text-[var(--panel)]",
-                        !isSelected &&
-                          isToday &&
-                          "font-semibold text-[var(--ink)] ring-1 ring-[var(--ink)]",
-                        !isSelected &&
-                          !isToday &&
+                        !isToday &&
+                          isSelected &&
+                          "font-semibold text-[var(--ink)]",
+                        !isToday &&
+                          !isSelected &&
                           outside &&
                           "text-[var(--muted)]/40",
-                        !isSelected &&
-                          !isToday &&
+                        !isToday &&
+                          !isSelected &&
                           !outside &&
                           weekend &&
                           "text-rose-400",
-                        !isSelected &&
-                          !isToday &&
+                        !isToday &&
+                          !isSelected &&
                           !outside &&
                           !weekend &&
                           "text-[var(--ink)]",
@@ -978,9 +1305,7 @@ export function CalendarView() {
                       {day.getDate()}
                     </span>
                     {hiddenOnDay > 0 ? (
-                      <span className="absolute bottom-0.5 text-caption font-medium text-[var(--muted)]">
-                        +{hiddenOnDay}
-                      </span>
+                      <span className="cal-tt-more">+{hiddenOnDay}</span>
                     ) : null}
                   </button>
                 );
@@ -989,14 +1314,14 @@ export function CalendarView() {
               <div
                 className="pointer-events-none absolute inset-x-0"
                 style={{
-                  top: tt.dayNumHeight,
-                  height: tt.maxLanes * (tt.laneHeight + tt.laneGap),
+                  top: density.dayNumHeight,
+                  height: shown * (density.laneHeight + density.laneGap),
                 }}
               >
                 {visibleSegs.map((seg) => {
                   const left = `calc(${(seg.startCol / 7) * 100}% + 2px)`;
                   const width = `calc(${(seg.span / 7) * 100}% - 4px)`;
-                  const top = seg.lane * (tt.laneHeight + tt.laneGap);
+                  const top = seg.lane * (density.laneHeight + density.laneGap);
                   const radiusLeft = seg.continuesLeft ? "4px" : "6px";
                   const radiusRight = seg.continuesRight ? "4px" : "6px";
                   const vacant =
@@ -1019,8 +1344,8 @@ export function CalendarView() {
                         left,
                         width,
                         top,
-                        height: tt.laneHeight,
-                        lineHeight: `${tt.laneHeight}px`,
+                        height: density.laneHeight,
+                        lineHeight: `${density.laneHeight}px`,
                         fontSize: barFont,
                         background: seg.item.color,
                         borderRadius: `${radiusLeft} ${radiusRight} ${radiusRight} ${radiusLeft}`,
@@ -1029,6 +1354,7 @@ export function CalendarView() {
                       title={`${seg.item.subtitle} · ${seg.item.label}${staffHint ? ` · ${staffHint}` : ""}`}
                       onClick={(e) => {
                         e.stopPropagation();
+                        setSelectedDay(startOfDay(week[seg.startCol]!));
                         openItem(seg.item);
                       }}
                     >
@@ -1040,49 +1366,36 @@ export function CalendarView() {
             </div>
           );
         })}
-      </div>
-
-          {showingDesktop && canCreateQuote ? (
-            <button
-              type="button"
-              className="cal-plus-fab"
-              aria-label="Новая смета без даты"
-              title="Новая смета без даты"
-              disabled={creatingProject}
-              onClick={() => void createProject()}
-            >
-              +
-            </button>
-          ) : null}
         </div>
+        </div>
+
+        {showingDesktop ? (
+          <aside
+            className={cn("cal-tt-peek", desktopPeekOpen && "is-open")}
+            aria-hidden={!desktopPeekOpen}
+          >
+            <div className="cal-tt-peek-inner">{peekEvent}</div>
+          </aside>
+        ) : null}
       </div>
 
-      <SideDrawer
-        open={dayPanelOpen}
-        onClose={() => setDayPanelOpen(false)}
-        labelledBy="cal-day-title"
-        closeOnEscape={!openQuoteId && !openEntryId}
-      >
-        <div className="flex h-full min-h-0 flex-col">
-          <div className="flex shrink-0 items-center justify-end px-4 pt-1">
-            <button
-              type="button"
-              onClick={() => setDayPanelOpen(false)}
-              className="shrink-0 text-sm text-[var(--muted)] hover:text-[var(--ink)]"
-            >
-              Закрыть
-            </button>
-          </div>
+      {!showingDesktop ? (
+        <SideDrawer
+          open={dayPanelOpen && !openQuoteId && !openEntryId}
+          onClose={closePeek}
+          labelledBy="cal-day-title"
+        >
           <DayAgenda
             date={selectedDay}
             items={selectedItems}
             canCreate={canCreate}
-            onOpen={openItem}
+            onOpen={(item) => openItem(item, true)}
             onAdd={openCreate}
+            onClose={closePeek}
             headingId="cal-day-title"
           />
-        </div>
-      </SideDrawer>
+        </SideDrawer>
+      ) : null}
 
       <CalendarCreateMenu
         open={!!createMenu && !creatingProject}
@@ -1104,32 +1417,35 @@ export function CalendarView() {
         />
       )}
 
-      <CalendarEntryModal
-        open={!!openEntryId}
-        entryId={openEntryId}
-        onClose={() => setOpenEntryId(null)}
-        onEdit={(entry) => {
-          setOpenEntryId(null);
-          setForm({
-            kind: entry.kind,
-            dateKey: entry.date,
-            entryId: entry.id,
-          });
-        }}
-        onDeleted={reload}
-        onChanged={reload}
-      />
-
-      <ProjectModal
-        open={!!openQuoteId}
-        quoteId={openQuoteId}
-        onClose={() => {
-          setOpenQuoteId(null);
-          if (searchParams.get("quote")) {
-            router.replace("/calendar", { scroll: false });
-          }
-        }}
-      />
+      {!showingDesktop ? (
+        <>
+          <CalendarEntryModal
+            open={!!openEntryId}
+            entryId={openEntryId}
+            onClose={closeEventPeek}
+            onEdit={(entry) => {
+              setOpenEntryId(null);
+              setForm({
+                kind: entry.kind,
+                dateKey: entry.date,
+                entryId: entry.id,
+              });
+            }}
+            onDeleted={reload}
+            onChanged={reload}
+          />
+          <ProjectModal
+            open={!!openQuoteId}
+            quoteId={openQuoteId}
+            onClose={closeEventPeek}
+            onChanged={reload}
+            onCopied={(id) => {
+              setOpenQuoteId(id);
+              reload();
+            }}
+          />
+        </>
+      ) : null}
     </div>
   );
 }

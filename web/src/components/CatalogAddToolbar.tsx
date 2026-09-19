@@ -16,7 +16,7 @@ type AddAction =
   | "kit"
   | "component";
 
-const ACTIONS: Array<{
+export const CATALOG_ADD_ACTIONS: Array<{
   id: AddAction;
   title: string;
   icon: ReactNode;
@@ -113,7 +113,7 @@ export function CatalogAddToolbar({
 }) {
   return (
     <div className="flex shrink-0 items-center gap-1">
-      {ACTIONS.map((a) => (
+      {CATALOG_ADD_ACTIONS.map((a) => (
         <button
           key={a.id}
           type="button"

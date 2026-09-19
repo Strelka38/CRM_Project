@@ -223,6 +223,27 @@ export function canOpenCalendarCreateMenu(
   );
 }
 
+/** Меню ⋯ мероприятия: бригадир, менеджер, админ. Не сотрудник. */
+export function canOpenCalendarEventMenu(
+  role: string | null | undefined,
+): boolean {
+  return isManager(role) || role === "BRIGADIER";
+}
+
+/** Скопировать мероприятие на другую дату. */
+export function canCopyCalendarEvent(
+  role: string | null | undefined,
+): boolean {
+  return isManager(role);
+}
+
+/** Снять даты и отменить смету (уходит из календаря в «Сметы»). */
+export function canUnscheduleCalendarEvent(
+  role: string | null | undefined,
+): boolean {
+  return isManager(role);
+}
+
 /** Edit/delete calendar entry (not quote): manager or original creator. */
 export function canEditCalendarEntry(
   role: string | null | undefined,

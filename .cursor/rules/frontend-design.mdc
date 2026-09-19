@@ -1,0 +1,34 @@
+---
+description: Frontend design — Refined Minimal / Linear product chrome. Apply when changing UI, CSS, layout, or components.
+globs: web/src/**/*.{tsx,css}
+alwaysApply: false
+---
+
+# Frontend Design (BaikalStageGroup CRM)
+
+Before restyling, read `.cursor/skills/frontend-design/SKILL.md`. For chrome (sidebar, lists, modals, tables) also load `product-ui-patterns.md` and `minimal-ui-patterns.md` §1.
+
+## Brief
+
+B2B CRM for event production: quotes, warehouse, calendar, payroll. Users live in the app all day. UI is Russian. Density is a feature.
+
+## Chosen aesthetic (do not mix)
+
+**Refined Minimal, Linear-style product chrome.** Not editorial, not brutalist, not soft/warm, not playful.
+
+- Type: Golos Text (400 / 500 / 600). Tabular nums on data. No 700 on every heading.
+- One accent: `--accent` (brand cyan). Neutrals do the rest. Accent on <10% of pixels.
+- Radius 6–8px on controls, 8–12px on panels. Pills only for tags, dots, toggles, calendar dates.
+- Hairlines over shadows. Solid surfaces over glass.
+
+## Hard no (anti-patterns.md)
+
+- Purple / magenta / aurora gradients (`#ec14fe`, mesh, body glows)
+- Glassmorphism (`backdrop-blur` on cards, nav, login)
+- Pill CTAs (`rounded-full` on buttons)
+- Stacked gummy shadows, `hover:scale` on every control
+- `transition-all`, raw hex in components, emoji as icons
+
+## Tokens
+
+All color/type/space come from `web/src/app/globals.css`. Add a token before adding a one-off value.

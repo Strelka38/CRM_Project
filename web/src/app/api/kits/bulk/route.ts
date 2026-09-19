@@ -39,6 +39,7 @@ export async function POST(req: NextRequest) {
           description: src.description,
           categoryId: src.categoryId,
           basePrice: src.basePrice,
+          showInCatalog: src.showInCatalog,
           sortOrder: (max._max.sortOrder ?? 0) + 1,
           active: true,
           components: {

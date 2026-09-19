@@ -2,10 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { DataCards, SortableTh, useTableSort } from "@/components/ui";
 import {
   DirectoryAddButton,
   DirectoryCardLink,
   DirectoryCsvMenu,
+  DirectoryMobileBar,
   DirectorySelectionActions,
   IconPlusDoc,
   downloadCsvExport,
@@ -34,6 +36,23 @@ type EntityRow = {
   bankAccounts: Account[];
 };
 
+function legalEntitySortValue(row: EntityRow, key: string) {
+  switch (key) {
+    case "name":
+      return row.shortName;
+    case "inn":
+      return row.inn;
+    case "owner":
+      return row.catalogOwner || "";
+    case "accounts":
+      return row.bankAccounts.length;
+    case "stamps":
+      return (row.sealPath ? 1 : 0) + (row.signaturePath ? 1 : 0);
+    default:
+      return null;
+  }
+}
+
 const OWNER_LABEL: Record<string, string> = Object.fromEntries(
   CATALOG_OWNERS.map((o) => [o.value, o.short]),
 );
@@ -50,6 +69,7 @@ export function LegalEntitiesAdmin() {
   const [csvMessage, setCsvMessage] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const csvImportRef = useRef<HTMLInputElement>(null);
+  const { sorted, sort, onSort } = useTableSort(rows, legalEntitySortValue);
 
   async function load() {
     const res = await fetch("/api/legal-entities?active=0");
@@ -156,7 +176,9 @@ export function LegalEntitiesAdmin() {
         <p className="text-xs uppercase tracking-[0.15em] text-[var(--muted)]">
           База данных
         </p>
-        <h1 className="mt-1 text-3xl font-medium tracking-tight">Юрлица</h1>
+        <h1 className="mt-1 text-2xl font-medium tracking-tight md:text-3xl">
+          Юрлица
+        </h1>
         <p className="mt-1 text-sm text-[var(--muted)]">
           Реквизиты исполнителей для договора, счёта и акта. Рядом с тегами склада
           ШМ / ДК / NE, не вместо них.
@@ -164,7 +186,25 @@ export function LegalEntitiesAdmin() {
       </header>
 
       <section className="rounded-xl border border-[var(--line)] bg-[var(--panel)]">
-        <div className="flex w-full items-center gap-2 border-b border-[var(--line)] px-4 py-3">
+        <DirectoryMobileBar
+          primary={{
+            label: showCreate ? "Скрыть форму" : "Добавить юрлицо",
+            onClick: () => setShowCreate((v) => !v),
+          }}
+          sheetTitle="Юрлица"
+          csv={{
+            busy: csvBusy,
+            onExport: () => void exportCsv(),
+            onImport: () => csvImportRef.current?.click(),
+          }}
+          selection={{
+            count: selected.size,
+            busy,
+            onDelete: () => setConfirmDelete(true),
+          }}
+        />
+
+        <div className="hidden w-full items-center gap-2 border-b border-[var(--line)] px-4 py-3 md:flex">
           <DirectoryAddButton
             title="+ Юрлицо"
             icon={<IconPlusDoc />}
@@ -182,18 +222,19 @@ export function LegalEntitiesAdmin() {
               onImport={() => csvImportRef.current?.click()}
             />
           </div>
-          <input
-            ref={csvImportRef}
-            type="file"
-            accept=".csv,text/csv"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              e.target.value = "";
-              if (file) void importCsv(file);
-            }}
-          />
         </div>
+
+        <input
+          ref={csvImportRef}
+          type="file"
+          accept=".csv,text/csv"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = "";
+            if (file) void importCsv(file);
+          }}
+        />
         {csvMessage ? (
           <p className="border-b border-[var(--line)] px-4 py-2 text-xs text-[var(--muted)]">
             {csvMessage}
@@ -234,7 +275,45 @@ export function LegalEntitiesAdmin() {
           </div>
         ) : null}
 
-        <div className="data-table-shell overflow-x-auto">
+        <div className="p-3 md:hidden">
+          <DataCards
+            items={sorted.map((row) => {
+              const stamps = [
+                row.sealPath ? "печать" : "",
+                row.signaturePath ? "подпись" : "",
+              ].filter(Boolean);
+              const accounts = row.bankAccounts
+                .map((a) => a.label || a.account.slice(-4))
+                .join(", ");
+              return {
+                id: row.id,
+                title: row.shortName,
+                subtitle: row.inn ? `ИНН ${row.inn}` : undefined,
+                href: `/legal-entities/${row.id}`,
+                trailing: row.active ? undefined : (
+                  <span className="text-caption text-[var(--muted)]">выкл</span>
+                ),
+                fields: [
+                  {
+                    label: "Склад",
+                    value: row.catalogOwner
+                      ? OWNER_LABEL[row.catalogOwner] || row.catalogOwner
+                      : "—",
+                  },
+                  ...(accounts ? [{ label: "Счета", value: accounts }] : []),
+                  ...(stamps.length
+                    ? [{ label: "Факсимиле", value: stamps.join(" · ") }]
+                    : []),
+                ],
+              };
+            })}
+            selectedIds={selected}
+            onToggleSelect={toggleOne}
+            emptyMessage="Пока пусто — создайте карточку или импортируйте CSV."
+          />
+        </div>
+
+        <div className="data-table-shell hidden overflow-x-auto md:block">
           <table className="data-table w-full text-left text-sm">
             <thead className="bg-[var(--table-head)] text-xs uppercase text-[var(--muted)]">
               <tr>
@@ -246,16 +325,46 @@ export function LegalEntitiesAdmin() {
                     aria-label="Выбрать все"
                   />
                 </th>
-                <th className="px-3 py-2 text-left">Контора</th>
-                <th className="px-3 py-2 text-left">ИНН</th>
-                <th className="px-3 py-2 text-left">Склад</th>
-                <th className="px-3 py-2 text-left">Счета</th>
-                <th className="px-3 py-2 text-left">Факсимиле</th>
+                <SortableTh
+                  label="Контора"
+                  sortKey="name"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-3 py-2"
+                />
+                <SortableTh
+                  label="ИНН"
+                  sortKey="inn"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-3 py-2"
+                />
+                <SortableTh
+                  label="Склад"
+                  sortKey="owner"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-3 py-2"
+                />
+                <SortableTh
+                  label="Счета"
+                  sortKey="accounts"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-3 py-2"
+                />
+                <SortableTh
+                  label="Факсимиле"
+                  sortKey="stamps"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-3 py-2"
+                />
                 <th className="w-12 px-3 py-2 text-left" />
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => (
+              {sorted.map((row) => (
                 <tr
                   key={row.id}
                   className={`border-t border-[var(--line)] ${

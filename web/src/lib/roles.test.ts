@@ -2,10 +2,13 @@ import assert from "node:assert/strict";
 import {
   BRIGADIER_QUOTE_PATCH_KEYS,
   canAccessRoster,
+  canCopyCalendarEvent,
   canEditBrief,
   canEditQuoteSchedule,
   canManageEventAttachments,
   canManageQuotes,
+  canOpenCalendarEventMenu,
+  canUnscheduleCalendarEvent,
   canViewQuote,
   forbiddenBrigadierQuotePatchKeys,
   isBrigadierQuotePatchKey,
@@ -26,6 +29,17 @@ assert.equal(canManageEventAttachments("MANAGER"), true);
 assert.equal(canManageEventAttachments("EMPLOYEE"), false);
 assert.equal(canEditQuoteSchedule("BRIGADIER"), true);
 assert.equal(canEditQuoteSchedule("EMPLOYEE"), false);
+
+assert.equal(canOpenCalendarEventMenu("ADMIN"), true);
+assert.equal(canOpenCalendarEventMenu("MANAGER"), true);
+assert.equal(canOpenCalendarEventMenu("BRIGADIER"), true);
+assert.equal(canOpenCalendarEventMenu("EMPLOYEE"), false);
+assert.equal(canCopyCalendarEvent("ADMIN"), true);
+assert.equal(canCopyCalendarEvent("MANAGER"), true);
+assert.equal(canCopyCalendarEvent("BRIGADIER"), false);
+assert.equal(canCopyCalendarEvent("EMPLOYEE"), false);
+assert.equal(canUnscheduleCalendarEvent("MANAGER"), true);
+assert.equal(canUnscheduleCalendarEvent("BRIGADIER"), false);
 
 assert.equal(isBrigadierQuotePatchKey("brief"), true);
 assert.equal(isBrigadierQuotePatchKey("time"), true);

@@ -9,6 +9,7 @@ import type {
 import { prisma } from "@/lib/db";
 import { isCatalogOwnerValue } from "@/lib/catalog-owner";
 import { DEFAULT_AGENCY_PERCENT } from "@/lib/calc-agency";
+import { normalizeFreelancerName } from "@/lib/freelancer-directory";
 import { DEFAULT_CASHLESS_PERCENT } from "@/lib/pricing";
 import { APP_ROLES } from "@/lib/roles";
 import { DEFAULT_TIMEZONE } from "@/lib/timezone";
@@ -158,6 +159,18 @@ function mapped(
   return map.get(dumpId) ?? null;
 }
 
+async function freelancerIdByUniqueName(
+  tx: Prisma.TransactionClient,
+  name: string,
+): Promise<string | null> {
+  const rows = await tx.$queryRaw<Array<{ id: string }>>`
+    SELECT id FROM "Freelancer"
+    WHERE lower(btrim("name")) = lower(btrim(${name}))
+    LIMIT 1
+  `;
+  return rows[0]?.id ?? null;
+}
+
 export async function collectDatabaseBackup(): Promise<DatabaseBackupFile> {
   const [
     specialties,
@@ -294,6 +307,14 @@ export function parseDatabaseBackup(raw: unknown): DatabaseBackupFile {
   };
 }
 
+const TX_MS = 300_000;
+
+async function withBackupTx<T>(
+  fn: (tx: Prisma.TransactionClient) => Promise<T>,
+): Promise<T> {
+  return prisma.$transaction(fn, { timeout: TX_MS, maxWait: 20_000 });
+}
+
 export async function applyDatabaseBackup(
   backup: DatabaseBackupFile,
   currentUserId: string,
@@ -301,153 +322,149 @@ export async function applyDatabaseBackup(
   const warnings: string[] = [];
   const counts = emptyBackupCounts();
 
-  await prisma.$transaction(
-    async (tx) => {
-      const specialtyIds = await importSpecialties(
-        tx,
-        backup.tables.specialties,
-        counts,
-        warnings,
-      );
-      const userIds = await importUsers(
-        tx,
-        backup.tables.users,
-        currentUserId,
-        counts,
-        warnings,
-      );
-      await importUserSpecialties(
-        tx,
-        backup.tables.userSpecialties,
-        userIds,
-        specialtyIds,
-        counts,
-        warnings,
-      );
-      const categoryIds = await importCategories(
-        tx,
-        backup.tables.catalogCategories,
-        counts,
-        warnings,
-      );
-      const itemIds = await importCatalogItems(
-        tx,
-        backup.tables.catalogItems,
-        categoryIds,
-        counts,
-        warnings,
-      );
-      await linkSpecialtyCatalogItems(
-        tx,
-        backup.tables.specialties,
-        specialtyIds,
-        itemIds,
-        warnings,
-      );
-      const kitIds = await importKits(
-        tx,
-        backup.tables.kits,
-        categoryIds,
-        counts,
-        warnings,
-      );
-      await importKitComponents(
-        tx,
-        backup.tables.kitComponents,
-        kitIds,
-        itemIds,
-        counts,
-        warnings,
-      );
-      await importClients(tx, backup.tables.clients, counts, warnings);
-      const freelancerIds = await importFreelancers(
-        tx,
-        backup.tables.freelancers,
-        counts,
-        warnings,
-      );
-      await importFreelancerSpecialties(
-        tx,
-        backup.tables.freelancerSpecialties,
-        freelancerIds,
-        specialtyIds,
-        counts,
-        warnings,
-      );
-      const venueIds = await importVenues(
-        tx,
-        backup.tables.venues,
-        counts,
-        warnings,
-      );
-      await importVenuePhotos(
-        tx,
-        backup.tables.venuePhotos,
-        venueIds,
-        counts,
-        warnings,
-      );
-      await importVehicles(tx, backup.tables.vehicles, counts, warnings);
-      const legalIds = await importLegalEntities(
-        tx,
-        backup.tables.legalEntities,
-        counts,
-        warnings,
-      );
-      await importLegalEntityAccounts(
-        tx,
-        backup.tables.legalEntityBankAccounts,
-        legalIds,
-        counts,
-        warnings,
-      );
-      await importEquipmentUnits(
-        tx,
-        backup.tables.equipmentUnits,
-        itemIds,
-        counts,
-        warnings,
-      );
-      await importEquipmentDocuments(
-        tx,
-        backup.tables.equipmentDocuments,
-        itemIds,
-        userIds,
-        currentUserId,
-        counts,
-        warnings,
-      );
-      await importQuoteTemplates(
-        tx,
-        backup.tables.quoteTemplates,
-        userIds,
-        currentUserId,
-        counts,
-        warnings,
-      );
-      await importQuoteSnapshots(
-        tx,
-        backup.tables.quoteSnapshots,
-        userIds,
-        counts,
-        warnings,
-      );
-      await importQuoteAuditEvents(
-        tx,
-        backup.tables.quoteAuditEvents,
-        userIds,
-        counts,
-        warnings,
-      );
-      await importSpecRevisions(
-        tx,
-        backup.tables.specRevisions,
-        userIds,
-        counts,
-        warnings,
-      );
-    },
-    { timeout: 180_000, maxWait: 20_000 },
+  const specialtyIds = await withBackupTx((tx) =>
+    importSpecialties(tx, backup.tables.specialties, counts, warnings),
+  );
+  const userIds = await withBackupTx((tx) =>
+    importUsers(tx, backup.tables.users, currentUserId, counts, warnings),
+  );
+  await withBackupTx((tx) =>
+    importUserSpecialties(
+      tx,
+      backup.tables.userSpecialties,
+      userIds,
+      specialtyIds,
+      counts,
+      warnings,
+    ),
+  );
+  const categoryIds = await withBackupTx((tx) =>
+    importCategories(tx, backup.tables.catalogCategories, counts, warnings),
+  );
+  const itemIds = await withBackupTx((tx) =>
+    importCatalogItems(
+      tx,
+      backup.tables.catalogItems,
+      categoryIds,
+      counts,
+      warnings,
+    ),
+  );
+  await withBackupTx((tx) =>
+    linkSpecialtyCatalogItems(
+      tx,
+      backup.tables.specialties,
+      specialtyIds,
+      itemIds,
+      warnings,
+    ),
+  );
+  const kitIds = await withBackupTx((tx) =>
+    importKits(tx, backup.tables.kits, categoryIds, counts, warnings),
+  );
+  await withBackupTx((tx) =>
+    importKitComponents(
+      tx,
+      backup.tables.kitComponents,
+      kitIds,
+      itemIds,
+      counts,
+      warnings,
+    ),
+  );
+  await withBackupTx((tx) =>
+    importClients(tx, backup.tables.clients, counts, warnings),
+  );
+  const freelancerIds = await withBackupTx((tx) =>
+    importFreelancers(tx, backup.tables.freelancers, counts, warnings),
+  );
+  await withBackupTx((tx) =>
+    importFreelancerSpecialties(
+      tx,
+      backup.tables.freelancerSpecialties,
+      freelancerIds,
+      specialtyIds,
+      counts,
+      warnings,
+    ),
+  );
+  const venueIds = await withBackupTx((tx) =>
+    importVenues(tx, backup.tables.venues, counts, warnings),
+  );
+  await withBackupTx((tx) =>
+    importVenuePhotos(tx, backup.tables.venuePhotos, venueIds, counts, warnings),
+  );
+  await withBackupTx((tx) =>
+    importVehicles(tx, backup.tables.vehicles, counts, warnings),
+  );
+  const legalIds = await withBackupTx((tx) =>
+    importLegalEntities(tx, backup.tables.legalEntities, counts, warnings),
+  );
+  await withBackupTx((tx) =>
+    importLegalEntityAccounts(
+      tx,
+      backup.tables.legalEntityBankAccounts,
+      legalIds,
+      counts,
+      warnings,
+    ),
+  );
+  await withBackupTx((tx) =>
+    importEquipmentUnits(
+      tx,
+      backup.tables.equipmentUnits,
+      itemIds,
+      counts,
+      warnings,
+    ),
+  );
+  await withBackupTx((tx) =>
+    importEquipmentDocuments(
+      tx,
+      backup.tables.equipmentDocuments,
+      itemIds,
+      userIds,
+      currentUserId,
+      counts,
+      warnings,
+    ),
+  );
+  await withBackupTx((tx) =>
+    importQuoteTemplates(
+      tx,
+      backup.tables.quoteTemplates,
+      userIds,
+      currentUserId,
+      counts,
+      warnings,
+    ),
+  );
+  await withBackupTx((tx) =>
+    importQuoteSnapshots(
+      tx,
+      backup.tables.quoteSnapshots,
+      userIds,
+      counts,
+      warnings,
+    ),
+  );
+  await withBackupTx((tx) =>
+    importQuoteAuditEvents(
+      tx,
+      backup.tables.quoteAuditEvents,
+      userIds,
+      counts,
+      warnings,
+    ),
+  );
+  await withBackupTx((tx) =>
+    importSpecRevisions(
+      tx,
+      backup.tables.specRevisions,
+      userIds,
+      counts,
+      warnings,
+    ),
   );
 
   return { counts, warnings };
@@ -846,6 +863,7 @@ async function importKits(
       categoryId,
       basePrice: optNum(rec.basePrice),
       active: bool(rec.active, true),
+      showInCatalog: bool(rec.showInCatalog, false),
       sortOrder: int(rec.sortOrder, 0),
     };
     const existing = await tx.kit.findUnique({ where: { id } });
@@ -934,9 +952,10 @@ async function importFreelancers(
   warnings: string[],
 ): Promise<IdMap> {
   const map: IdMap = new Map();
+  const seenName = new Map<string, string>();
   for (const rec of rowsOf(raw)) {
     const id = requireId(rec);
-    const name = str(rec.name).trim();
+    const name = normalizeFreelancerName(str(rec.name));
     if (!id || !name) {
       warnings.push("Пропущен фрилансер без id или ФИО");
       continue;
@@ -946,15 +965,22 @@ async function importFreelancers(
       comment: str(rec.comment),
       active: bool(rec.active, true),
     };
-    const existing = await tx.freelancer.findUnique({ where: { id } });
-    if (existing) {
-      await tx.freelancer.update({ where: { id }, data });
+    const nameKey = name.toLowerCase();
+    const byId = await tx.freelancer.findUnique({ where: { id } });
+    const byNameId =
+      seenName.get(nameKey) ?? (await freelancerIdByUniqueName(tx, name));
+    const targetId = byNameId ?? byId?.id ?? null;
+    if (targetId) {
+      map.set(id, targetId);
+      seenName.set(nameKey, targetId);
+      await tx.freelancer.update({ where: { id: targetId }, data });
     } else {
       await tx.freelancer.create({
         data: { id, ...data, createdAt: asDate(rec.createdAt) },
       });
+      map.set(id, id);
+      seenName.set(nameKey, id);
     }
-    map.set(id, id);
     counts.freelancers += 1;
   }
   return map;
@@ -1227,6 +1253,18 @@ async function importEquipmentUnits(
   counts: DatabaseBackupCounts,
   warnings: string[],
 ) {
+  type UnitRow = {
+    id: string;
+    catalogItemId: string;
+    unitNumber: number;
+    qrToken: string;
+    label: string | null;
+    owner: CatalogOwner | null;
+    active: boolean;
+    inRepair: boolean;
+    createdAt?: Date;
+  };
+  const parsed: UnitRow[] = [];
   for (const rec of rowsOf(raw)) {
     const id = requireId(rec);
     const catalogItemId = mapped(itemIds, str(rec.catalogItemId));
@@ -1235,43 +1273,93 @@ async function importEquipmentUnits(
       warnings.push("Пропущена единица оборудования: нет позиции или номера");
       continue;
     }
-    let qrToken = str(rec.qrToken).trim();
-    const byId = await tx.equipmentUnit.findUnique({ where: { id } });
-    const byPair = byId
-      ? null
-      : await tx.equipmentUnit.findUnique({
-          where: { catalogItemId_unitNumber: { catalogItemId, unitNumber } },
-        });
-    const target = byId ?? byPair;
-    const targetId = target?.id ?? id;
-
-    if (qrToken) {
-      const clash = await tx.equipmentUnit.findFirst({
-        where: { qrToken, NOT: { id: targetId } },
-        select: { id: true },
-      });
-      if (clash) qrToken = newQrToken();
-    } else {
-      qrToken = newQrToken();
-    }
-
-    const data = {
+    parsed.push({
+      id,
       catalogItemId,
       unitNumber,
-      qrToken,
+      qrToken: str(rec.qrToken).trim(),
       label: optStr(rec.label),
       owner: ownerOf(rec.owner),
       active: bool(rec.active, true),
       inRepair: bool(rec.inRepair, false),
+      createdAt: asDate(rec.createdAt),
+    });
+  }
+  if (parsed.length === 0) return;
+
+  const existing = await tx.equipmentUnit.findMany({
+    select: { id: true, catalogItemId: true, unitNumber: true, qrToken: true },
+  });
+  const byId = new Map(existing.map((u) => [u.id, u]));
+  const byPair = new Map(
+    existing.map((u) => [`${u.catalogItemId}:${u.unitNumber}`, u]),
+  );
+  const usedQr = new Set(
+    existing.map((u) => u.qrToken).filter((token) => token.length > 0),
+  );
+
+  const toCreate: Prisma.EquipmentUnitCreateManyInput[] = [];
+  const toUpdate: Array<{ id: string; data: Prisma.EquipmentUnitUpdateInput }> =
+    [];
+
+  for (const row of parsed) {
+    const target = byId.get(row.id) ?? byPair.get(`${row.catalogItemId}:${row.unitNumber}`);
+    const targetId = target?.id ?? row.id;
+    let qrToken = row.qrToken;
+    if (!qrToken || (usedQr.has(qrToken) && target?.qrToken !== qrToken)) {
+      do {
+        qrToken = newQrToken();
+      } while (usedQr.has(qrToken));
+    }
+    usedQr.add(qrToken);
+    const data = {
+      catalogItemId: row.catalogItemId,
+      unitNumber: row.unitNumber,
+      qrToken,
+      label: row.label,
+      owner: row.owner,
+      active: row.active,
+      inRepair: row.inRepair,
     };
     if (target) {
-      await tx.equipmentUnit.update({ where: { id: target.id }, data });
-    } else {
-      await tx.equipmentUnit.create({
-        data: { id, ...data, createdAt: asDate(rec.createdAt) },
+      toUpdate.push({ id: target.id, data });
+      byId.set(targetId, {
+        id: targetId,
+        catalogItemId: row.catalogItemId,
+        unitNumber: row.unitNumber,
+        qrToken,
       });
+      byPair.set(`${row.catalogItemId}:${row.unitNumber}`, {
+        id: targetId,
+        catalogItemId: row.catalogItemId,
+        unitNumber: row.unitNumber,
+        qrToken,
+      });
+    } else {
+      toCreate.push({
+        id: row.id,
+        ...data,
+        createdAt: row.createdAt,
+      });
+      const created = {
+        id: row.id,
+        catalogItemId: row.catalogItemId,
+        unitNumber: row.unitNumber,
+        qrToken,
+      };
+      byId.set(row.id, created);
+      byPair.set(`${row.catalogItemId}:${row.unitNumber}`, created);
     }
     counts.equipmentUnits += 1;
+  }
+
+  for (let i = 0; i < toCreate.length; i += 200) {
+    await tx.equipmentUnit.createMany({
+      data: toCreate.slice(i, i + 200),
+    });
+  }
+  for (const row of toUpdate) {
+    await tx.equipmentUnit.update({ where: { id: row.id }, data: row.data });
   }
 }
 

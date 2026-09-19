@@ -2,6 +2,7 @@
 
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -44,9 +45,10 @@ import {
   rosterItemPast,
   rosterItemMatchesFirms,
   isVacantInstallerSlot,
+  isRosterDutyMark,
+  collapseRosterDutyMarks,
   packRosterLanes,
   dateInRosterResizeWindow,
-  rosterRangeDuties,
   rosterPersonMatchesQuery,
   rosterSpecialtyFilterForSlot,
   ROSTER_KIND_COLORS,
@@ -57,6 +59,10 @@ import {
   type RosterPerson,
   type RosterSpecialtyFilter,
 } from "@/lib/roster";
+import {
+  persistRosterView,
+  readStoredRosterView,
+} from "@/lib/view-position";
 
 type RosterSeg = {
   item: RosterItem;
@@ -344,7 +350,7 @@ function weekLaneCount(segs: RosterSeg[]) {
 }
 
 function weekRowHeight(d: Density, segs: RosterSeg[]) {
-  return d.dayNumHeight + weekLaneCount(segs) * (d.laneHeight + d.laneGap) + 6;
+  return weekLaneCount(segs) * (d.laneHeight + d.laneGap) + 6;
 }
 
 function slotRef(item: RosterItem) {
@@ -416,6 +422,7 @@ function dateFromPoint(x: number, y: number): string | null {
 export function RosterView() {
   const { showingDesktop } = useLayoutDensity();
   const [viewStart, setViewStart] = useState(() => startOfWeekMonday(new Date()));
+  const [viewReady, setViewReady] = useState(false);
   const [items, setItems] = useState<RosterItem[]>([]);
   const [people, setPeople] = useState<RosterPerson[]>([]);
   const [freelancers, setFreelancers] = useState<RosterPerson[]>([]);
@@ -469,6 +476,20 @@ export function RosterView() {
     setSpecialtyFilter(null);
   }
 
+  useLayoutEffect(() => {
+    const stored = readStoredRosterView();
+    if (stored) {
+      setViewStart(stored.viewStart);
+      setSelectedDay(stored.selectedDay);
+    }
+    setViewReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!viewReady) return;
+    persistRosterView({ viewStart, selectedDay });
+  }, [viewReady, viewStart, selectedDay]);
+
   useEffect(() => {
     if (!peopleOpen && !selectedSlotId) return;
     function onPointerDown(e: PointerEvent) {
@@ -514,24 +535,27 @@ export function RosterView() {
   }
 
   useEffect(() => {
+    if (!viewReady) return;
     void reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- padded fetch window follows viewStart
-  }, [from, to, earnMonth]);
+  }, [from, to, earnMonth, viewReady]);
 
   const todayKey = formatDateKey(new Date());
   const selectedKey = formatDateKey(selectedDay);
 
   const visibleItems = useMemo(() => {
-    return items
-      .filter((item) => kinds[item.kind])
-      .filter((item) => rosterItemMatchesFirms(item, ownerFilter))
-      .filter((item) => showVacantInstallers || !isVacantInstallerSlot(item))
-      .map((item) => {
-        if (drag?.mode === "resize" && drag.itemId === item.id) {
-          return { ...item, start: drag.start, end: drag.end };
-        }
-        return item;
-      });
+    return collapseRosterDutyMarks(
+      items
+        .filter((item) => kinds[item.kind])
+        .filter((item) => rosterItemMatchesFirms(item, ownerFilter))
+        .filter((item) => showVacantInstallers || !isVacantInstallerSlot(item))
+        .map((item) => {
+          if (drag?.mode === "resize" && drag.itemId === item.id) {
+            return { ...item, start: drag.start, end: drag.end };
+          }
+          return item;
+        }),
+    );
   }, [items, kinds, ownerFilter, showVacantInstallers, drag]);
 
   const viewLayout = useMemo(
@@ -764,7 +788,6 @@ export function RosterView() {
     fromDay: number,
     toDay: number,
     forcePast = false,
-    addDuties: Array<"mount" | "demount"> = [],
   ) {
     if (!item.quoteId) return;
     setBusy(true);
@@ -779,7 +802,6 @@ export function RosterView() {
           fromDay,
           toDay,
           forcePast,
-          addDuties,
         }),
       });
       const data = (await res.json().catch(() => null)) as { error?: string } | null;
@@ -903,20 +925,16 @@ export function RosterView() {
         item.eventDays,
         spanEnd && spanEnd < eventEnd ? spanEnd : eventEnd,
       );
-      const duties = rosterRangeDuties(item, current.start, current.end);
-      const eventChanged =
-        fromDay != null &&
-        toDay != null &&
-        (item.start !== formatDateKey(addDays(start, fromDay - 1)) ||
-          item.end !== formatDateKey(addDays(start, toDay - 1)));
-      if (!eventChanged && duties.length === 0) return;
-      if (item.start === current.start && item.end === current.end && duties.length === 0) {
+      if (
+        fromDay == null ||
+        toDay == null ||
+        (item.start === formatDateKey(addDays(start, fromDay - 1)) &&
+          item.end === formatDateKey(addDays(start, toDay - 1)))
+      ) {
         return;
       }
-      const spanFrom = fromDay ?? 1;
-      const spanTo = toDay ?? item.eventDays;
       confirmIfPast([item], async (forcePast) => {
-        await postSpan(item, spanFrom, spanTo, forcePast, duties);
+        await postSpan(item, fromDay, toDay, forcePast);
       });
       return;
     }
@@ -1047,7 +1065,9 @@ export function RosterView() {
       />
       {selectedSlot ? (
         <p className="mb-2 text-caption text-[var(--accent)]">
-          Слот: {selectedSlot.vacant ? selectedSlot.role : rosterBarLabel(selectedSlot)}.
+          {isRosterDutyMark(selectedSlot)
+            ? `День ${selectedSlot.role}.`
+            : `Слот: ${selectedSlot.vacant ? selectedSlot.role : rosterBarLabel(selectedSlot)}.`}{" "}
           Стрелки вверх/вниз и Enter — выбрать.
         </p>
       ) : null}
@@ -1222,91 +1242,132 @@ export function RosterView() {
 
       <div className={cn("relative flex min-h-0 flex-1 flex-col", showingDesktop && "px-1")}>
         <div ref={viewRef} className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-          <div
-            className="grid shrink-0 px-0.5"
-            style={{
-              gridTemplateColumns: `repeat(${colCount}, minmax(0, 1fr))`,
-            }}
-          >
-            {visibleDays.map((day) => {
-              const weekend = day.getDay() === 0 || day.getDay() === 6;
-              const wd = WEEKDAY_LABELS[(day.getDay() + 6) % 7];
-              return (
-                <div
-                  key={`wd-${formatDateKey(day)}`}
-                  className={cn(
-                    "py-1.5 text-center text-caption font-medium uppercase tracking-wider",
-                    weekend ? "text-rose-400" : "text-[var(--muted)]",
-                  )}
-                >
-                  {wd}
-                </div>
-              );
-            })}
+          <div className="roster-dates-sticky">
+            <div
+              className="grid shrink-0 px-0.5"
+              style={{
+                gridTemplateColumns: `repeat(${colCount}, minmax(0, 1fr))`,
+              }}
+            >
+              {visibleDays.map((day) => {
+                const weekend = day.getDay() === 0 || day.getDay() === 6;
+                const wd = WEEKDAY_LABELS[(day.getDay() + 6) % 7];
+                return (
+                  <div
+                    key={`wd-${formatDateKey(day)}`}
+                    className={cn(
+                      "py-1.5 text-center text-caption font-medium uppercase tracking-wider",
+                      weekend ? "text-rose-400" : "text-[var(--muted)]",
+                    )}
+                  >
+                    {wd}
+                  </div>
+                );
+              })}
+            </div>
+            <div
+              className="grid px-0.5"
+              style={{
+                gridTemplateColumns: `repeat(${colCount}, minmax(0, 1fr))`,
+              }}
+            >
+              {visibleDays.map((day, dayIdx) => {
+                const key = formatDateKey(day);
+                const isToday = key === todayKey;
+                const isSelected = key === selectedKey;
+                const weekend = day.getDay() === 0 || day.getDay() === 6;
+                const isDrop = dropHint === `day:${key}`;
+                const nextWeek = dayIdx >= 7;
+                return (
+                  <button
+                    key={`num-${key}`}
+                    type="button"
+                    data-roster-day={key}
+                    onClick={() => {
+                      setSelectedDay(startOfDay(day));
+                      setDayPanelOpen(true);
+                    }}
+                    className={cn(
+                      "relative flex items-center justify-center border-r border-[var(--line)]/70 bg-[var(--panel)] py-0.5 last:border-r-0",
+                      nextWeek &&
+                        "bg-[color-mix(in_srgb,var(--panel)_88%,var(--bg))]",
+                      isDrop && "bg-[var(--selected)]",
+                    )}
+                    style={{ minHeight: tt.dayNumHeight }}
+                  >
+                    <span
+                      className={cn(
+                        "flex items-center justify-center rounded-full tabular-nums",
+                        showingDesktop
+                          ? "size-[1.85rem] text-sm"
+                          : "size-[1.55rem] text-xs",
+                        isSelected &&
+                          "bg-[var(--ink)] font-semibold text-[var(--panel)]",
+                        !isSelected &&
+                          isToday &&
+                          "font-semibold text-[var(--ink)] ring-1 ring-[var(--ink)]",
+                        !isSelected &&
+                          !isToday &&
+                          weekend &&
+                          "text-rose-400",
+                        !isSelected &&
+                          !isToday &&
+                          !weekend &&
+                          "text-[var(--ink)]",
+                      )}
+                    >
+                      {day.getDate()}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           <div
+            className="roster-week-scroll flex-1"
             data-roster-week={visibleDays.map((d) => formatDateKey(d)).join(",")}
-            className="relative grid min-h-0 flex-1 bg-[var(--bg)]"
-            style={{
-              minHeight: rowH,
-              gridTemplateColumns: `repeat(${colCount}, minmax(0, 1fr))`,
-            }}
           >
-            {visibleDays.map((day, dayIdx) => {
-                  const key = formatDateKey(day);
-                  const isToday = key === todayKey;
-                  const isSelected = key === selectedKey;
-                  const weekend = day.getDay() === 0 || day.getDay() === 6;
-                  const isDrop = dropHint === `day:${key}`;
-                  const nextWeek = dayIdx >= 7;
-                  return (
-                    <button
-                      key={key}
-                      type="button"
-                      data-roster-day={key}
-                      onClick={() => {
-                        setSelectedDay(startOfDay(day));
-                        setDayPanelOpen(true);
-                      }}
-                      className={cn(
-                        "relative flex h-full flex-col items-center border-r border-[var(--line)]/70 bg-[var(--panel)] pt-0.5 last:border-r-0",
-                        nextWeek &&
-                          "bg-[color-mix(in_srgb,var(--panel)_88%,var(--bg))]",
-                        isDrop && "bg-[var(--selected)]",
-                      )}
-                    >
-                      <span
-                        className={cn(
-                          "relative z-10 flex items-center justify-center rounded-full tabular-nums",
-                          showingDesktop
-                            ? "size-[1.85rem] text-sm"
-                            : "size-[1.55rem] text-xs",
-                          isSelected &&
-                            "bg-[var(--ink)] font-semibold text-[var(--panel)]",
-                          !isSelected &&
-                            isToday &&
-                            "font-semibold text-[var(--ink)] ring-1 ring-[var(--ink)]",
-                          !isSelected &&
-                            !isToday &&
-                            weekend &&
-                            "text-rose-400",
-                          !isSelected &&
-                            !isToday &&
-                            !weekend &&
-                            "text-[var(--ink)]",
-                        )}
-                      >
-                        {day.getDate()}
-                      </span>
-                    </button>
-                  );
-                })}
-
+            <div
+              className="roster-day-cols grid px-0.5"
+              style={{
+                gridTemplateColumns: `repeat(${colCount}, minmax(0, 1fr))`,
+              }}
+            >
+              {visibleDays.map((day, dayIdx) => {
+                const key = formatDateKey(day);
+                const isDrop = dropHint === `day:${key}`;
+                const nextWeek = dayIdx >= 7;
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    data-roster-day={key}
+                    onClick={() => {
+                      setSelectedDay(startOfDay(day));
+                      setDayPanelOpen(true);
+                    }}
+                    className={cn(
+                      "h-full border-r border-[var(--line)]/70 bg-[var(--panel)] last:border-r-0",
+                      nextWeek &&
+                        "bg-[color-mix(in_srgb,var(--panel)_88%,var(--bg))]",
+                      isDrop && "bg-[var(--selected)]",
+                    )}
+                    aria-label={day.toLocaleDateString("ru-RU", {
+                      day: "numeric",
+                      month: "long",
+                    })}
+                  />
+                );
+              })}
+            </div>
+            <div
+              className="roster-week-lanes min-h-full"
+              style={{ minHeight: rowH }}
+            >
                 <div
-                  className="pointer-events-none absolute inset-x-0"
+                  className="absolute inset-x-0 top-0"
                   style={{
-                    top: tt.dayNumHeight,
                     height: lanes * (tt.laneHeight + tt.laneGap),
                   }}
                 >
@@ -1323,6 +1384,7 @@ export function RosterView() {
                     const canResize =
                       seg.item.resizable && !seg.item.vacant && !seg.header;
                     const selected = selectedSlotId === seg.item.id;
+                    const dutyMark = isRosterDutyMark(seg.item);
                     if (seg.header) {
                       return (
                         <div
@@ -1354,13 +1416,16 @@ export function RosterView() {
                         role="button"
                         tabIndex={0}
                         aria-label={
-                          seg.item.vacant
-                            ? `Запрос: ${seg.item.role}`
-                            : `Сменить: ${rosterBarLabel(seg.item)}`
+                          dutyMark
+                            ? `День ${seg.item.role}`
+                            : seg.item.vacant
+                              ? `Запрос: ${seg.item.role}`
+                              : `Сменить: ${rosterBarLabel(seg.item)}`
                         }
                         className={cn(
                           "roster-bar pointer-events-auto absolute overflow-hidden text-left font-medium",
-                          seg.item.vacant && "roster-bar-vacant",
+                          dutyMark && "roster-bar-duty-mark",
+                          seg.item.vacant && !dutyMark && "roster-bar-vacant",
                           selected && "roster-bar-selected",
                           past && "roster-bar-past",
                           dropOver && "roster-bar-drop",
@@ -1374,15 +1439,27 @@ export function RosterView() {
                           height: tt.laneHeight,
                           lineHeight: `${tt.laneHeight}px`,
                           fontSize: barFont,
-                          background: seg.item.vacant
-                            ? "var(--panel-muted)"
-                            : seg.item.color,
-                          color: seg.item.vacant ? seg.item.color : "#fff",
-                          borderRadius: `${radiusLeft} ${radiusRight} ${radiusRight} ${radiusLeft}`,
+                          background: dutyMark
+                            ? "transparent"
+                            : seg.item.vacant
+                              ? "var(--panel-muted)"
+                              : seg.item.color,
+                          color: dutyMark
+                            ? "var(--muted)"
+                            : seg.item.vacant
+                              ? seg.item.color
+                              : "#fff",
+                          borderRadius: dutyMark
+                            ? "0"
+                            : `${radiusLeft} ${radiusRight} ${radiusRight} ${radiusLeft}`,
                           opacity: dragging ? 0.4 : 1,
                           touchAction: "none",
                         }}
-                        title={`${ROSTER_KIND_LABELS[seg.item.kind]} · ${seg.item.title} · ${rosterBarLabel(seg.item)}`}
+                        title={
+                          dutyMark
+                            ? `${seg.item.title} · день ${seg.item.role}`
+                            : `${ROSTER_KIND_LABELS[seg.item.kind]} · ${seg.item.title} · ${rosterBarLabel(seg.item)}`
+                        }
                         onKeyDown={(e) => {
                           if (e.key === "Enter" || e.key === " ") {
                             e.preventDefault();
@@ -1437,6 +1514,7 @@ export function RosterView() {
                   })}
                 </div>
               </div>
+          </div>
         </div>
 
         <div
@@ -1546,6 +1624,7 @@ export function RosterView() {
           onOpen={openItem}
           onUnassign={unassignItem}
           busy={busy}
+          onClose={() => setDayPanelOpen(false)}
         />
       </SideDrawer>
 
@@ -1581,6 +1660,13 @@ export function RosterView() {
         quoteId={openQuoteId}
         onClose={() => {
           setOpenQuoteId(null);
+          void reload();
+        }}
+        onChanged={() => {
+          void reload();
+        }}
+        onCopied={(id) => {
+          setOpenQuoteId(id);
           void reload();
         }}
       />
@@ -1698,6 +1784,7 @@ function RosterDayAgenda({
   onOpen,
   onUnassign,
   busy,
+  onClose,
 }: {
   date: Date;
   items: RosterItem[];
@@ -1705,17 +1792,27 @@ function RosterDayAgenda({
   onOpen: (item: RosterItem) => void;
   onUnassign: (item: RosterItem) => void;
   busy: boolean;
+  onClose: () => void;
 }) {
   const heading = date.toLocaleDateString("ru-RU", {
     weekday: "long",
     day: "numeric",
     month: "long",
   });
+  const slotCount = items.filter((item) => !isRosterDutyMark(item)).length;
   const groups = groupRosterByKind(items);
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 items-start justify-between gap-3 px-4 pb-3 pt-1">
-        <div className="min-w-0">
+      <div className="flex shrink-0 items-start gap-2 px-3 pb-3 pt-1">
+        <button
+          type="button"
+          onClick={onClose}
+          className="flex size-8 shrink-0 items-center justify-center rounded-full text-lg leading-none text-[var(--muted)] hover:bg-[var(--ink)]/10 hover:text-[var(--ink)]"
+          aria-label="Закрыть"
+        >
+          ×
+        </button>
+        <div className="min-w-0 flex-1">
           <h2
             id="roster-day-title"
             className="font-display capitalize text-lg leading-tight text-[var(--ink)] sm:text-xl"
@@ -1723,9 +1820,11 @@ function RosterDayAgenda({
             {heading}
           </h2>
           <p className="mt-0.5 text-xs text-[var(--muted)]">
-            {items.length
-              ? `${items.length} ${items.length === 1 ? "слот" : "слотов"}`
-              : "Никто не занят"}
+            {slotCount
+              ? `${slotCount} ${slotCount === 1 ? "слот" : "слотов"}`
+              : items.some(isRosterDutyMark)
+                ? "День монтажа или демонтажа"
+                : "Никто не занят"}
           </p>
         </div>
       </div>
@@ -1745,7 +1844,10 @@ function RosterDayAgenda({
                 {group.label}
               </h3>
               <div className="space-y-3">
-                {groupRosterByEvent(group.items).map((block, blockIdx) => (
+                {groupRosterByEvent(group.items).map((block, blockIdx) => {
+                  const dutyMarks = block.items.filter(isRosterDutyMark);
+                  const slots = block.items.filter((item) => !isRosterDutyMark(item));
+                  return (
                   <div key={block.title || group.kind}>
                     {block.title ? (
                       <p
@@ -1755,10 +1857,16 @@ function RosterDayAgenda({
                         )}
                       >
                         {block.title}
+                        {dutyMarks.length ? (
+                          <span className="ml-1.5 font-normal text-[var(--muted)]">
+                            {dutyMarks.map((item) => item.role).join(" · ")}
+                          </span>
+                        ) : null}
                       </p>
                     ) : null}
+                    {slots.length ? (
                     <ul className="space-y-1.5">
-                      {block.items.map((item) => (
+                      {slots.map((item) => (
                         <li key={item.id}>
                           <div className="flex items-stretch gap-1">
                             <button
@@ -1803,8 +1911,19 @@ function RosterDayAgenda({
                         </li>
                       ))}
                     </ul>
+                    ) : dutyMarks.length ? (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => onOpen(dutyMarks[0]!)}
+                        className="px-1 text-left text-sm text-[var(--muted)] hover:text-[var(--ink)]"
+                      >
+                        {dutyMarks.map((item) => item.role).join(" · ")}
+                      </button>
+                    ) : null}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </section>
           ))}

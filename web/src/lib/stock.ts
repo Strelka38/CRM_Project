@@ -18,13 +18,17 @@ type StockBlock = {
   name?: string | null;
 };
 
-/** Expand quote blocks into catalog-item quantities (kits → components). */
-export async function expandBlocksToItemQty(
-  blocks: StockBlock[],
-): Promise<Map<string, { name: string; qty: number }>> {
-  const needed = new Map<string, { name: string; qty: number }>();
+export type KitExpansionRow = {
+  id: string;
+  components: Array<{
+    catalogItemId: string;
+    qty: number | null;
+    catalogItem: { id: string; name: string };
+  }>;
+};
 
-  const kitIds = [
+export function kitIdsFromBlocks(blocks: StockBlock[]): string[] {
+  return [
     ...new Set(
       blocks
         .filter(
@@ -37,21 +41,14 @@ export async function expandBlocksToItemQty(
         .map((b) => b.kitId!),
     ),
   ];
+}
 
-  const kits =
-    kitIds.length > 0
-      ? await prisma.kit.findMany({
-          where: { id: { in: kitIds } },
-          include: {
-            components: {
-              include: {
-                catalogItem: { select: { id: true, name: true } },
-              },
-            },
-          },
-        })
-      : [];
-  const kitMap = new Map(kits.map((k) => [k.id, k]));
+/** Expand quote blocks into catalog-item quantities (kits → components). */
+export function expandBlocksToItemQtySync(
+  blocks: StockBlock[],
+  kitMap: Map<string, KitExpansionRow>,
+): Map<string, { name: string; qty: number }> {
+  const needed = new Map<string, { name: string; qty: number }>();
 
   for (const b of blocks) {
     if (b.type !== "ITEM") continue;
@@ -84,6 +81,28 @@ export async function expandBlocksToItemQty(
   return needed;
 }
 
+async function loadKitMap(blocks: StockBlock[]): Promise<Map<string, KitExpansionRow>> {
+  const kitIds = kitIdsFromBlocks(blocks);
+  if (kitIds.length === 0) return new Map();
+  const kits = await prisma.kit.findMany({
+    where: { id: { in: kitIds } },
+    include: {
+      components: {
+        include: {
+          catalogItem: { select: { id: true, name: true } },
+        },
+      },
+    },
+  });
+  return new Map(kits.map((k) => [k.id, k]));
+}
+
+export async function expandBlocksToItemQty(
+  blocks: StockBlock[],
+): Promise<Map<string, { name: string; qty: number }>> {
+  return expandBlocksToItemQtySync(blocks, await loadKitMap(blocks));
+}
+
 type DailyItemDemand = {
   name: string;
   byDay: Map<number, number>;
@@ -103,9 +122,10 @@ export async function expandBlocksToDailyItemQty(
     byZone.set(key, list);
   }
 
+  const kitMap = await loadKitMap(blocks);
   const result = new Map<string, DailyItemDemand>();
   for (const [zoneId, zoneBlocks] of byZone) {
-    const expanded = await expandBlocksToItemQty(zoneBlocks);
+    const expanded = expandBlocksToItemQtySync(zoneBlocks, kitMap);
     const days = zoneWorkingDays(zoneId || null, eventDays, zones);
     for (const [itemId, demand] of expanded) {
       let item = result.get(itemId);

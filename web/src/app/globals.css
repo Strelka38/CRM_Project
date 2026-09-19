@@ -101,6 +101,12 @@
   --accent-glow: #4ba7d4;
   --selected: #d6eef9;
   --table-head: #eef3f8;
+  --gradient-cta: linear-gradient(
+    135deg,
+    #c026d3 0%,
+    #4371ea 51%,
+    #009ee3 100%
+  );
   --gradient-subtle: linear-gradient(
     135deg,
     rgba(0, 158, 227, 0.08) 0%,
@@ -168,6 +174,19 @@
   /* Отрицательный трекинг только для крупных кеглей (от 18px). */
   --tracking-display: -0.015em;
   --tracking-caption: 0.04em;
+
+  /* Login atmosphere — always dark, independent of app theme. */
+  --login-atmosphere-base: linear-gradient(
+    165deg,
+    #070a12 0%,
+    #101827 45%,
+    #0c2438 100%
+  );
+  --login-atmosphere-magenta: rgba(236, 20, 254, 0.38);
+  --login-atmosphere-cyan: rgba(0, 158, 227, 0.42);
+  --login-atmosphere-blue: rgba(67, 113, 234, 0.25);
+  --login-orb-magenta: #ec14fe;
+  --login-orb-cyan: #009ee3;
 }
 
 @theme inline {
@@ -180,11 +199,7 @@
 }
 
 body {
-  background:
-    radial-gradient(900px 420px at 8% -8%, var(--body-glow-1) 0%, transparent 55%),
-    radial-gradient(700px 360px at 100% 0%, var(--body-glow-2) 0%, transparent 50%),
-    radial-gradient(600px 300px at 50% 100%, var(--body-glow-3) 0%, transparent 45%),
-    var(--bg);
+  background: var(--bg);
   color: var(--ink);
   font-family: var(--font-ui);
   font-size: var(--fs-body);
@@ -205,6 +220,7 @@ body {
 
 .field {
   width: 100%;
+  min-height: var(--tap-min);
   border-radius: var(--radius-sm);
   border: 1px solid var(--line);
   background: var(--field-bg);
@@ -234,6 +250,8 @@ body {
 }
 
 .btn-icon {
+  min-height: var(--tap-min);
+  min-width: var(--tap-min);
   border-radius: var(--radius-sm);
   border: 1px solid var(--line);
   background: var(--btn-icon-bg);
@@ -356,7 +374,7 @@ body {
 
 .data-table .field,
 .quote-estimate-table .field {
-  min-height: 1.75rem;
+  min-height: max(1.75rem, var(--tap-min));
   border-radius: 0.25rem;
   padding: 0.25rem 0.35rem;
   font-size: var(--fs-dense);
@@ -414,6 +432,38 @@ body {
   border-top: 2px solid color-mix(in srgb, var(--ink) 20%, transparent);
   background: color-mix(in srgb, var(--selected) 30%, transparent);
   font-weight: var(--fw-strong);
+}
+
+.data-table th button.data-table-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  text-align: inherit;
+  cursor: pointer;
+}
+
+.data-table th button.data-table-sort:hover {
+  color: var(--ink);
+}
+
+.data-table-sort-caret {
+  display: inline-flex;
+  flex-shrink: 0;
+  opacity: 0.4;
+}
+
+.data-table-sort-caret.is-active {
+  opacity: 1;
+  color: var(--accent);
 }
 
 .data-table th.calc-split,
@@ -512,6 +562,16 @@ body {
 .roster-bar-vacant {
   box-shadow: inset 0 0 0 1.5px currentColor;
   background: var(--panel-muted);
+}
+
+/* День монтажа/демонтажа без назначения — подпись, не слот сотрудника. */
+.roster-bar-duty-mark {
+  z-index: 1;
+  box-shadow: none;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 500;
+  letter-spacing: 0.02em;
 }
 
 .roster-bar-selected {
@@ -895,18 +955,118 @@ html[data-theme="light"] .brand-logo-invert {
   --app-bottombar-height: 3.75rem;
 }
 
+/*
+ * Минимальная тапзона. 44px — порог Apple HIG и Material; на десктопе он бы
+ * раздул плотные таблицы смет, поэтому вне мобильной раскладки переменная
+ * равна нулю и все правила ниже становятся no-op.
+ *
+ * Держим это переменной, а не тройным набором правил под каждое состояние
+ * раскладки: состояния объявлены один раз здесь, а потребители читают
+ * --tap-min обычным min-height.
+ */
+:root {
+  --tap-min: 0px;
+}
+
+@media (max-width: 767px) {
+  html:not([data-layout="desktop"]) {
+    --tap-min: 2.75rem;
+  }
+}
+
+html[data-layout="mobile"] {
+  --tap-min: 2.75rem;
+}
+
+html[data-layout="desktop"] {
+  --tap-min: 0px;
+}
+
+/* Иконочные кнопки: на мобильном добираем до тапзоны, на десктопе не трогаем. */
+.tap-target {
+  min-height: var(--tap-min);
+  min-width: var(--tap-min);
+}
+
+/*
+ * Шит действий — высота по содержимому, в отличие от панели сущности, которая
+ * занимает 92dvh. Селектор из трёх классов, чтобы перебить
+ * html[data-layout="mobile"] .side-drawer-panel независимо от порядка правил.
+ */
+.side-drawer .side-drawer-panel.action-sheet-panel {
+  height: auto;
+  max-height: 80dvh;
+}
+
 .app-frame {
   min-height: 100%;
+  background:
+    radial-gradient(900px 420px at 8% -8%, var(--body-glow-1) 0%, transparent 55%),
+    radial-gradient(700px 360px at 100% 0%, var(--body-glow-2) 0%, transparent 50%),
+    radial-gradient(600px 300px at 50% 100%, var(--body-glow-3) 0%, transparent 45%),
+    var(--bg);
+}
+
+@media (max-width: 640px) {
+  .app-frame {
+    background:
+      radial-gradient(520px 280px at 12% -12%, var(--body-glow-1) 0%, transparent 58%),
+      var(--bg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-frame {
+    background: var(--bg);
+  }
+}
+
+.roster-dates-sticky {
+  z-index: 12;
+  flex-shrink: 0;
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  box-shadow: 0 1px 0 var(--line);
+}
+
+.roster-week-scroll {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(100%, max-content);
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.roster-day-cols {
+  grid-area: 1 / 1;
+  position: sticky;
+  top: 0;
+  z-index: 0;
+  align-self: start;
+  width: 100%;
+  height: 100%;
+  max-height: 100%;
+}
+
+.roster-week-lanes {
+  grid-area: 1 / 1;
+  position: relative;
+  z-index: 1;
+  pointer-events: none;
 }
 
 .roster-page {
   display: flex;
   flex-direction: column;
-  min-height: calc(100dvh - var(--app-topbar-height));
+  height: calc(100dvh - var(--app-topbar-height));
+  min-height: 0;
+  overflow: hidden;
 }
 
 html[data-layout="mobile"] .roster-page {
-  min-height: calc(
+  height: calc(
     100dvh - var(--app-topbar-height) - var(--app-bottombar-height) -
       env(safe-area-inset-bottom)
   );
@@ -981,71 +1141,6 @@ html[data-layout="mobile"] .roster-page {
 .app-bottombar-btn.is-active {
   color: var(--header-ink);
   background: var(--header-hover);
-}
-
-.app-bottombar-plus {
-  display: flex;
-  height: 3.35rem;
-  width: 3.35rem;
-  align-items: center;
-  justify-content: center;
-  margin-top: -1.1rem;
-  border-radius: 999px;
-  color: #fff;
-  background: linear-gradient(
-    145deg,
-    color-mix(in srgb, var(--accent) 92%, white),
-    var(--accent-deep)
-  );
-  box-shadow:
-    0 8px 20px color-mix(in srgb, var(--accent) 35%, transparent),
-    0 0 0 4px color-mix(in srgb, var(--bg-elevated) 90%, transparent);
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
-}
-
-.app-bottombar-plus:hover {
-  transform: scale(1.04);
-}
-
-.app-bottombar-plus:active {
-  transform: scale(0.97);
-}
-
-.cal-plus-fab {
-  position: absolute;
-  right: 0.35rem;
-  bottom: 0.75rem;
-  z-index: 30;
-  display: flex;
-  height: 3.25rem;
-  width: 3.25rem;
-  align-items: center;
-  justify-content: center;
-  border: 0;
-  border-radius: 999px;
-  color: #fff;
-  font-size: 1.75rem;
-  line-height: 1;
-  background: linear-gradient(
-    145deg,
-    color-mix(in srgb, var(--accent) 92%, white),
-    var(--accent-deep)
-  );
-  box-shadow: 0 8px 20px color-mix(in srgb, var(--accent) 35%, transparent);
-  transition: transform 0.15s ease, opacity 0.15s ease;
-}
-
-.cal-plus-fab:hover {
-  transform: scale(1.04);
-}
-
-.cal-plus-fab:active {
-  transform: scale(0.97);
-}
-
-.cal-plus-fab:disabled {
-  opacity: 0.55;
-  transform: none;
 }
 
 .app-drawer {
@@ -1152,6 +1247,31 @@ html[data-layout="mobile"] .app-main {
   );
 }
 
+/*
+ * Нижнее меню — единственная навигация на телефоне: верхняя панель там несёт
+ * только логотип, а ящик со всеми разделами открывается как раз отсюда.
+ * Поэтому показываем его и в авто-раскладке на узком экране, не дожидаясь
+ * явного переключения в мобильный режим.
+ */
+@media (max-width: 767px) {
+  html:not([data-layout="desktop"]) .app-bottombar {
+    display: flex;
+  }
+
+  html:not([data-layout="desktop"]) .app-main {
+    padding-bottom: calc(
+      var(--app-bottombar-height) + 0.75rem + env(safe-area-inset-bottom)
+    );
+  }
+
+  html:not([data-layout="desktop"]) .roster-page {
+    height: calc(
+      100dvh - var(--app-topbar-height) - var(--app-bottombar-height) -
+        env(safe-area-inset-bottom)
+    );
+  }
+}
+
 .cal-dash-overlay {
   max-height: calc(100dvh - var(--app-topbar-height) - 1.5rem);
   overflow-x: hidden;
@@ -1165,7 +1285,7 @@ html[data-layout="mobile"] .app-main {
 }
 
 .cal-dash-overlay.is-closed {
-  transform: translateX(calc(100% + 1.25rem));
+  transform: translateX(calc(-100% - 1.25rem));
   pointer-events: none;
 }
 
@@ -1180,24 +1300,174 @@ html[data-layout="mobile"] .app-main {
 .cal-dash-fab-float {
   position: absolute;
   top: 0.875rem;
-  right: 0.875rem;
+  left: 0.875rem;
   z-index: 2;
   pointer-events: auto;
+}
+
+html.cal-lock-x,
+html.cal-lock-x body {
+  overflow-x: hidden;
+}
+
+.cal-page {
+  display: flex;
+  height: calc(100dvh - var(--app-topbar-height));
+  max-width: 100%;
+  min-width: 0;
+  flex-direction: column;
+  overflow: hidden;
+  overscroll-behavior: none;
+  padding: 0.35rem 0.85rem 0.3rem;
+}
+
+.cal-tt {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  align-items: stretch;
+  overflow: hidden;
+}
+
+.cal-tt-main {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow: hidden;
+  contain: paint;
+}
+
+.cal-tt-weeks {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+
+.cal-tt-peek {
+  position: relative;
+  flex: 0 0 0;
+  width: 0;
+  min-width: 0;
+  overflow: hidden;
+  transition:
+    flex-basis 0.36s cubic-bezier(0.22, 1, 0.36, 1),
+    width 0.36s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.cal-tt-peek.is-open {
+  flex-basis: 23.5rem;
+  width: 23.5rem;
+}
+
+.cal-tt-peek-inner {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  width: 23.5rem;
+  flex-direction: column;
+  overflow: hidden;
+  border-left: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.cal-tt-peek-inner > * {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.cal-tt-weekdays {
+  flex-shrink: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
+}
+
+.cal-tt-week {
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 8%, transparent);
+}
+
+.cal-tt-week.is-fill {
+  min-height: 0;
+  flex: 1 1 0;
+  overflow: hidden;
+}
+
+.cal-tt-cell {
+  border-right: 1px solid color-mix(in srgb, var(--ink) 8%, transparent);
+}
+
+.cal-tt-week > .cal-tt-cell:nth-child(7n) {
+  border-right: 0;
+}
+
+.cal-tt-cell.is-selected {
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+}
+
+.cal-tt-more {
+  position: absolute;
+  bottom: 2px;
+  left: 50%;
+  z-index: 4;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  padding: 0 0.4rem;
+  background: color-mix(in srgb, var(--panel) 82%, var(--ink));
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 15px;
+  color: var(--ink);
+  pointer-events: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .app-drawer-overlay,
   .app-drawer-panel,
   .app-bottombar-plus,
-  .cal-plus-fab,
   .cal-dash-overlay,
   .cal-dash-overlay.is-motion,
   .cal-dash-fab-float,
+  .cal-tt-peek,
   .roster-people-fab,
   .roster-people-panel,
   .side-drawer-overlay,
   .side-drawer-panel {
     transition: none;
     animation: none;
+  }
+}
+
+@media print {
+  @page {
+    margin: 8mm;
+  }
+
+  .qr-print-frame,
+  .qr-print-sheet {
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  .app-topnav,
+  .app-topbar,
+  .app-bottombar,
+  .app-drawer {
+    display: none !important;
+  }
+
+  .app-frame,
+  .app-main {
+    display: block !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
+  }
+
+  .qr-print-card {
+    break-inside: avoid;
   }
 }

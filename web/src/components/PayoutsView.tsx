@@ -7,6 +7,8 @@ import {
   Card,
   EmptyState,
   PageHeader,
+  SortableTh,
+  useTableSort,
 } from "@/components/ui";
 import {
   DirectoryCardLink,
@@ -16,6 +18,7 @@ import {
   IconCheck,
   downloadCsvRows,
 } from "@/components/DirectoryToolbar";
+import { dateSortValue } from "@/lib/table-sort";
 
 type Breakdown = {
   monthlySalary: number;
@@ -81,6 +84,38 @@ function staffHint(row: QueueRow) {
   return parts.join(" · ");
 }
 
+function historySortValue(r: HistoryRow, key: string) {
+  switch (key) {
+    case "payee":
+      return r.payeeName;
+    case "period":
+      return r.periodYm;
+    case "kind":
+      return r.kind;
+    case "amount":
+      return r.amount;
+    case "paidAt":
+      return dateSortValue(r.paidAt);
+    default:
+      return null;
+  }
+}
+
+function queueSortValue(r: QueueRow, key: string) {
+  switch (key) {
+    case "payee":
+      return r.payeeName;
+    case "period":
+      return r.periodYm;
+    case "detail":
+      return r.quoteName || r.specialtyName;
+    case "amount":
+      return r.amount;
+    default:
+      return null;
+  }
+}
+
 export function PayoutsView({ canOpenUsers = false }: { canOpenUsers?: boolean }) {
   const [board, setBoard] = useState<Board | null>(null);
   const [error, setError] = useState("");
@@ -118,6 +153,10 @@ export function PayoutsView({ canOpenUsers = false }: { canOpenUsers?: boolean }
       ? [...board.queue.staff, ...board.queue.freelancers]
       : board.history;
   }, [board, tab]);
+
+  const historyRows = board?.history ?? [];
+  const { sorted: sortedHistory, sort: historySort, onSort: onHistorySort } =
+    useTableSort(historyRows, historySortValue);
 
   const allSelected =
     visibleRows.length > 0 &&
@@ -370,16 +409,47 @@ export function PayoutsView({ canOpenUsers = false }: { canOpenUsers?: boolean }
                       aria-label="Выбрать все"
                     />
                   </th>
-                  <th className="px-3 py-2">Кому</th>
-                  <th className="px-3 py-2">Период</th>
-                  <th className="px-3 py-2">Тип</th>
-                  <th className="px-3 py-2 text-right">Сумма</th>
-                  <th className="px-3 py-2">Когда</th>
+                  <SortableTh
+                    label="Кому"
+                    sortKey="payee"
+                    state={historySort}
+                    onSort={onHistorySort}
+                    className="px-3 py-2"
+                  />
+                  <SortableTh
+                    label="Период"
+                    sortKey="period"
+                    state={historySort}
+                    onSort={onHistorySort}
+                    className="px-3 py-2"
+                  />
+                  <SortableTh
+                    label="Тип"
+                    sortKey="kind"
+                    state={historySort}
+                    onSort={onHistorySort}
+                    className="px-3 py-2"
+                  />
+                  <SortableTh
+                    label="Сумма"
+                    sortKey="amount"
+                    state={historySort}
+                    onSort={onHistorySort}
+                    className="px-3 py-2"
+                    align="right"
+                  />
+                  <SortableTh
+                    label="Когда"
+                    sortKey="paidAt"
+                    state={historySort}
+                    onSort={onHistorySort}
+                    className="px-3 py-2"
+                  />
                   <th className="w-12 px-3 py-2" />
                 </tr>
               </thead>
               <tbody>
-                {board.history.map((r) => (
+                {sortedHistory.map((r) => (
                   <tr
                     key={r.sourceKey}
                     className={`border-t border-[var(--line)] ${
@@ -464,6 +534,7 @@ function PayableTable({
 }) {
   const all =
     rows.length > 0 && rows.every((r) => selected.has(r.sourceKey));
+  const { sorted, sort, onSort } = useTableSort(rows, queueSortValue);
   return (
     <section className="rounded-xl border border-[var(--line)] bg-[var(--panel)]">
       <div className="flex flex-wrap items-start justify-between gap-2 border-b border-[var(--line)] px-4 py-3">
@@ -488,20 +559,51 @@ function PayableTable({
                     aria-label="Выбрать все"
                   />
                 </th>
-                <th className="px-3 py-2">Кому</th>
-                <th className="px-3 py-2">Период</th>
+                <SortableTh
+                  label="Кому"
+                  sortKey="payee"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-3 py-2"
+                />
+                <SortableTh
+                  label="Период"
+                  sortKey="period"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-3 py-2"
+                />
                 {kind === "freelancer" ? (
-                  <th className="px-3 py-2">Мероприятие</th>
+                  <SortableTh
+                    label="Мероприятие"
+                    sortKey="detail"
+                    state={sort}
+                    onSort={onSort}
+                    className="px-3 py-2"
+                  />
                 ) : (
-                  <th className="px-3 py-2">Состав</th>
+                  <SortableTh
+                    label="Состав"
+                    sortKey="detail"
+                    state={sort}
+                    onSort={onSort}
+                    className="px-3 py-2"
+                  />
                 )}
-                <th className="px-3 py-2 text-right">Сумма</th>
+                <SortableTh
+                  label="Сумма"
+                  sortKey="amount"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-3 py-2"
+                  align="right"
+                />
                 <th className="px-3 py-2">Оплачено</th>
                 <th className="w-12 px-3 py-2" />
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
+              {sorted.map((r) => (
                 <tr
                   key={r.sourceKey}
                   className={`border-t border-[var(--line)] ${

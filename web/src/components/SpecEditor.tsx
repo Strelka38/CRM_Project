@@ -26,7 +26,7 @@ import {
   type StockInfo,
 } from "@/components/StockMarks";
 import { cn } from "@/lib/cn";
-import { CATALOG_OWNERS } from "@/lib/catalog-owner";
+import { CATALOG_OWNERS, ownerShorts } from "@/lib/catalog-owner";
 import { omitEmptyDerivedSections } from "@/lib/spec-build";
 import { appendOccupancyParams } from "@/lib/quote-schedule";
 import { reorderBlocksByDrop } from "@/lib/quote-block-groups";
@@ -60,7 +60,7 @@ type SpecLine = {
 
 type Override = {
   deriveKey: string;
-  action: "HIDE" | "SET_QTY" | "RENAME" | "SET_COMMENT" | "REPLACE";
+  action: "HIDE" | "SET_QTY" | "RENAME" | "SET_COMMENT" | "REPLACE" | "DELETE";
   qty?: number | null;
   name?: string | null;
   catalogItemId?: string | null;
@@ -78,6 +78,7 @@ type Extra = {
   name?: string | null;
   qty?: number;
   comment?: string;
+  hidden?: boolean;
   catalogItemId?: string | null;
   ownerLabel?: string;
 };
@@ -118,8 +119,6 @@ type ReplaceTarget =
   | { kind: "derived"; key: string; deriveKey: string }
   | { kind: "extra"; key: string };
 
-type PickerMode = { mode: "replace"; target: ReplaceTarget };
-
 function uid() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
     return crypto.randomUUID();
@@ -154,27 +153,6 @@ function EyeIcon({ crossed }: { crossed?: boolean }) {
       <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" />
       <circle cx="12" cy="12" r="3" />
       {crossed && <path d="M4 4l16 16" />}
-    </svg>
-  );
-}
-
-function SwapIcon() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <path d="M16 3l4 4-4 4" />
-      <path d="M20 7H10" />
-      <path d="M8 21l-4-4 4-4" />
-      <path d="M4 17h10" />
     </svg>
   );
 }
@@ -240,8 +218,8 @@ export function SpecEditor({
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [error, setError] = useState("");
-  const [picker, setPicker] = useState<PickerMode | null>(null);
   const [canEdit, setCanEdit] = useState(false);
+  const [editMode, setEditMode] = useState(false);
   const [showHidden, setShowHidden] = useState(true);
   const [activeZoneId, setActiveZoneId] = useState("");
   const [exporting, setExporting] = useState<"excel" | "pdf" | null>(null);
@@ -271,14 +249,6 @@ export function SpecEditor({
   const lineOrderRef = useRef<string[]>([]);
   const tableRef = useRef<HTMLDivElement>(null);
   lineOrderRef.current = lineOrder;
-
-  useEffect(() => {
-    if (!picker) return;
-    const frame = window.requestAnimationFrame(() => {
-      document.getElementById("quote-catalog-search")?.focus();
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [picker]);
 
   const applyPayload = useCallback((data: Record<string, unknown>) => {
     setMeta({
@@ -319,6 +289,7 @@ export function SpecEditor({
           name: e.name,
           qty: e.qty,
           comment: e.comment ?? "",
+          hidden: Boolean(e.hidden),
           catalogItemId: e.catalogItemId,
           ownerLabel:
             e.ownerLabel ??
@@ -423,6 +394,7 @@ export function SpecEditor({
             name: e.name ?? null,
             qty: e.qty ?? 0,
             comment: e.comment ?? "",
+            hidden: Boolean(e.hidden),
             catalogItemId: e.catalogItemId ?? null,
             ownerLabel: e.ownerLabel ?? "",
           })),
@@ -540,7 +512,7 @@ export function SpecEditor({
         kitName: null,
         catalogItemId: e.catalogItemId ?? null,
         extraId: e.id,
-        hidden: false,
+        hidden: Boolean(e.hidden),
         ownerLabel: e.ownerLabel,
       });
     }
@@ -605,13 +577,13 @@ export function SpecEditor({
 
   const displayRows = useMemo(() => {
     return allRows.filter((l) => {
-      const visible = !l.hidden || (canEdit && showHidden);
+      const visible = !l.hidden || (canEdit && editMode && showHidden);
       if (!visible) return false;
       if (!resolvedZoneId) return true;
       if (resolvedZoneId === "spec-unassigned") return !l.zoneId;
       return l.zoneId === resolvedZoneId;
     });
-  }, [allRows, canEdit, showHidden, resolvedZoneId]);
+  }, [allRows, canEdit, editMode, showHidden, resolvedZoneId]);
 
   const neededByItem = useMemo(() => {
     return peakItemQtyByWorkingDay(
@@ -680,6 +652,9 @@ export function SpecEditor({
       if (action === "HIDE") {
         return [...rest, { deriveKey, action: "HIDE" }];
       }
+      if (action === "DELETE") {
+        return [...rest, { deriveKey, action: "DELETE" }];
+      }
       if (action === "SET_QTY") {
         return [...rest, { deriveKey, action: "SET_QTY", qty: patch.qty ?? 0 }];
       }
@@ -715,6 +690,7 @@ export function SpecEditor({
   }
 
   function hideLine(deriveKey: string) {
+    clearOverride(deriveKey, "DELETE");
     setOverride(deriveKey, "HIDE", {});
     setDerived((prev) =>
       prev.map((l) =>
@@ -730,6 +706,41 @@ export function SpecEditor({
         l.deriveKey === deriveKey ? { ...l, hidden: false } : l,
       ),
     );
+  }
+
+  function hideExtra(key: string) {
+    updateExtra(key, { hidden: true });
+  }
+
+  function unhideExtra(key: string) {
+    updateExtra(key, { hidden: false });
+  }
+
+  function deleteDerivedLine(line: SpecLine) {
+    if (!line.deriveKey) return;
+    clearOverride(line.deriveKey, "HIDE");
+    setOverride(line.deriveKey, "DELETE", {});
+    setDerived((prev) => prev.filter((l) => l.key !== line.key));
+    updateLineOrder(lineOrderRef.current.filter((k) => k !== line.key));
+  }
+
+  function deleteLine(line: SpecLine) {
+    if (line.source === "extra") {
+      removeExtra(line.key);
+      return;
+    }
+    deleteDerivedLine(line);
+  }
+
+  function toggleHideLine(line: SpecLine) {
+    if (line.source === "extra") {
+      if (line.hidden) unhideExtra(line.key);
+      else hideExtra(line.key);
+      return;
+    }
+    if (!line.deriveKey) return;
+    if (line.hidden) unhideLine(line.deriveKey);
+    else hideLine(line.deriveKey);
   }
 
   function displayName(line: SpecLine) {
@@ -883,6 +894,7 @@ export function SpecEditor({
       qty: addQty,
       comment: "",
       catalogItemId: item.id,
+      ownerLabel: ownerShorts(item.owners),
     });
   }
 
@@ -900,6 +912,7 @@ export function SpecEditor({
       qty: addQty,
       comment: "",
       catalogItemId: item.id,
+      ownerLabel: ownerShorts(item.owners),
     });
   }
 
@@ -929,7 +942,12 @@ export function SpecEditor({
       setDerived((prev) =>
         prev.map((line) =>
           line.key === target.key
-            ? { ...line, name: item.name, catalogItemId: item.id }
+            ? {
+                ...line,
+                name: item.name,
+                catalogItemId: item.id,
+                ownerLabel: ownerShorts(item.owners),
+              }
             : line,
         ),
       );
@@ -937,29 +955,17 @@ export function SpecEditor({
       updateExtra(target.key, {
         name: item.name,
         catalogItemId: item.id,
+        ownerLabel: ownerShorts(item.owners),
       });
     }
   }
 
-  function onPickCatalog(item: PickedCatalogItem) {
-    if (!picker) return;
-    if (picker.mode === "replace") {
-      replaceLineFromCatalog(picker.target, item);
-      setPicker(null);
-      return;
-    }
-  }
-
   function onPickFromSidebar(item: PickedCatalogItem, qty?: number) {
-    if (picker) {
-      onPickCatalog(item);
-      return;
-    }
     addFromCatalog(item, qty);
   }
 
   function onCatalogTableDragOver(e: React.DragEvent) {
-    if (!canEdit || !isCatalogDrag(e.dataTransfer)) return false;
+    if (!canEdit || !editMode || !isCatalogDrag(e.dataTransfer)) return false;
     e.preventDefault();
     e.stopPropagation();
     e.dataTransfer.dropEffect = "copy";
@@ -981,7 +987,7 @@ export function SpecEditor({
   }
 
   function onCatalogTableDrop(e: React.DragEvent) {
-    if (!canEdit || !isCatalogDrag(e.dataTransfer)) return false;
+    if (!canEdit || !editMode || !isCatalogDrag(e.dataTransfer)) return false;
     e.preventDefault();
     e.stopPropagation();
     const payload = parseCatalogDrag(e.dataTransfer);
@@ -994,7 +1000,6 @@ export function SpecEditor({
     } else {
       addFromCatalog(payload.item, payload.qty);
     }
-    setPicker(null);
     setGapIndex(null);
     return true;
   }
@@ -1059,21 +1064,19 @@ export function SpecEditor({
     );
   }
 
-  const hiddenCount = derived.filter((l) => l.hidden).length;
+  const hiddenCount = [...derived, ...extras.map((e) => ({
+    hidden: Boolean(e.hidden),
+  }))].filter((l) => l.hidden).length;
+  const isEditing = canEdit && editMode;
   const staffLines = staffCoverageLines(
     assignments.map(staffAsCoverage),
     meta.durationDays,
     meta.date,
     staffZones,
   );
-  const tableColSpan = canEdit ? 9 : 4;
-  const catalogSelectionLabel =
-    picker?.mode === "replace"
-      ? "Выберите оборудование для замены"
-      : undefined;
-
+  const tableColSpan = isEditing ? 9 : canEdit ? 7 : 4;
   function renderGap(index: number) {
-    if (!canEdit || !catalogOver || gapIndex !== index) return null;
+    if (!isEditing || !catalogOver || gapIndex !== index) return null;
     return (
       <tr key={`gap-${index}`} className="relative h-0 border-0">
         <td colSpan={tableColSpan} className="relative h-0 p-0">
@@ -1123,11 +1126,11 @@ export function SpecEditor({
       <div
         className={cn(
           "min-w-0",
-          canEdit &&
+          isEditing &&
             "grid items-start gap-2 lg:grid-cols-[280px_minmax(0,1fr)] xl:grid-cols-[300px_minmax(0,1fr)]",
         )}
       >
-        {canEdit ? (
+        {isEditing ? (
           <QuoteCatalogSidebar
             onPickItem={onPickFromSidebar}
             eventDate={meta.date || undefined}
@@ -1136,10 +1139,6 @@ export function SpecEditor({
             addTargetLabel="спецификацию"
             includeHidden
             currentQtyByItem={neededByItem}
-            selectionLabel={catalogSelectionLabel}
-            onCancelSelection={
-              picker ? () => setPicker(null) : undefined
-            }
           />
         ) : null}
 
@@ -1159,22 +1158,60 @@ export function SpecEditor({
         />
       ) : null}
 
+      {canEdit ? (
+        <div className="flex items-center justify-end gap-2">
+          <button
+            type="button"
+            role="switch"
+            aria-checked={editMode}
+            title={
+              editMode
+                ? "Выключить режим редактирования"
+                : "Включить режим редактирования"
+            }
+            onClick={() => setEditMode((v) => !v)}
+            className={cn(
+              "inline-flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs font-medium uppercase tracking-wide transition-colors",
+              editMode
+                ? "border-[var(--accent)] bg-[var(--accent)] text-white"
+                : "border-[var(--line)] text-[var(--muted)] hover:border-[var(--accent)] hover:text-[var(--ink)]",
+            )}
+          >
+            <span
+              className={cn(
+                "relative h-4 w-7 rounded-full transition-colors",
+                editMode ? "bg-white/30" : "bg-[var(--line)]",
+              )}
+              aria-hidden
+            >
+              <span
+                className={cn(
+                  "absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-transform",
+                  editMode ? "left-3.5" : "left-0.5",
+                )}
+              />
+            </span>
+            Edit
+          </button>
+        </div>
+      ) : null}
+
       <div
         ref={tableRef}
         className={cn(
           "data-table-shell quote-estimate-table-wrap relative",
-          catalogOver && "ring-2 ring-inset ring-[var(--accent)]",
+          isEditing && catalogOver && "ring-2 ring-inset ring-[var(--accent)]",
         )}
-        onDragOver={onCatalogTableDragOver}
-        onDragLeave={onCatalogTableDragLeave}
-        onDrop={onCatalogTableDrop}
+        onDragOver={isEditing ? onCatalogTableDragOver : undefined}
+        onDragLeave={isEditing ? onCatalogTableDragLeave : undefined}
+        onDrop={isEditing ? onCatalogTableDrop : undefined}
       >
         <table className="data-table data-table--editable quote-estimate-table w-full min-w-[800px] table-fixed text-xs">
           <thead className="bg-[var(--table-head)] text-caption uppercase tracking-wide text-[var(--muted)]">
             <tr>
               <th className="px-1.5 py-1.5 text-left">Название</th>
               <th className="w-14 px-1.5 py-1.5">Кол-во</th>
-              {canEdit && (
+              {isEditing && (
                 <th
                   className="w-10 px-1 py-1.5 text-center"
                   title="Замена из каталога"
@@ -1185,14 +1222,13 @@ export function SpecEditor({
               <th className="w-20 px-1.5 py-1.5 text-left">Чьё</th>
               <th className="px-1.5 py-1.5 text-left">Комментарий</th>
               {canEdit && <StockHeaderCells />}
-              {canEdit && <th className="w-9 px-1 py-1.5" />}
+              {isEditing && <th className="w-16 px-1 py-1.5" />}
             </tr>
           </thead>
           <tbody>
-            {canEdit && renderGap(0)}
+            {isEditing && renderGap(0)}
             {displayRows.map((line, index) => {
               const isSection = line.type === "SECTION";
-              const isKitHeader = Boolean(line.isKitHeader);
               const isExtra = line.source === "extra";
               const itemId = line.catalogItemId || null;
               const stock = itemId ? stockMap[itemId] : null;
@@ -1201,7 +1237,7 @@ export function SpecEditor({
               const isDropTarget =
                 dropKey === line.key && dragKey !== line.key;
 
-              const rowDragProps = canEdit
+              const rowDragProps = isEditing
                 ? {
                     onDragOver: (e: React.DragEvent) => {
                       if (onCatalogTableDragOver(e)) return;
@@ -1240,11 +1276,9 @@ export function SpecEditor({
                     className={cn(
                       line.hidden
                         ? "opacity-40"
-                        : isKitHeader
-                          ? "bg-[var(--selected)]/35"
-                          : isSection
-                            ? "bg-[var(--selected)]"
-                            : undefined,
+                        : isSection
+                          ? "bg-[var(--selected)]"
+                          : undefined,
                       isDragging && "opacity-50",
                       isDropTarget &&
                         "ring-2 ring-inset ring-[var(--accent)]",
@@ -1252,7 +1286,7 @@ export function SpecEditor({
                   >
                     <td className="px-1.5 py-1">
                       <div className="flex items-start gap-2">
-                        {canEdit && (
+                        {isEditing && (
                           <DragHandle
                             label={
                               isSection
@@ -1272,17 +1306,12 @@ export function SpecEditor({
                           />
                         )}
                         <div className="min-w-0 flex-1">
-                          {isKitHeader && (
-                            <span className="mb-1 block w-fit rounded bg-[var(--accent)]/15 px-1.5 py-0.5 text-caption font-medium uppercase tracking-wide text-[var(--accent)]">
-                              Комплект · развёртка
-                            </span>
-                          )}
-                          {!isKitHeader && line.kitName && (
+                          {line.kitName && (
                             <span className="mb-1 block w-fit rounded bg-[var(--accent)]/10 px-1.5 py-0.5 text-caption font-medium uppercase tracking-wide text-[var(--accent)]">
-                              из комплекта: {line.kitName}
+                              из комплекта «{line.kitName}»
                             </span>
                           )}
-                          {canEdit ? (
+                          {isEditing ? (
                             <input
                               className={cn(
                                 "field min-h-7",
@@ -1312,17 +1341,19 @@ export function SpecEditor({
                     </td>
                     <td className="px-1.5 py-1">
                       {!isSection &&
-                        (canEdit ? (
+                        (isEditing ? (
                           <input
                             type="number"
                             min={0}
                             className="field"
-                            value={line.qty}
+                            value={line.qty ? line.qty : ""}
+                            placeholder="—"
                             onChange={(e) => {
-                              const qty = Math.max(
-                                0,
-                                Number(e.target.value) || 0,
-                              );
+                              const raw = e.target.value;
+                              const qty =
+                                raw === ""
+                                  ? 0
+                                  : Math.max(0, Number(raw) || 0);
                               if (isExtra) updateExtra(line.key, { qty });
                               else updateDerivedQty(line, qty);
                             }}
@@ -1331,7 +1362,7 @@ export function SpecEditor({
                           <span className="tabular-nums">{line.qty}</span>
                         ))}
                     </td>
-                    {canEdit && (
+                    {isEditing && (
                       <td className="px-1 py-1">
                         <CatalogReplaceDropTarget
                           disabled={
@@ -1361,7 +1392,7 @@ export function SpecEditor({
                     )}
                     <td className="px-1.5 py-1">
                       {!isSection &&
-                        (canEdit ? (
+                        (isEditing ? (
                           <select
                             className="field w-full"
                             aria-label="Контора"
@@ -1396,7 +1427,7 @@ export function SpecEditor({
                     </td>
                     <td className="px-1.5 py-1">
                       {!isSection &&
-                        (canEdit ? (
+                        (isEditing ? (
                           <input
                             className="field"
                             placeholder="Комментарий"
@@ -1427,62 +1458,45 @@ export function SpecEditor({
                       ) : (
                         <StockMarks needed={needed} info={stock} />
                       ))}
-                    {canEdit && (
+                    {isEditing && (
                       <td className="px-1 py-1">
-                        <div className="flex items-center justify-end gap-1">
-                          {!isSection && !line.hidden && (
-                            <button
-                              type="button"
-                              title="Заменить позицию из каталога"
-                              className="btn-icon text-[var(--muted)]"
-                              onClick={() =>
-                                setPicker({
-                                  mode: "replace",
-                                  target: isExtra
-                                    ? { kind: "extra", key: line.key }
-                                    : {
-                                        kind: "derived",
-                                        key: line.key,
-                                        deriveKey: line.deriveKey!,
-                                      },
-                                })
-                              }
-                            >
-                              <SwapIcon />
-                            </button>
-                          )}
-                          {isExtra ? (
-                            <button
-                              type="button"
-                              className="btn-icon text-[var(--danger)]"
-                              onClick={() => removeExtra(line.key)}
-                            >
-                              ×
-                            </button>
-                          ) : line.deriveKey ? (
-                            line.hidden ? (
-                              <button
-                                type="button"
-                                className="text-xs text-[var(--accent)]"
-                                onClick={() => unhideLine(line.deriveKey!)}
-                              >
-                                Вернуть
-                              </button>
-                            ) : (
-                              <button
-                                type="button"
-                                className="btn-icon text-[var(--danger)]"
-                                onClick={() => hideLine(line.deriveKey!)}
-                              >
-                                ×
-                              </button>
-                            )
-                          ) : null}
+                        <div className="flex items-center justify-end gap-0.5">
+                          <button
+                            type="button"
+                            title={
+                              line.hidden
+                                ? "Показать позицию"
+                                : "Скрыть позицию"
+                            }
+                            aria-label={
+                              line.hidden
+                                ? "Показать позицию"
+                                : "Скрыть позицию"
+                            }
+                            className={cn(
+                              "btn-icon",
+                              line.hidden
+                                ? "text-[var(--accent)]"
+                                : "text-[var(--muted)]",
+                            )}
+                            onClick={() => toggleHideLine(line)}
+                          >
+                            <EyeIcon crossed={line.hidden} />
+                          </button>
+                          <button
+                            type="button"
+                            title="Удалить строку"
+                            aria-label="Удалить строку"
+                            className="btn-icon text-[var(--danger)]"
+                            onClick={() => deleteLine(line)}
+                          >
+                            ×
+                          </button>
                         </div>
                       </td>
                     )}
                   </tr>
-                  {canEdit && renderGap(index + 1)}
+                  {isEditing && renderGap(index + 1)}
                 </Fragment>
               );
             })}
@@ -1525,7 +1539,7 @@ export function SpecEditor({
         </div>
       ) : null}
 
-      {canEdit && (
+      {isEditing && (
         <div className="flex flex-wrap items-center gap-1.5">
           <button
             type="button"
@@ -1579,11 +1593,13 @@ export function SpecEditor({
           <p className="font-medium text-[var(--ink)]">Спецификация на погрузку</p>
           <p>
             {canEdit
-              ? saving
-                ? "Сохранение…"
-                : savedAt
-                  ? `Сохранено в ${savedAt}`
-                  : "Автосохранение правок"
+              ? editMode
+                ? saving
+                  ? "Сохранение…"
+                  : savedAt
+                    ? `Сохранено в ${savedAt}`
+                    : "Режим редактирования · автосохранение"
+                : "Просмотр · включите Edit для правок"
               : "Только просмотр"}
             {meta.hasSnapshot
               ? " · снимок (смена статуса сметы не пересобирает)"
@@ -1597,7 +1613,7 @@ export function SpecEditor({
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
-          {canEdit && (
+          {isEditing && (
             <button
               type="button"
               disabled={importBusy}

@@ -4,6 +4,7 @@ import {
   diffSpecImport,
   mergeSpecImport,
   parseSpecLines,
+  specLinesFromRevisionOrDerived,
 } from "./spec-merge";
 
 function line(partial: Partial<SpecLine> & { key: string }): SpecLine {
@@ -91,5 +92,38 @@ assert.equal(parsed.length, 3);
 assert.equal(parsed[0].hidden, true);
 assert.equal(parsed[0].zoneId, "zone-main");
 assert.equal(parsed[0].zoneName, "Сцена");
+
+const snapshot = specLinesFromRevisionOrDerived(
+  {
+    lines: [
+      {
+        key: "item:a",
+        deriveKey: "item:a",
+        source: "derived",
+        type: "ITEM",
+        name: "Zoom (снимок)",
+        qty: 9,
+        extraId: null,
+      },
+      {
+        key: "extra:1",
+        source: "extra",
+        type: "ITEM",
+        extraId: "1",
+        name: "Кабель вручную",
+        qty: 3,
+      },
+    ],
+  },
+  current,
+);
+assert.equal(snapshot.hasSnapshot, true);
+assert.equal(snapshot.lines.find((l) => l.key === "item:a")?.qty, 9);
+assert.equal(snapshot.lines.find((l) => l.key === "item:a")?.name, "Zoom (снимок)");
+assert.equal(snapshot.lines.find((l) => l.key === "extra:1")?.qty, 3);
+assert.equal(
+  specLinesFromRevisionOrDerived(null, current).hasSnapshot,
+  false,
+);
 
 console.log("spec-merge.test.ts ok");

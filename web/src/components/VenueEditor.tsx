@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { lifecycleLabel } from "@/components/ui";
+import { lifecycleLabel, SortableTh, useTableSort } from "@/components/ui";
+import { dateSortValue } from "@/lib/table-sort";
 
 type VenuePhoto = {
   id: string;
@@ -34,6 +35,23 @@ type VenueDetail = {
   quotes: QuoteRow[];
 };
 
+function venueQuoteSortValue(q: QuoteRow, key: string) {
+  switch (key) {
+    case "number":
+      return q.proposalNumber;
+    case "event":
+      return q.eventName;
+    case "client":
+      return q.client;
+    case "date":
+      return dateSortValue(q.date);
+    case "lifecycle":
+      return lifecycleLabel(q.lifecycle);
+    default:
+      return null;
+  }
+}
+
 function photoSrc(venueId: string, photo: VenuePhoto) {
   return `/api/venues/${venueId}/photos/${photo.id}?v=${encodeURIComponent(photo.createdAt)}`;
 }
@@ -45,6 +63,8 @@ export function VenueEditor({ venueId }: { venueId: string }) {
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const quotes = venue?.quotes ?? [];
+  const { sorted, sort, onSort } = useTableSort(quotes, venueQuoteSortValue);
 
   async function load() {
     const res = await fetch(`/api/venues/${venueId}`);
@@ -318,15 +338,45 @@ export function VenueEditor({ venueId }: { venueId: string }) {
             <table className="data-table w-full min-w-[600px] text-sm">
               <thead className="bg-[var(--table-head)] text-xs uppercase text-[var(--muted)]">
                 <tr>
-                  <th className="px-2 py-2 text-left">КП</th>
-                  <th className="px-2 py-2 text-left">Мероприятие</th>
-                  <th className="px-2 py-2 text-left">Заказчик</th>
-                  <th className="px-2 py-2 text-left">Дата</th>
-                  <th className="px-2 py-2 text-left">Статус</th>
+                  <SortableTh
+                    label="КП"
+                    sortKey="number"
+                    state={sort}
+                    onSort={onSort}
+                    className="px-2 py-2"
+                  />
+                  <SortableTh
+                    label="Мероприятие"
+                    sortKey="event"
+                    state={sort}
+                    onSort={onSort}
+                    className="px-2 py-2"
+                  />
+                  <SortableTh
+                    label="Заказчик"
+                    sortKey="client"
+                    state={sort}
+                    onSort={onSort}
+                    className="px-2 py-2"
+                  />
+                  <SortableTh
+                    label="Дата"
+                    sortKey="date"
+                    state={sort}
+                    onSort={onSort}
+                    className="px-2 py-2"
+                  />
+                  <SortableTh
+                    label="Статус"
+                    sortKey="lifecycle"
+                    state={sort}
+                    onSort={onSort}
+                    className="px-2 py-2"
+                  />
                 </tr>
               </thead>
               <tbody>
-                {venue.quotes.map((q) => (
+                {sorted.map((q) => (
                   <tr key={q.id} className="border-t border-[var(--line)]">
                     <td className="px-2 py-2">
                       <Link

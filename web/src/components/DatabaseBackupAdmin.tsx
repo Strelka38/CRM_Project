@@ -42,7 +42,7 @@ export function DatabaseBackupAdmin() {
   const [error, setError] = useState("");
   const [counts, setCounts] = useState<DatabaseBackupCounts | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
-  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [pendingText, setPendingText] = useState<string | null>(null);
 
   async function exportJson() {
     setBusy(true);
@@ -90,25 +90,28 @@ export function DatabaseBackupAdmin() {
         setError("Это не файл экспорта CRM");
         return;
       }
+      if (file.size > 50 * 1024 * 1024) {
+        setError("Файл больше 50 МБ");
+        return;
+      }
       setCounts(countBackupTables(json.tables));
-      setPendingFile(file);
+      setPendingText(text);
     } catch {
       setError("Не удалось прочитать JSON");
     }
   }
 
-  async function runImport(file: File) {
+  async function runImport(text: string) {
     setBusy(true);
     setError("");
     setMessage("");
     setWarnings([]);
     try {
-      const fd = new FormData();
-      fd.set("file", file);
       const res = await fetch("/api/database/import", {
         method: "POST",
         credentials: "same-origin",
-        body: fd,
+        headers: { "Content-Type": "application/json" },
+        body: text,
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -124,7 +127,7 @@ export function DatabaseBackupAdmin() {
       setError("Не удалось импортировать");
     } finally {
       setBusy(false);
-      setPendingFile(null);
+      setPendingText(null);
     }
   }
 
@@ -231,15 +234,15 @@ export function DatabaseBackupAdmin() {
       )}
 
       <ConfirmDialog
-        open={!!pendingFile}
+        open={!!pendingText}
         title="Импортировать базу?"
         message="Справочники будут созданы или обновлены по файлу. Существующие сметы не удаляются. Продолжить?"
         confirmLabel="Импортировать"
         danger={false}
         busy={busy}
-        onCancel={() => setPendingFile(null)}
+        onCancel={() => setPendingText(null)}
         onConfirm={() => {
-          if (pendingFile) void runImport(pendingFile);
+          if (pendingText) void runImport(pendingText);
         }}
       />
     </div>

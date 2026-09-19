@@ -151,6 +151,12 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
+ALTER TABLE "CalendarEntry" ADD COLUMN IF NOT EXISTS "durationDays" INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE "CalendarEntry" ADD COLUMN IF NOT EXISTS "endDate" DATE;
+UPDATE "CalendarEntry" SET "endDate" = "date" WHERE "endDate" IS NULL;
+ALTER TABLE "CalendarEntry" ALTER COLUMN "endDate" SET NOT NULL;
+CREATE INDEX IF NOT EXISTS "CalendarEntry_endDate_idx" ON "CalendarEntry"("endDate");
+
 CREATE TABLE IF NOT EXISTS "EquipmentRepairPhoto" (
   "id" TEXT NOT NULL,
   "repairId" TEXT NOT NULL,

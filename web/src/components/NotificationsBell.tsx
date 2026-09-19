@@ -1,52 +1,48 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import {
+  NOTIFICATIONS_CHANGED,
+  emitNotificationsChanged,
+  notificationHref,
+  notificationLinkLabel,
+  type AppNotification,
+} from "@/lib/notification-ui";
 
-type NotificationType =
-  | "INVOICE_DUE"
-  | "SYSTEM"
-  | "EVENT_CREATED"
-  | "EVENT_ASSIGNED"
-  | "CHAT_MESSAGE"
-  | "MOUNT_CONFIRMED"
-  | "TASK_OPEN";
+const PREVIEW_LIMIT = 8;
 
-type N = {
-  id: string;
-  type: NotificationType;
-  title: string;
-  body: string;
-  read: boolean;
-  createdAt: string;
-  quote?: {
-    id: string;
-    eventName: string;
-    proposalNumber: string;
-  } | null;
-  calendarEntry?: { id: string; title: string } | null;
-};
+/**
+ * Только число непрочитанных, без списка и поповера: нижнему меню на телефоне
+ * нужен лишь бейдж на иконке, а колокольчика в шапке там больше нет.
+ */
+export function useUnreadNotifications() {
+  const [unread, setUnread] = useState(0);
 
-function quoteHref(n: N) {
-  if (n.type === "TASK_OPEN" && n.calendarEntry) {
-    return `/calendar?entry=${n.calendarEntry.id}`;
-  }
-  if (!n.quote) return null;
-  if (n.type === "EVENT_ASSIGNED" || n.type === "CHAT_MESSAGE" || n.type === "MOUNT_CONFIRMED") {
-    return `/calendar?quote=${n.quote.id}`;
-  }
-  return `/quotes/${n.quote.id}?tab=main`;
-}
+  useEffect(() => {
+    let alive = true;
+    async function load() {
+      const res = await fetch("/api/notifications");
+      if (!res.ok || !alive) return;
+      const data = await res.json().catch(() => null);
+      if (!data || !alive) return;
+      setUnread(Number(data.unread) || 0);
+    }
+    void load();
+    const timer = setInterval(() => void load(), 30_000);
+    function onChanged() {
+      void load();
+    }
+    window.addEventListener(NOTIFICATIONS_CHANGED, onChanged);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+      window.removeEventListener(NOTIFICATIONS_CHANGED, onChanged);
+    };
+  }, []);
 
-function quoteLinkLabel(n: N) {
-  if (n.type === "TASK_OPEN") return "Открыть задачу";
-  if (!n.quote) return "Открыть";
-  if (n.type === "EVENT_ASSIGNED" || n.type === "CHAT_MESSAGE" || n.type === "MOUNT_CONFIRMED") {
-    return n.quote.eventName?.trim()
-      ? `Открыть «${n.quote.eventName.trim()}»`
-      : "Открыть мероприятие";
-  }
-  return `Открыть КП №${n.quote.proposalNumber}`;
+  return unread;
 }
 
 export function NotificationsBell({
@@ -56,10 +52,12 @@ export function NotificationsBell({
   showUnpaidLink?: boolean;
   placement?: "header" | "sidebar";
 }) {
+  const pathname = usePathname();
   const [open, setOpen] = useState(false);
-  const [items, setItems] = useState<N[]>([]);
+  const [items, setItems] = useState<AppNotification[]>([]);
   const [unread, setUnread] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
+  const onPage = pathname === "/notifications";
 
   async function load() {
     const res = await fetch("/api/notifications");
@@ -73,7 +71,14 @@ export function NotificationsBell({
   useEffect(() => {
     void load();
     const t = setInterval(() => void load(), 30_000);
-    return () => clearInterval(t);
+    function onChanged() {
+      void load();
+    }
+    window.addEventListener(NOTIFICATIONS_CHANGED, onChanged);
+    return () => {
+      clearInterval(t);
+      window.removeEventListener(NOTIFICATIONS_CHANGED, onChanged);
+    };
   }, []);
 
   useEffect(() => {
@@ -93,12 +98,17 @@ export function NotificationsBell({
     };
   }, [open]);
 
+  useEffect(() => {
+    setOpen(false);
+  }, [pathname]);
+
   async function markAll() {
     await fetch("/api/notifications", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ all: true }),
     });
+    emitNotificationsChanged();
     void load();
   }
 
@@ -108,8 +118,12 @@ export function NotificationsBell({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id, read: true }),
     });
+    emitNotificationsChanged();
     void load();
   }
+
+  const preview = items.slice(0, PREVIEW_LIMIT);
+  const rest = Math.max(0, items.length - preview.length);
 
   return (
     <div ref={rootRef} className="relative">
@@ -118,8 +132,13 @@ export function NotificationsBell({
         aria-label={
           unread > 0 ? `Уведомления, непрочитанных: ${unread}` : "Уведомления"
         }
+        aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
-        className="relative flex h-9 w-9 items-center justify-center rounded-md text-[var(--header-muted)] transition-colors hover:bg-[var(--header-hover)] hover:text-[var(--header-ink)]"
+        className={`relative flex h-9 w-9 items-center justify-center rounded-md transition-colors hover:bg-[var(--header-hover)] hover:text-[var(--header-ink)] ${
+          onPage || open
+            ? "bg-[var(--header-hover)] text-[var(--header-ink)]"
+            : "text-[var(--header-muted)]"
+        }`}
       >
         <svg
           viewBox="0 0 24 24"
@@ -149,7 +168,13 @@ export function NotificationsBell({
           }
         >
           <div className="flex items-center justify-between border-b border-[var(--line)] px-3 py-2">
-            <span className="text-sm font-medium text-[var(--ink)]">Уведомления</span>
+            <Link
+              href="/notifications"
+              className="text-sm font-medium text-[var(--ink)] hover:text-[var(--accent-deep)]"
+              onClick={() => setOpen(false)}
+            >
+              Уведомления
+            </Link>
             <button
               type="button"
               className="text-xs text-[var(--muted)] hover:text-[var(--accent)]"
@@ -162,8 +187,8 @@ export function NotificationsBell({
             {items.length === 0 && (
               <p className="p-3 text-sm text-[var(--muted)]">Пока пусто</p>
             )}
-            {items.map((n) => {
-              const href = quoteHref(n);
+            {preview.map((n) => {
+              const href = notificationHref(n);
               return (
                 <div
                   key={n.id}
@@ -180,15 +205,22 @@ export function NotificationsBell({
                         setOpen(false);
                       }}
                     >
-                      {quoteLinkLabel(n)}
+                      {notificationLinkLabel(n)}
                     </Link>
                   )}
                 </div>
               );
             })}
           </div>
-          {showUnpaidLink && (
-            <div className="border-t border-[var(--line)] px-3 py-2">
+          <div className="flex flex-col gap-1 border-t border-[var(--line)] px-3 py-2">
+            <Link
+              href="/notifications"
+              className="text-xs text-[var(--accent-deep)] hover:underline"
+              onClick={() => setOpen(false)}
+            >
+              {rest > 0 ? `Все уведомления (${items.length}) →` : "Все уведомления →"}
+            </Link>
+            {showUnpaidLink && (
               <Link
                 href="/unpaid"
                 className="text-xs text-[var(--accent-deep)] hover:underline"
@@ -196,8 +228,8 @@ export function NotificationsBell({
               >
                 Неоплаченные проекты →
               </Link>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       )}
     </div>

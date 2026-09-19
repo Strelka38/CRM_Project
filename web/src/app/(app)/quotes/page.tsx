@@ -5,12 +5,16 @@ import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  DataCards,
   EmptyState,
   PageHeader,
+  SortableTh,
   StatusBadge,
   TableSkeleton,
+  useTableSort,
   type LifecycleStatus,
   LIFECYCLE_LABELS,
+  lifecycleLabel,
 } from "@/components/ui";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { DateRangePicker } from "@/components/DateRangePicker";
@@ -19,6 +23,7 @@ import {
   DirectoryAddButton,
   DirectoryCardLink,
   DirectoryCsvMenu,
+  DirectoryMobileBar,
   DirectorySelectionActions,
   IconExcel,
   IconPlusDoc,
@@ -29,10 +34,12 @@ import {
 } from "@/components/DirectoryToolbar";
 import {
   endDateFromDuration,
+  formatIsoRuDate,
   formatRuDate,
   parseEventDate,
   rangesOverlap,
 } from "@/lib/dates";
+import { dateSortValue } from "@/lib/table-sort";
 import { isManager as roleIsManager, isQuoteOwnerRole } from "@/lib/roles";
 
 type QuoteRow = {
@@ -43,6 +50,7 @@ type QuoteRow = {
   durationDays: number;
   client: string;
   lifecycle: string;
+  createdAt: string;
   updatedAt: string;
   owner: { name: string };
   _count: { blocks: number };
@@ -60,6 +68,33 @@ function formatQuoteDates(date: string, durationDays: number) {
   const days = Math.max(1, durationDays || 1);
   if (days <= 1) return formatRuDate(start);
   return `${formatRuDate(start)} — ${formatRuDate(endDateFromDuration(start, days))}`;
+}
+
+function quoteSortValue(q: QuoteRow, key: string) {
+  switch (key) {
+    case "number": {
+      const n = Number(q.proposalNumber);
+      return Number.isFinite(n) && q.proposalNumber.trim() !== ""
+        ? n
+        : q.proposalNumber;
+    }
+    case "event":
+      return q.eventName;
+    case "date":
+      return dateSortValue(q.date);
+    case "created":
+      return dateSortValue(q.createdAt);
+    case "lifecycle":
+      return lifecycleLabel(q.lifecycle);
+    case "client":
+      return q.client;
+    case "owner":
+      return q.owner.name;
+    case "blocks":
+      return q._count.blocks;
+    default:
+      return null;
+  }
 }
 
 export default function QuotesPage() {
@@ -219,7 +254,7 @@ export default function QuotesPage() {
     });
   }
 
-  const filteredQuotes = useMemo(() => {
+  const periodFiltered = useMemo(() => {
     const periodStart = parseEventDate(periodDate);
     const matching = periodStart
       ? quotes.filter((q) => {
@@ -244,6 +279,11 @@ export default function QuotesPage() {
       return aDistance - bDistance || bDate.getTime() - aDate.getTime();
     });
   }, [quotes, periodDate, periodDays]);
+
+  const { sorted: filteredQuotes, sort, onSort } = useTableSort(
+    periodFiltered,
+    quoteSortValue,
+  );
 
   const allVisibleSelected =
     filteredQuotes.length > 0 &&
@@ -373,7 +413,73 @@ export default function QuotesPage() {
       />
 
       <section className="rounded-xl border border-[var(--line)] bg-[var(--panel)]">
-        <div className="flex w-full flex-wrap items-center gap-2 border-b border-[var(--line)] px-4 py-3">
+        <DirectoryMobileBar
+          filter={
+            <DateRangePicker
+              date={periodDate}
+              durationDays={periodDays}
+              onChange={(date, days) => {
+                setPeriodDate(date);
+                setPeriodDays(days);
+              }}
+              label="Поиск по датам"
+              emptyLabel="Все даты"
+            />
+          }
+          primary={
+            isManager
+              ? {
+                  label: creating ? "Создаём…" : "Новая смета",
+                  onClick: () => void createQuote(),
+                }
+              : undefined
+          }
+          sheetTitle={isManager ? "Сметы" : "Мероприятия"}
+          groups={
+            isManager
+              ? [
+                  {
+                    title: "Создать",
+                    items: [
+                      {
+                        label: "Из шаблона",
+                        icon: <IconTemplate />,
+                        disabled: creating,
+                        onSelect: () => setFromTemplateOpen(true),
+                      },
+                      {
+                        label: creating ? "Импортируем…" : "Из Excel",
+                        hint: "Можно выбрать несколько файлов",
+                        icon: <IconExcel />,
+                        disabled: creating,
+                        onSelect: () => excelImportRef.current?.click(),
+                      },
+                    ],
+                  },
+                ]
+              : []
+          }
+          csv={{
+            busy: csvBusy,
+            onExport: () => void exportCsv(),
+            onImport: isManager
+              ? () => csvImportRef.current?.click()
+              : undefined,
+          }}
+          selection={
+            isManager
+              ? {
+                  count: selectedIds.size,
+                  busy: copying || deleting,
+                  onCopy: () => void copySelectedQuotes(),
+                  onDelete: () => setPendingDelete([...selectedIds]),
+                  deleteLabel: "Удалить",
+                }
+              : undefined
+          }
+        />
+
+        <div className="hidden w-full flex-wrap items-center gap-2 border-b border-[var(--line)] px-4 py-3 md:flex">
           {isManager ? (
             <>
               <DirectoryAddButton
@@ -429,30 +535,31 @@ export default function QuotesPage() {
               }
             />
           </div>
-          <input
-            ref={csvImportRef}
-            type="file"
-            accept=".csv,text/csv"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              e.target.value = "";
-              if (file) void importCsv(file);
-            }}
-          />
-          <input
-            ref={excelImportRef}
-            type="file"
-            multiple
-            accept=".xlsx,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel.sheet.macroEnabled.12"
-            className="hidden"
-            onChange={(e) => {
-              const files = Array.from(e.target.files ?? []);
-              e.target.value = "";
-              if (files.length) void importExcel(files);
-            }}
-          />
         </div>
+
+        <input
+          ref={csvImportRef}
+          type="file"
+          accept=".csv,text/csv"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = "";
+            if (file) void importCsv(file);
+          }}
+        />
+        <input
+          ref={excelImportRef}
+          type="file"
+          multiple
+          accept=".xlsx,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel.sheet.macroEnabled.12"
+          className="hidden"
+          onChange={(e) => {
+            const files = Array.from(e.target.files ?? []);
+            e.target.value = "";
+            if (files.length) void importExcel(files);
+          }}
+        />
         {csvMessage ? (
           <p className="border-b border-[var(--line)] px-4 py-2 text-xs text-[var(--muted)]">
             {csvMessage}
@@ -470,7 +577,7 @@ export default function QuotesPage() {
         ) : null}
 
         {loading ? (
-          <TableSkeleton rows={6} cols={6} />
+          <TableSkeleton rows={6} cols={8} />
         ) : quotes.length === 0 ? (
           <EmptyState
             title={isManager ? "Пока нет смет" : "Пока нет мероприятий"}
@@ -489,48 +596,36 @@ export default function QuotesPage() {
           />
         ) : (
           <>
-            <ul className="divide-y divide-[var(--line)] md:hidden">
-              {filteredQuotes.map((q) => (
-                <li
-                  key={q.id}
-                  className={
-                    selectedIds.has(q.id)
-                      ? "flex items-start gap-2 bg-[var(--selected)] px-3 py-3"
-                      : "flex items-start gap-2 px-3 py-3"
-                  }
-                >
-                  {isManager ? (
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.has(q.id)}
-                      aria-label={`Выбрать смету № ${q.proposalNumber}`}
-                      className="mt-1 size-4 shrink-0 accent-[var(--accent)]"
-                      onChange={() => toggleQuote(q.id)}
-                    />
-                  ) : null}
-                  <Link
-                    href={`/quotes/${q.id}`}
-                    className="min-w-0 flex-1"
-                  >
-                    <p className="font-medium text-[var(--accent-deep)]">
-                      № {q.proposalNumber}
-                      {q.eventName ? ` — ${q.eventName}` : ""}
-                    </p>
-                    <p className="mt-0.5 text-xs text-[var(--muted)]">
-                      {formatQuoteDates(q.date, q.durationDays)}
-                      {q.client ? ` · ${q.client}` : ""}
-                    </p>
-                    <div className="mt-1.5">
-                      {isLifecycle(q.lifecycle) ? (
-                        <StatusBadge status={q.lifecycle} />
-                      ) : (
-                        q.lifecycle
-                      )}
-                    </div>
-                  </Link>
-                </li>
-              ))}
-            </ul>
+            <div className="p-3 md:hidden">
+              <DataCards
+                items={filteredQuotes.map((q) => ({
+                  id: q.id,
+                  title: `№ ${q.proposalNumber}${
+                    q.eventName ? ` — ${q.eventName}` : ""
+                  }`,
+                  subtitle: q.client || undefined,
+                  href: `/quotes/${q.id}`,
+                  trailing: isLifecycle(q.lifecycle) ? (
+                    <StatusBadge status={q.lifecycle} />
+                  ) : (
+                    q.lifecycle
+                  ),
+                  fields: [
+                    {
+                      label: "Даты",
+                      value: formatQuoteDates(q.date, q.durationDays),
+                    },
+                    {
+                      label: "Создана",
+                      value: formatIsoRuDate(q.createdAt),
+                    },
+                    { label: "Автор", value: q.owner.name },
+                  ],
+                }))}
+                selectedIds={selectedIds}
+                onToggleSelect={isManager ? toggleQuote : undefined}
+              />
+            </div>
             <div className="data-table-shell hidden overflow-x-auto md:block">
               <table className="data-table w-full text-left text-sm">
             <thead className="bg-[var(--table-head)] text-caption uppercase tracking-wider text-[var(--muted)]">
@@ -546,12 +641,62 @@ export default function QuotesPage() {
                     />
                   </th>
                 ) : null}
-                <th className="px-4 py-3 text-left">№ / мероприятие</th>
-                <th className="px-4 py-3 text-left">Дата</th>
-                <th className="px-4 py-3 text-left">Статус</th>
-                <th className="px-4 py-3 text-left">Клиент</th>
-                <th className="px-4 py-3 text-left">Автор</th>
-                <th className="px-4 py-3 text-left">Блоков</th>
+                <SortableTh
+                  label="№"
+                  sortKey="number"
+                  state={sort}
+                  onSort={onSort}
+                  className="w-px whitespace-nowrap px-4 py-3"
+                />
+                <SortableTh
+                  label="Мероприятие"
+                  sortKey="event"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-4 py-3"
+                />
+                <SortableTh
+                  label="Дата"
+                  sortKey="date"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-4 py-3"
+                />
+                <SortableTh
+                  label="Создана"
+                  sortKey="created"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-4 py-3"
+                />
+                <SortableTh
+                  label="Статус"
+                  sortKey="lifecycle"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-4 py-3"
+                />
+                <SortableTh
+                  label="Клиент"
+                  sortKey="client"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-4 py-3"
+                />
+                <SortableTh
+                  label="Автор"
+                  sortKey="owner"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-4 py-3"
+                />
+                <SortableTh
+                  label="Блоков"
+                  sortKey="blocks"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-4 py-3"
+                />
                 <th className="w-12 px-4 py-3 text-left" />
               </tr>
             </thead>
@@ -576,17 +721,27 @@ export default function QuotesPage() {
                       />
                     </td>
                   ) : null}
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-3 whitespace-nowrap tabular-nums">
                     <Link
                       href={`/quotes/${q.id}`}
                       className="font-medium text-[var(--accent-deep)] hover:text-[var(--accent)] hover:underline"
                     >
                       № {q.proposalNumber}
-                      {q.eventName ? ` — ${q.eventName}` : ""}
+                    </Link>
+                  </td>
+                  <td className="px-4 py-3">
+                    <Link
+                      href={`/quotes/${q.id}`}
+                      className="text-[var(--ink)] hover:text-[var(--accent)] hover:underline"
+                    >
+                      {q.eventName || "—"}
                     </Link>
                   </td>
                   <td className="px-4 py-3 text-[var(--muted)]">
                     {formatQuoteDates(q.date, q.durationDays)}
+                  </td>
+                  <td className="px-4 py-3 text-[var(--muted)]">
+                    {formatIsoRuDate(q.createdAt)}
                   </td>
                   <td className="px-4 py-3">
                     {isLifecycle(q.lifecycle) ? (

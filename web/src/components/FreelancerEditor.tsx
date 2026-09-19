@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatMoney } from "@/lib/format";
-import { lifecycleLabel } from "@/components/ui";
+import { lifecycleLabel, SortableTh, useTableSort } from "@/components/ui";
+import { dateSortValue } from "@/lib/table-sort";
 
 type PayoutRow = {
   assignmentId: string;
@@ -19,6 +20,25 @@ type PayoutRow = {
   pay: number;
   countsForStats: boolean;
 };
+
+function freelancerPayoutSortValue(p: PayoutRow, key: string) {
+  switch (key) {
+    case "number":
+      return p.proposalNumber;
+    case "event":
+      return p.eventName;
+    case "date":
+      return dateSortValue(p.date);
+    case "role":
+      return p.specialtyName;
+    case "lifecycle":
+      return lifecycleLabel(p.lifecycle);
+    case "pay":
+      return p.pay;
+    default:
+      return null;
+  }
+}
 
 type Specialty = {
   id: string;
@@ -61,6 +81,11 @@ export function FreelancerEditor({ freelancerId }: { freelancerId: string }) {
   const [addSpecialtyId, setAddSpecialtyId] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const payouts = freelancer?.payouts ?? [];
+  const { sorted, sort, onSort } = useTableSort(
+    payouts,
+    freelancerPayoutSortValue,
+  );
 
   async function load() {
     const [fRes, sRes] = await Promise.all([
@@ -398,18 +423,55 @@ export function FreelancerEditor({ freelancerId }: { freelancerId: string }) {
             <table className="data-table w-full min-w-[720px] text-sm">
               <thead className="bg-[var(--table-head)] text-xs uppercase text-[var(--muted)]">
                 <tr>
-                  <th className="px-2 py-2 text-left">КП</th>
-                  <th className="px-2 py-2 text-left">Мероприятие</th>
-                  <th className="px-2 py-2 text-left">Дата</th>
-                  <th className="px-2 py-2 text-left">Роль</th>
-                  <th className="px-2 py-2 text-left">Статус</th>
+                  <SortableTh
+                    label="КП"
+                    sortKey="number"
+                    state={sort}
+                    onSort={onSort}
+                    className="px-2 py-2"
+                  />
+                  <SortableTh
+                    label="Мероприятие"
+                    sortKey="event"
+                    state={sort}
+                    onSort={onSort}
+                    className="px-2 py-2"
+                  />
+                  <SortableTh
+                    label="Дата"
+                    sortKey="date"
+                    state={sort}
+                    onSort={onSort}
+                    className="px-2 py-2"
+                  />
+                  <SortableTh
+                    label="Роль"
+                    sortKey="role"
+                    state={sort}
+                    onSort={onSort}
+                    className="px-2 py-2"
+                  />
+                  <SortableTh
+                    label="Статус"
+                    sortKey="lifecycle"
+                    state={sort}
+                    onSort={onSort}
+                    className="px-2 py-2"
+                  />
                   {stats.showPay ? (
-                    <th className="px-2 py-2 text-right">К выплате</th>
+                    <SortableTh
+                      label="К выплате"
+                      sortKey="pay"
+                      state={sort}
+                      onSort={onSort}
+                      className="px-2 py-2"
+                      align="right"
+                    />
                   ) : null}
                 </tr>
               </thead>
               <tbody>
-                {freelancer.payouts.map((p) => (
+                {sorted.map((p) => (
                   <tr
                     key={p.assignmentId}
                     className={`border-t border-[var(--line)] ${

@@ -1,14 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AccountingMenu } from "@/components/AccountingMenu";
 import { BrandLogo } from "@/components/BrandLogo";
 import { DatabaseMenu } from "@/components/DatabaseMenu";
 import { WarehouseMenu } from "@/components/WarehouseMenu";
 import { LayoutDensityToggle } from "@/components/LayoutDensityToggle";
-import { NotificationsBell } from "@/components/NotificationsBell";
+import {
+  NotificationsBell,
+  useUnreadNotifications,
+} from "@/components/NotificationsBell";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { NavLink } from "@/components/ui/NavLink";
 import { Button } from "@/components/ui/Button";
@@ -206,23 +209,7 @@ function IconMenu({ className }: { className?: string }) {
   );
 }
 
-function IconPlus({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.2"
-      strokeLinecap="round"
-      className={className ?? "h-7 w-7"}
-      aria-hidden
-    >
-      <path d="M12 5v14M5 12h14" />
-    </svg>
-  );
-}
-
-function IconProfile({ className }: { className?: string }) {
+function IconCalendar({ className }: { className?: string }) {
   return (
     <svg
       viewBox="0 0 24 24"
@@ -234,8 +221,45 @@ function IconProfile({ className }: { className?: string }) {
       className={className ?? "h-6 w-6"}
       aria-hidden
     >
-      <circle cx="12" cy="8" r="3.5" />
-      <path d="M5.5 19.5c1.8-3.2 4.2-4.5 6.5-4.5s4.7 1.3 6.5 4.5" />
+      <rect x="3.5" y="5" width="17" height="15" rx="2.5" />
+      <path d="M3.5 9.5h17M8 3.5v3M16 3.5v3" />
+    </svg>
+  );
+}
+
+function IconBell({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className ?? "h-6 w-6"}
+      aria-hidden
+    >
+      <path d="M6 8a6 6 0 1 1 12 0c0 7 3 7 3 9H3c0-2 3-2 3-9" />
+      <path d="M10 21a2 2 0 0 0 4 0" />
+    </svg>
+  );
+}
+
+function IconWallet({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className ?? "h-6 w-6"}
+      aria-hidden
+    >
+      <rect x="3" y="6" width="18" height="13" rx="2.5" />
+      <path d="M3 10.5h18" />
+      <circle cx="16.5" cy="14.5" r="1.1" fill="currentColor" stroke="none" />
     </svg>
   );
 }
@@ -252,8 +276,8 @@ export function AppChrome({
   logoutAction,
 }: AppChromeProps) {
   const pathname = usePathname();
-  const router = useRouter();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const unread = useUnreadNotifications();
 
   useEffect(() => {
     setDrawerOpen(false);
@@ -274,17 +298,10 @@ export function AppChrome({
   }, [drawerOpen]);
 
   const navProps = { manager, database, workloadStats, showBackup, payoutsAccess };
+  const isPrintSheet = pathname.startsWith("/catalog/print-qr");
 
-  function onPlusClick() {
-    if (pathname.startsWith("/calendar")) {
-      router.push("/calendar?create=1");
-      // force re-trigger if already on calendar with create
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(new Event("crm:calendar-create"));
-      }
-      return;
-    }
-    router.push("/calendar?create=1");
+  if (isPrintSheet) {
+    return <div className="qr-print-frame min-h-dvh bg-white text-black">{children}</div>;
   }
 
   return (
@@ -308,9 +325,6 @@ export function AppChrome({
             CRM
           </span>
         </Link>
-        <div className="ml-auto flex items-center gap-1">
-          <NotificationsBell showUnpaidLink={manager} />
-        </div>
       </header>
 
       <div
@@ -354,10 +368,46 @@ export function AppChrome({
       <main className="app-main">{children}</main>
 
       <nav className="app-bottombar" aria-label="Нижнее меню">
+        <Link
+          href="/calendar"
+          className={`app-bottombar-btn${pathname.startsWith("/calendar") ? " is-active" : ""}`}
+          aria-label="Календарь"
+          title="Календарь"
+        >
+          <IconCalendar />
+        </Link>
+
+        <Link
+          href="/notifications"
+          className={`app-bottombar-btn${pathname.startsWith("/notifications") ? " is-active" : ""}`}
+          aria-label={
+            unread > 0 ? `Уведомления, непрочитанных: ${unread}` : "Уведомления"
+          }
+          title="Уведомления"
+        >
+          <span className="relative flex">
+            <IconBell />
+            {unread > 0 ? (
+              <span className="absolute -right-1.5 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-1 text-caption font-bold leading-none text-white shadow-sm">
+                {unread > 99 ? "99+" : unread}
+              </span>
+            ) : null}
+          </span>
+        </Link>
+
+        <Link
+          href="/payroll"
+          className={`app-bottombar-btn${pathname.startsWith("/payroll") ? " is-active" : ""}`}
+          aria-label="Моя ЗП"
+          title="Моя ЗП"
+        >
+          <IconWallet />
+        </Link>
+
         <button
           type="button"
-          className="app-bottombar-btn"
-          aria-label={drawerOpen ? "Закрыть меню" : "Открыть меню"}
+          className={`app-bottombar-btn${drawerOpen ? " is-active" : ""}`}
+          aria-label={drawerOpen ? "Закрыть меню" : "Все разделы"}
           aria-expanded={drawerOpen}
           onClick={(e) => {
             e.stopPropagation();
@@ -366,24 +416,6 @@ export function AppChrome({
         >
           <IconMenu />
         </button>
-
-        <button
-          type="button"
-          className="app-bottombar-plus"
-          aria-label="Создать"
-          onClick={onPlusClick}
-        >
-          <IconPlus />
-        </button>
-
-        <Link
-          href="/profile"
-          className={`app-bottombar-btn${pathname.startsWith("/profile") ? " is-active" : ""}`}
-          aria-label="Профиль"
-          title={userName || "Профиль"}
-        >
-          <IconProfile />
-        </Link>
       </nav>
     </div>
   );

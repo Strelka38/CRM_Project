@@ -1,5 +1,9 @@
 import type { CalendarEntryKind } from "@prisma/client";
 import {
+  endDateFromDuration,
+  formatDateKey,
+} from "@/lib/dates";
+import {
   canCreateCalendarDayOff,
   canCreateCalendarRental,
   canCreateCalendarTask,
@@ -52,12 +56,54 @@ export function canCreateEntryKind(
   }
 }
 
+export function utcDateOnly(d: Date): Date {
+  return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+}
+
+export function localFromUtcDate(d: Date): Date {
+  return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+}
+
+export function serializeEntryDate(d: Date): string {
+  return formatDateKey(localFromUtcDate(d));
+}
+
+export function entrySpanUtc(start: Date, durationDays: number | null | undefined) {
+  const days = Math.max(1, Math.round(Number(durationDays) || 1));
+  return {
+    durationDays: days,
+    date: utcDateOnly(start),
+    endDate: utcDateOnly(endDateFromDuration(start, days)),
+  };
+}
+
+export function serializeCalendarEntry<
+  T extends { date: Date; endDate?: Date | null; durationDays?: number | null },
+>(entry: T) {
+  const end = entry.endDate ?? entry.date;
+  return {
+    ...entry,
+    date: serializeEntryDate(entry.date),
+    endDate: serializeEntryDate(end),
+    durationDays: Math.max(1, entry.durationDays || 1),
+  };
+}
+
+export function overlappingEntryWhere(from: Date, to: Date) {
+  return {
+    date: { lte: utcDateOnly(to) },
+    endDate: { gte: utcDateOnly(from) },
+  };
+}
+
 export function canMutateEntry(
   role: string | null | undefined,
   createdById: string,
   userId: string,
   kind: CalendarEntryKind,
 ): boolean {
+  // Выходные — кадровые записи: админ, менеджер и бригадир могут править чужие.
+  if (kind === "DAY_OFF") return canCreateCalendarDayOff(role);
   if (!canEditCalendarEntry(role, createdById, userId)) return false;
   // Brigadier may only edit kinds they can create
   if (role === "BRIGADIER") return canCreateEntryKind(role, kind);

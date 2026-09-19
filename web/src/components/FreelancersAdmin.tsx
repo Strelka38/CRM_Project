@@ -2,16 +2,19 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { DataCards, SortableTh, useTableSort } from "@/components/ui";
 import {
   DirectoryAddButton,
   DirectoryCardLink,
   DirectoryCsvMenu,
+  DirectoryMobileBar,
   DirectorySelectionActions,
   IconPlusPerson,
   downloadCsvExport,
   postBulkAction,
   uploadCsvImport,
 } from "@/components/DirectoryToolbar";
+import { cn } from "@/lib/cn";
 import { formatMoney } from "@/lib/format";
 
 type FreelancerRow = {
@@ -24,6 +27,23 @@ type FreelancerRow = {
   totalPay: number;
   specialties?: Array<{ id: string; name: string }>;
 };
+
+function freelancerSortValue(r: FreelancerRow, key: string) {
+  switch (key) {
+    case "name":
+      return r.name;
+    case "shifts":
+      return r.assignmentCount;
+    case "quotes":
+      return r.eventCount;
+    case "pay":
+      return r.totalPay;
+    case "status":
+      return r.active ? 1 : 0;
+    default:
+      return null;
+  }
+}
 
 export function FreelancersAdmin() {
   const [rows, setRows] = useState<FreelancerRow[]>([]);
@@ -38,6 +58,7 @@ export function FreelancersAdmin() {
   const [csvMessage, setCsvMessage] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const csvImportRef = useRef<HTMLInputElement>(null);
+  const { sorted, sort, onSort } = useTableSort(rows, freelancerSortValue);
 
   async function load(search = q) {
     const params = new URLSearchParams();
@@ -164,11 +185,13 @@ export function FreelancersAdmin() {
 
   return (
     <div className="w-full px-4 py-6 md:px-6">
-      <header className="mb-8 animate-fade-up">
+      <header className="animate-fade-up mb-5 md:mb-8">
         <p className="text-xs uppercase tracking-[0.15em] text-[var(--muted)]">
           База данных
         </p>
-        <h1 className="mt-1 text-3xl font-medium tracking-tight">Фрилансеры</h1>
+        <h1 className="mt-1 text-2xl font-medium tracking-tight md:text-3xl">
+          Фрилансеры
+        </h1>
         <p className="mt-1 text-sm text-[var(--muted)]">
           Справочник ФИО для автоподбора в смете и статистика выплат по
           назначениям.
@@ -176,7 +199,29 @@ export function FreelancersAdmin() {
       </header>
 
       <section className="rounded-xl border border-[var(--line)] bg-[var(--panel)]">
-        <div className="flex w-full items-center gap-2 border-b border-[var(--line)] px-4 py-3">
+        <DirectoryMobileBar
+          q={q}
+          onQ={setQ}
+          searchPlaceholder="Поиск по ФИО…"
+          primary={{
+            label: showCreate ? "Скрыть форму" : "Добавить фрилансера",
+            onClick: () => setShowCreate((v) => !v),
+          }}
+          sheetTitle="Фрилансеры"
+          csv={{
+            busy: csvBusy,
+            onExport: () => void exportCsv(),
+            onImport: () => csvImportRef.current?.click(),
+          }}
+          selection={{
+            count: selected.size,
+            busy,
+            onCopy: () => void bulk("copy"),
+            onDelete: () => setConfirmDelete(true),
+          }}
+        />
+
+        <div className="hidden w-full items-center gap-2 border-b border-[var(--line)] px-4 py-3 md:flex">
           <DirectoryAddButton
             title="+ Фрилансер"
             icon={<IconPlusPerson />}
@@ -202,18 +247,19 @@ export function FreelancersAdmin() {
               onImport={() => csvImportRef.current?.click()}
             />
           </div>
-          <input
-            ref={csvImportRef}
-            type="file"
-            accept=".csv,text/csv"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              e.target.value = "";
-              if (file) void importCsv(file);
-            }}
-          />
         </div>
+
+        <input
+          ref={csvImportRef}
+          type="file"
+          accept=".csv,text/csv"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = "";
+            if (file) void importCsv(file);
+          }}
+        />
         {csvMessage ? (
           <p className="border-b border-[var(--line)] px-4 py-2 text-xs text-[var(--muted)]">
             {csvMessage}
@@ -254,7 +300,64 @@ export function FreelancersAdmin() {
           </div>
         ) : null}
 
-        <div className="data-table-shell overflow-x-auto">
+        <div className="p-3 md:hidden">
+          <DataCards
+            items={sorted.map((r) => ({
+              id: r.id,
+              title: r.name,
+              subtitle: r.specialties?.length
+                ? r.specialties.map((s) => s.name).join(" · ")
+                : r.comment || undefined,
+              href: `/freelancers/${r.id}`,
+              fields: [
+                {
+                  label: "Статус",
+                  value: (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void patchFreelancer(r.id, { active: !r.active })
+                      }
+                      className={cn(
+                        "rounded-full border px-2 py-0.5 text-caption",
+                        r.active
+                          ? "border-[var(--accent)]/40 text-[var(--accent)]"
+                          : "border-[var(--danger)]/40 text-[var(--danger)]",
+                      )}
+                    >
+                      {r.active ? "Активен" : "Отключён"}
+                    </button>
+                  ),
+                },
+                {
+                  label: "Смены / КП",
+                  value: (
+                    <span className="tabular-nums">
+                      {r.assignmentCount} / {r.eventCount}
+                    </span>
+                  ),
+                },
+                ...(r.totalPay > 0
+                  ? [
+                      {
+                        label: "Выплаты",
+                        value: (
+                          <span className="tabular-nums">
+                            {formatMoney(r.totalPay)}
+                          </span>
+                        ),
+                      },
+                    ]
+                  : []),
+              ],
+            }))}
+            selectedIds={selected}
+            onToggleSelect={toggleOne}
+            emptyMessage="Фрилансеров пока нет"
+          />
+        </div>
+
+        <div className="data-table-shell hidden overflow-x-auto md:block">
           <table className="data-table w-full text-left text-sm">
             <thead className="bg-[var(--table-head)] text-xs uppercase text-[var(--muted)]">
               <tr>
@@ -266,16 +369,47 @@ export function FreelancersAdmin() {
                     aria-label="Выбрать все"
                   />
                 </th>
-                <th className="px-3 py-2 text-left">ФИО</th>
-                <th className="px-3 py-2 text-left">Смены</th>
-                <th className="px-3 py-2 text-left">КП</th>
-                <th className="px-3 py-2 text-right">Выплаты</th>
-                <th className="px-3 py-2 text-left">Статус</th>
+                <SortableTh
+                  label="ФИО"
+                  sortKey="name"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-3 py-2"
+                />
+                <SortableTh
+                  label="Смены"
+                  sortKey="shifts"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-3 py-2"
+                />
+                <SortableTh
+                  label="КП"
+                  sortKey="quotes"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-3 py-2"
+                />
+                <SortableTh
+                  label="Выплаты"
+                  sortKey="pay"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-3 py-2"
+                  align="right"
+                />
+                <SortableTh
+                  label="Статус"
+                  sortKey="status"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-3 py-2"
+                />
                 <th className="w-12 px-3 py-2 text-left" />
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
+              {sorted.map((r) => (
                 <tr
                   key={r.id}
                   className={`border-t border-[var(--line)] ${

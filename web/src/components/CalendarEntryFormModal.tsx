@@ -7,6 +7,7 @@ import {
   type PickedKit,
 } from "@/components/CatalogPicker";
 import { ClientQuickSearch, type PickedClient } from "@/components/ClientQuickSearch";
+import { DateRangePicker } from "@/components/DateRangePicker";
 import { Button, Modal } from "@/components/ui";
 import {
   ENTRY_KIND_LABELS,
@@ -40,6 +41,7 @@ type EntryPayload = {
   id: string;
   kind: CalendarEntryKind;
   date: string;
+  durationDays?: number;
   title: string;
   note: string;
   startTime: string | null;
@@ -88,8 +90,8 @@ export function CalendarEntryFormModal({
   const [newPhone, setNewPhone] = useState("");
   const [creatingClient, setCreatingClient] = useState(false);
   const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
-  const [startTime, setStartTime] = useState("09:00");
-  const [endTime, setEndTime] = useState("18:00");
+  const [rangeDate, setRangeDate] = useState(dateKey);
+  const [rangeDays, setRangeDays] = useState(1);
   const [lines, setLines] = useState<LineDraft[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -135,8 +137,8 @@ export function CalendarEntryFormModal({
       setNewPhone("");
       setAssigneeIds([]);
       setTaskSpecialtyId("");
-      setStartTime("09:00");
-      setEndTime("18:00");
+      setRangeDate(dateKey);
+      setRangeDays(1);
       setLines([]);
       setLoading(false);
       return;
@@ -156,8 +158,8 @@ export function CalendarEntryFormModal({
         setClientName(data.client?.companyName || "");
         setShowCreateClient(false);
         setAssigneeIds(data.assignees.map((a) => a.userId));
-        setStartTime(data.startTime || "09:00");
-        setEndTime(data.endTime || "18:00");
+        setRangeDate(data.date || dateKey);
+        setRangeDays(Math.max(1, data.durationDays || 1));
         setLines(
           data.lines.map((l) => ({
             catalogItemId: l.catalogItemId,
@@ -275,6 +277,11 @@ export function CalendarEntryFormModal({
     setSaving(true);
     setError("");
     try {
+      if (kind === "DAY_OFF" && !rangeDate) {
+        setError("Укажите даты");
+        setSaving(false);
+        return;
+      }
       const body: Record<string, unknown> = {
         date: dateKey,
         title,
@@ -292,8 +299,8 @@ export function CalendarEntryFormModal({
         body.assigneeIds = assigneeIds;
       }
       if (kind === "DAY_OFF") {
-        body.startTime = startTime;
-        body.endTime = endTime;
+        body.date = rangeDate;
+        body.durationDays = rangeDays;
       }
 
       const res = await fetch(
@@ -340,7 +347,9 @@ export function CalendarEntryFormModal({
           <p className="text-sm text-[var(--muted)]">Загрузка…</p>
         ) : (
           <div className="space-y-4">
-            <p className="text-sm text-[var(--muted)]">Дата: {dayLabel}</p>
+            {kind !== "DAY_OFF" ? (
+              <p className="text-sm text-[var(--muted)]">Дата: {dayLabel}</p>
+            ) : null}
 
             {kind === "TASK" && (
               <label className="block space-y-1">
@@ -561,26 +570,18 @@ export function CalendarEntryFormModal({
                     ))}
                   </select>
                 </label>
-                <div className="grid grid-cols-2 gap-3">
-                  <label className="block space-y-1">
-                    <span className="text-xs text-[var(--muted)]">С</span>
-                    <input
-                      type="time"
-                      className="field w-full"
-                      value={startTime}
-                      onChange={(e) => setStartTime(e.target.value)}
-                    />
-                  </label>
-                  <label className="block space-y-1">
-                    <span className="text-xs text-[var(--muted)]">До</span>
-                    <input
-                      type="time"
-                      className="field w-full"
-                      value={endTime}
-                      onChange={(e) => setEndTime(e.target.value)}
-                    />
-                  </label>
-                </div>
+                <DateRangePicker
+                  date={rangeDate}
+                  durationDays={rangeDays}
+                  onChange={(date, days) => {
+                    setRangeDate(date);
+                    setRangeDays(days);
+                  }}
+                  label="Даты"
+                  emptyLabel="Выберите даты…"
+                  inline
+                  dense
+                />
               </>
             )}
 

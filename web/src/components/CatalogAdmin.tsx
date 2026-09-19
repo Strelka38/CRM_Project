@@ -8,14 +8,17 @@ import {
   useState,
   type DragEvent,
   type MouseEvent,
+  type ReactNode,
 } from "react";
 import {
+  CATALOG_ADD_ACTIONS,
   CatalogAddToolbar,
   CatalogExportMenu,
   CatalogSelectionActions,
   type AddAction,
 } from "@/components/CatalogAddToolbar";
 import { Button } from "@/components/ui/Button";
+import { ActionSheet, SideDrawer, SortableTh, useTableSort } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import {
@@ -243,7 +246,7 @@ function CardProfileButton({
       type="button"
       title={label}
       aria-label={label}
-      className="inline-flex rounded-md p-1 text-[var(--accent)] hover:bg-[var(--header-hover)]"
+      className="tap-target inline-flex items-center gap-1.5 rounded-md text-sm text-[var(--accent)] hover:bg-[var(--header-hover)] md:p-1"
       onClick={onClick}
     >
       <svg
@@ -260,6 +263,8 @@ function CardProfileButton({
         <circle cx="12" cy="8" r="0.9" fill="currentColor" stroke="none" />
         <path d="M12 11v4" />
       </svg>
+      {/* На телефоне иконка без подписи не читается, на десктопе хватает title. */}
+      <span className="md:hidden">{label}</span>
     </button>
   );
 }
@@ -361,6 +366,10 @@ export function CatalogAdmin() {
   const [q, setQ] = useState("");
   const [drawer, setDrawer] = useState<DrawerItem | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  /** На телефоне дерево разделов живёт в выдвижном ящике, а не в колонке слева. */
+  const [treeOpen, setTreeOpen] = useState(false);
+  const [addSheetOpen, setAddSheetOpen] = useState(false);
+  const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(
@@ -663,6 +672,7 @@ export function CatalogAdmin() {
   const roots = byParent.get(null) ?? [];
 
   function selectFolder(path: string) {
+    setTreeOpen(false);
     setSelectedPath(path);
     setSelectedItemId(null);
     setSelectedKitId(null);
@@ -1501,7 +1511,7 @@ export function CatalogAdmin() {
         >
           <button
             type="button"
-            className="flex h-6 w-5 shrink-0 items-center justify-center text-caption text-[var(--muted)]"
+            className="flex h-9 w-9 shrink-0 items-center justify-center text-caption text-[var(--muted)] md:h-6 md:w-5"
             onClick={(e) => (canExpand ? toggleExpand(cat.path, e) : undefined)}
             aria-label={isOpen ? "Свернуть" : "Развернуть"}
           >
@@ -1729,11 +1739,321 @@ export function CatalogAdmin() {
     childFolders,
   ]);
 
+  const { sorted: sortedTableRows, sort, onSort } = useTableSort(
+    tableRows,
+    (row, key) => {
+      if (key === "id") {
+        if (row.kind === "item") return row.item.equipmentCode ?? row.item.id;
+        if (row.kind === "unit") return row.unit.unitNumber;
+        if (row.kind === "kit-part") {
+          const ci = row.part.catalogItem as { equipmentCode?: number | null; id: string };
+          return ci.equipmentCode ?? ci.id;
+        }
+        return "";
+      }
+      if (key === "name") {
+        if (row.kind === "folder") return row.cat.name;
+        if (row.kind === "item") return row.item.name;
+        if (row.kind === "kit") return row.kit.name;
+        if (row.kind === "kit-part") return row.part.catalogItem.name;
+        if (row.kind === "unit") return row.unit.label || String(row.unit.unitNumber);
+      }
+      if (key === "price") {
+        if (row.kind === "item") return row.item.basePrice;
+        if (row.kind === "kit") return row.kit.computedPrice;
+        if (row.kind === "kit-part") {
+          const ci = row.part.catalogItem as { basePrice?: number };
+          return (ci.basePrice ?? 0) * row.part.qty;
+        }
+        return null;
+      }
+      if (key === "qty") {
+        if (row.kind === "item") return row.item.stockQty;
+        if (row.kind === "kit") return row.kit.components.length;
+        if (row.kind === "folder")
+          return row.cat._count.items + row.cat._count.children + row.cat._count.kits;
+        if (row.kind === "kit-part") return row.part.qty;
+        if (row.kind === "unit") return 1;
+      }
+      return null;
+    },
+  );
+
+  /**
+   * Строка таблицы как карточка: на 390px пять колонок не помещаются,
+   * поэтому ID и количество уходят в подпись под названием.
+   */
+  function renderMobileRow(row: TableRow) {
+    const shell = (
+      key: string,
+      opts: {
+        checked?: boolean;
+        onCheck?: () => void;
+        glyph: ReactNode;
+        title: ReactNode;
+        meta?: ReactNode;
+        price?: string;
+        qty?: ReactNode;
+        actions?: ReactNode;
+      },
+    ) => (
+      <li
+        key={key}
+        className={`px-3 py-2.5 ${opts.checked ? "bg-[var(--selected)]/40" : ""}`}
+      >
+        <div className="flex items-start gap-2.5">
+          {opts.onCheck ? (
+            <input
+              type="checkbox"
+              checked={opts.checked ?? false}
+              onChange={opts.onCheck}
+              className="mt-1 size-4 shrink-0"
+              aria-label="Выбрать"
+            />
+          ) : (
+            <span className="mt-1 size-4 shrink-0" />
+          )}
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start gap-2">
+              <span className="mt-0.5 shrink-0 text-[var(--muted)]">
+                {opts.glyph}
+              </span>
+              <div className="min-w-0 flex-1">{opts.title}</div>
+            </div>
+            {opts.meta ? (
+              <p className="mt-0.5 text-caption text-[var(--muted)]">
+                {opts.meta}
+              </p>
+            ) : null}
+            {opts.price || opts.qty !== undefined ? (
+              <p className="mt-1 flex items-baseline gap-3 text-sm tabular-nums">
+                {opts.price ? <span>{opts.price}</span> : null}
+                {opts.qty !== undefined ? (
+                  <span className="text-[var(--muted)]">{opts.qty}</span>
+                ) : null}
+              </p>
+            ) : null}
+            {opts.actions ? (
+              <div className="mt-1.5 flex flex-wrap items-center gap-3">
+                {opts.actions}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </li>
+    );
+
+    if (row.kind === "folder") {
+      const { cat } = row;
+      return shell(`m-folder-${cat.id}`, {
+        checked: selectedCategoryIds.has(cat.id),
+        onCheck: () => toggleCategorySelected(cat.id),
+        glyph: <TypeGlyph kind="folder" />,
+        title: (
+          <button
+            type="button"
+            className="text-left font-semibold text-[var(--ink)]"
+            onClick={() => selectFolder(cat.path)}
+          >
+            {cat.name}
+          </button>
+        ),
+        meta: `${cat._count.children} разд. · ${cat._count.items} поз. · ${cat._count.kits} компл.`,
+      });
+    }
+
+    if (row.kind === "kit-part") {
+      const { kit, part } = row;
+      const ci = part.catalogItem;
+      return shell(`m-kit-part-${kit.id}-${ci.id}`, {
+        glyph: (
+          <TypeGlyph
+            kind={
+              "itemKind" in ci && typeof ci.itemKind === "string"
+                ? ci.itemKind
+                : "EQUIPMENT"
+            }
+          />
+        ),
+        title: <span className="font-semibold">{ci.name}</span>,
+        meta:
+          "equipmentCode" in ci && ci.equipmentCode
+            ? String(ci.equipmentCode)
+            : ci.id.slice(-6),
+        price: formatMoney(ci.basePrice),
+        qty: `${part.qty} шт.`,
+        actions: (
+          <CardProfileButton
+            label="Карточка"
+            onClick={() => setCardItemId(ci.id)}
+          />
+        ),
+      });
+    }
+
+    if (row.kind === "unit") {
+      const { unit, item } = row;
+      const article = formatUnitId(item.equipmentCode, unit.unitNumber);
+      return shell(`m-unit-${unit.id}`, {
+        checked: selectedUnitIds.has(unit.id),
+        onCheck: () => toggleUnitSelected(unit.id),
+        glyph: <TypeGlyph kind="unit" />,
+        title: (
+          <Link
+            href={`/q/${unit.qrToken}`}
+            target="_blank"
+            className="font-semibold text-[var(--ink)]"
+          >
+            {unit.label || `Ед. №${unit.unitNumber}`}
+            <FirmTag owners={unit.owner ? [unit.owner] : []} />
+          </Link>
+        ),
+        meta: article,
+        actions: (
+          <CardProfileButton
+            label="Карточка"
+            onClick={() => setCardItemId(item.id)}
+          />
+        ),
+      });
+    }
+
+    if (row.kind === "kit") {
+      const { kit } = row;
+      return shell(`m-kit-${kit.id}`, {
+        checked: selectedKitIds.has(kit.id),
+        onCheck: () => toggleKitSelected(kit.id),
+        glyph: <TypeGlyph kind="kit" />,
+        title: (
+          <button
+            type="button"
+            className="text-left font-semibold text-[var(--ink)]"
+            onClick={() => selectKit(kit)}
+          >
+            {kit.name}
+            {kit.showInCatalog !== true ? (
+              <span className="ml-1.5 rounded border border-[var(--line)] px-1 py-0.5 text-caption font-normal uppercase tracking-wide text-[var(--muted)]">
+                не в смете
+              </span>
+            ) : null}
+          </button>
+        ),
+        meta: `${kit.components.length} в составе`,
+        price: formatMoney(kit.computedPrice),
+        actions: (
+          <>
+            <button
+              type="button"
+              className="text-sm text-[var(--accent)]"
+              onClick={() => openEditKit(kit)}
+            >
+              Изменить
+            </button>
+            <button
+              type="button"
+              className="text-sm text-[var(--danger)]"
+              onClick={() => requestHideKit({ id: kit.id, name: kit.name })}
+            >
+              Удалить
+            </button>
+          </>
+        ),
+      });
+    }
+
+    const { item } = row;
+    const isEquipment = item.itemKind === "EQUIPMENT" || !item.itemKind;
+    return shell(`m-item-${item.id}`, {
+      checked: selectedItemIds.has(item.id),
+      onCheck: () => toggleItemSelected(item.id),
+      glyph: <TypeGlyph kind={item.itemKind || "EQUIPMENT"} />,
+      title: (
+        <button
+          type="button"
+          className="text-left font-semibold text-[var(--ink)]"
+          onClick={() => (isEquipment ? selectItem(item) : setDrawer(item))}
+        >
+          {item.name}
+          <FirmTag owners={item.owners} owner={item.owner} />
+          {item.showInCatalog === false ? (
+            <span className="ml-1.5 rounded border border-[var(--line)] px-1 py-0.5 text-caption font-normal uppercase tracking-wide text-[var(--muted)]">
+              не в смете
+            </span>
+          ) : null}
+        </button>
+      ),
+      meta: item.equipmentCode ?? item.id.slice(-6),
+      price: formatMoney(item.basePrice),
+      qty: `${item.stockQty} шт.`,
+      actions: isEquipment ? (
+        <CardProfileButton
+          label="Карточка"
+          onClick={() => setCardItemId(item.id)}
+        />
+      ) : (
+        <button
+          type="button"
+          className="text-sm text-[var(--danger)]"
+          onClick={() => requestHideItem({ id: item.id, name: item.name })}
+        >
+          Удалить
+        </button>
+      ),
+    });
+  }
+
+  /**
+   * Одно дерево на два места: колонка слева на десктопе и выдвижной ящик
+   * на телефоне. В ящике список занимает всю высоту, в колонке — ограничен.
+   */
+  function treePane(variant: "desktop" | "drawer") {
+    return (
+      <>
+        {dragging && (
+          <p className="mx-3 mt-2 rounded-md bg-[var(--accent)]/10 px-2 py-1.5 text-xs text-[var(--accent)]">
+            Отпустите на раздел, чтобы переместить «{dragging.name}»
+          </p>
+        )}
+        <div className="border-b border-[var(--line)] px-3 py-2">
+          <input
+            type="search"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Поиск"
+            className="field min-w-0 w-full py-1.5 text-sm"
+            autoComplete="off"
+          />
+          <p className="mt-1 text-caption text-[var(--muted)]">
+            {selectedLabel} · {tableRows.length} поз.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => selectFolder("")}
+          className={`mx-2 mt-2 rounded-md px-2 py-1.5 text-left text-sm ${!selectedPath && !selectedItemId && !selectedKitId ? "bg-[var(--selected)]" : "hover:bg-[var(--header-hover)]"}`}
+        >
+          Все разделы
+        </button>
+        <div
+          className={`catalog-tree flex-1 overflow-y-auto px-2 pb-2 text-sm ${
+            variant === "desktop" ? "max-h-[60vh]" : "min-h-0"
+          }`}
+        >
+          {roots.map((root, i) =>
+            renderNode(root, 0, i === roots.length - 1, i === 0, []),
+          )}
+        </div>
+      </>
+    );
+  }
+
   return (
     <div className="w-full px-4 py-6 md:px-6">
       <header className="mb-8 animate-fade-up">
         <p className="text-xs uppercase tracking-[0.15em] text-[var(--muted)]">CRM</p>
-        <h1 className="mt-1 text-3xl font-medium tracking-tight">Каталог</h1>
+        <h1 className="mt-1 text-2xl font-medium tracking-tight md:text-3xl">
+          Каталог
+        </h1>
         <p className="mt-1 text-sm text-[var(--muted)]">
           Структура разделов, позиции, комплекты и карточки оборудования.
           Комплектующие не попадают в каталог сметы.
@@ -1742,43 +2062,40 @@ export function CatalogAdmin() {
 
       <div className="grid w-full gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
         <aside
-          className={`flex min-h-0 flex-col overflow-hidden rounded-xl border bg-[var(--panel)] transition-colors ${
+          className={`hidden min-h-0 flex-col overflow-hidden rounded-xl border bg-[var(--panel)] transition-colors lg:flex ${
             dragging
               ? "border-[var(--accent)] border-dashed"
               : "border-[var(--line)]"
           }`}
         >
-          {dragging && (
-            <p className="mx-3 mt-2 rounded-md bg-[var(--accent)]/10 px-2 py-1.5 text-xs text-[var(--accent)]">
-              Отпустите на раздел, чтобы переместить «{dragging.name}»
-            </p>
-          )}
-          <div className="border-b border-[var(--line)] px-3 py-2">
-            <input
-              type="search"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Поиск"
-              className="field min-w-0 w-full py-1.5 text-sm"
-              autoComplete="off"
-            />
-            <p className="mt-1 text-caption text-[var(--muted)]">
-              {selectedLabel} · {tableRows.length} поз.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => selectFolder("")}
-            className={`mx-2 mt-2 rounded-md px-2 py-1.5 text-left text-sm ${!selectedPath && !selectedItemId && !selectedKitId ? "bg-[var(--selected)]" : "hover:bg-[var(--header-hover)]"}`}
-          >
-            Все разделы
-          </button>
-          <div className="catalog-tree max-h-[60vh] flex-1 overflow-y-auto px-2 pb-2 text-sm">
-            {roots.map((root, i) =>
-              renderNode(root, 0, i === roots.length - 1, i === 0, []),
-            )}
-          </div>
+          {treePane("desktop")}
         </aside>
+
+        <SideDrawer
+          open={treeOpen}
+          onClose={() => setTreeOpen(false)}
+          labelledBy="catalog-tree-sheet"
+          side="left"
+        >
+          <div className="flex min-h-0 flex-col">
+            <div className="flex items-center gap-2 border-b border-[var(--line)] px-4 py-3">
+              <h2
+                id="catalog-tree-sheet"
+                className="min-w-0 flex-1 truncate text-title font-medium"
+              >
+                Разделы
+              </h2>
+              <button
+                type="button"
+                onClick={() => setTreeOpen(false)}
+                className="tap-target -mr-1 rounded-md px-3 text-sm text-[var(--accent)]"
+              >
+                Готово
+              </button>
+            </div>
+            {treePane("drawer")}
+          </div>
+        </SideDrawer>
 
         <section className="rounded-xl border border-[var(--line)] bg-[var(--panel)]">
           <div className="border-b border-[var(--line)] px-4 py-2 text-xs uppercase tracking-wide text-[var(--muted)]">
@@ -1820,58 +2137,51 @@ export function CatalogAdmin() {
               </>
             ) : null}
           </div>
-          <div className="flex w-full items-center gap-2 border-b border-[var(--line)] px-4 py-3">
-            <CatalogAddToolbar onAction={onAddAction} />
-            {sectionDraft !== null ? (
-              <form
-                className="flex flex-wrap items-center gap-1"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  void createSection();
-                }}
+          <div className="flex flex-col gap-2 border-b border-[var(--line)] p-3 md:hidden">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setTreeOpen(true)}
+                className="field flex min-w-0 flex-1 items-center gap-2 text-left text-sm"
               >
-                <input
-                  autoFocus
-                  value={sectionDraft}
-                  onChange={(e) => setSectionDraft(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Escape") {
-                      setSectionDraft(null);
-                      setSectionError("");
-                    }
-                  }}
-                  placeholder={
-                    selectedPath
-                      ? `Подраздел в «${selectedPath.split("/").pop()}»`
-                      : "Название раздела"
-                  }
-                  className="field w-52 py-1 text-sm"
-                  disabled={sectionBusy}
-                />
-                <button
-                  type="submit"
-                  disabled={sectionBusy}
-                  className="rounded-md border border-[var(--line)] px-2 py-1 text-xs disabled:opacity-50"
+                <svg
+                  viewBox="0 0 24 24"
+                  className="size-4 shrink-0 text-[var(--muted)]"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  aria-hidden
                 >
-                  {sectionBusy ? "…" : "Создать"}
-                </button>
-                <button
-                  type="button"
-                  className="rounded-md px-2 py-1 text-xs text-[var(--muted)] hover:text-[var(--ink)]"
-                  onClick={() => {
-                    setSectionDraft(null);
-                    setSectionError("");
-                  }}
-                >
-                  Отмена
-                </button>
-                {sectionError ? (
-                  <span className="text-xs text-[var(--danger)]">
-                    {sectionError}
-                  </span>
-                ) : null}
-              </form>
+                  <path d="M3 7.5V6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-8.5" />
+                </svg>
+                <span className="truncate">
+                  {selectedPath ? selectedPath.split("/").pop() : "Все разделы"}
+                </span>
+                <span className="ml-auto shrink-0 text-caption text-[var(--muted)]">
+                  {tableRows.length}
+                </span>
+              </button>
+              <Button
+                variant="secondary"
+                onClick={() => setMobileMoreOpen(true)}
+                aria-label="Ещё действия"
+                className="shrink-0 px-3"
+              >
+                …
+              </Button>
+            </div>
+            <Button onClick={() => setAddSheetOpen(true)} className="w-full">
+              Добавить в каталог
+            </Button>
+            {selectedCount > 0 ? (
+              <p className="text-caption text-[var(--muted)]">
+                Выбрано: {selectedCount} — действия в меню «…»
+              </p>
             ) : null}
+          </div>
+
+          <div className="hidden w-full items-center gap-2 border-b border-[var(--line)] px-4 py-3 md:flex">
+            <CatalogAddToolbar onAction={onAddAction} />
             <div className="ml-auto flex items-center gap-1">
               <CatalogSelectionActions
                 count={selectedCount}
@@ -1891,25 +2201,87 @@ export function CatalogAdmin() {
                 onExportWarehouse={() => void exportWarehouseCsv()}
               />
             </div>
-            <input
-              ref={csvImportRef}
-              type="file"
-              accept=".csv,text/csv"
-              className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                e.target.value = "";
-                if (file) void importCsv(file);
-              }}
-            />
           </div>
+
+          {sectionDraft !== null ? (
+            <form
+              className="flex flex-wrap items-center gap-1 border-b border-[var(--line)] px-4 py-3"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void createSection();
+              }}
+            >
+              <input
+                autoFocus
+                value={sectionDraft}
+                onChange={(e) => setSectionDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    setSectionDraft(null);
+                    setSectionError("");
+                  }
+                }}
+                placeholder={
+                  selectedPath
+                    ? `Подраздел в «${selectedPath.split("/").pop()}»`
+                    : "Название раздела"
+                }
+                className="field w-full py-1 text-sm md:w-52"
+                disabled={sectionBusy}
+              />
+              <button
+                type="submit"
+                disabled={sectionBusy}
+                className="rounded-md border border-[var(--line)] px-2 py-1 text-xs disabled:opacity-50"
+              >
+                {sectionBusy ? "…" : "Создать"}
+              </button>
+              <button
+                type="button"
+                className="rounded-md px-2 py-1 text-xs text-[var(--muted)] hover:text-[var(--ink)]"
+                onClick={() => {
+                  setSectionDraft(null);
+                  setSectionError("");
+                }}
+              >
+                Отмена
+              </button>
+              {sectionError ? (
+                <span className="text-xs text-[var(--danger)]">
+                  {sectionError}
+                </span>
+              ) : null}
+            </form>
+          ) : null}
+
+          <input
+            ref={csvImportRef}
+            type="file"
+            accept=".csv,text/csv"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (file) void importCsv(file);
+            }}
+          />
           {csvMessage ? (
             <p className="border-b border-[var(--line)] px-4 py-2 text-xs text-[var(--muted)]">
               {csvMessage}
             </p>
           ) : null}
 
-          <div className="data-table-shell overflow-x-auto">
+          <ul className="divide-y divide-[var(--line)] md:hidden">
+            {sortedTableRows.length === 0 ? (
+              <li className="px-4 py-10 text-center text-sm text-[var(--muted)]">
+                Нет позиций в этом разделе
+              </li>
+            ) : (
+              sortedTableRows.map((row) => renderMobileRow(row))
+            )}
+          </ul>
+
+          <div className="data-table-shell hidden overflow-x-auto md:block">
             <table className="data-table w-full text-sm">
               <thead className="bg-[var(--table-head)] text-xs uppercase text-[var(--muted)]">
                 <tr>
@@ -1940,17 +2312,39 @@ export function CatalogAdmin() {
                       aria-label="Выбрать все"
                     />
                   </th>
-                  <th className="w-16 px-2 py-2 text-left">ID</th>
-                  <th className="min-w-[14rem] px-3 py-2 text-left">
-                    Наименование
-                  </th>
-                  <th className="w-24 px-2 py-2">Цена</th>
-                  <th className="w-16 px-2 py-2">Кол-во</th>
+                  <SortableTh
+                    label="ID"
+                    sortKey="id"
+                    state={sort}
+                    onSort={onSort}
+                    className="w-16 px-2 py-2"
+                  />
+                  <SortableTh
+                    label="Наименование"
+                    sortKey="name"
+                    state={sort}
+                    onSort={onSort}
+                    className="min-w-[14rem] px-3 py-2"
+                  />
+                  <SortableTh
+                    label="Цена"
+                    sortKey="price"
+                    state={sort}
+                    onSort={onSort}
+                    className="w-24 px-2 py-2"
+                  />
+                  <SortableTh
+                    label="Кол-во"
+                    sortKey="qty"
+                    state={sort}
+                    onSort={onSort}
+                    className="w-16 px-2 py-2"
+                  />
                   <th className="w-12 px-2 py-2" />
                 </tr>
               </thead>
               <tbody>
-                {tableRows.length === 0 ? (
+                {sortedTableRows.length === 0 ? (
                   <tr>
                     <td
                       colSpan={6}
@@ -1960,7 +2354,7 @@ export function CatalogAdmin() {
                     </td>
                   </tr>
                 ) : (
-                  tableRows.map((row) => {
+                  sortedTableRows.map((row) => {
                     if (row.kind === "folder") {
                       const { cat } = row;
                       const isRenaming = renamingId === cat.id;
@@ -2137,7 +2531,14 @@ export function CatalogAdmin() {
                               onClick={() => selectKit(kit)}
                             >
                               <TypeGlyph kind="kit" />
-                              {kit.name}
+                              <span className="min-w-0">
+                                {kit.name}
+                                {kit.showInCatalog !== true ? (
+                                  <span className="ml-1.5 rounded border border-[var(--line)] px-1 py-0.5 text-caption font-normal uppercase tracking-wide text-[var(--muted)]">
+                                    не в смете
+                                  </span>
+                                ) : null}
+                              </span>
                             </button>
                             <div className="mt-0.5 text-xs text-[var(--muted)]">
                               <span
@@ -2269,6 +2670,92 @@ export function CatalogAdmin() {
           </div>
         </section>
       </div>
+
+      <ActionSheet
+        open={addSheetOpen}
+        onClose={() => setAddSheetOpen(false)}
+        title="Добавить в каталог"
+        groups={[
+          {
+            items: CATALOG_ADD_ACTIONS.map((a) => ({
+              label: a.title.replace(/^\+\s*/, ""),
+              onSelect: () => onAddAction(a.id),
+            })),
+          },
+        ]}
+      />
+
+      <ActionSheet
+        open={mobileMoreOpen}
+        onClose={() => setMobileMoreOpen(false)}
+        title={
+          selectedCount > 0 ? `Выбрано: ${selectedCount}` : "Каталог"
+        }
+        groups={[
+          ...(selectedCount > 0
+            ? [
+                {
+                  items: [
+                    {
+                      label: "Печать QR",
+                      onSelect: printSelectedQr,
+                    },
+                    {
+                      label: "Вырезать",
+                      onSelect: cutSelection,
+                    },
+                    ...(selectedCategoryIds.size === 1
+                      ? [
+                          {
+                            label: "Переименовать раздел",
+                            onSelect: renameSelectedFolder,
+                          },
+                        ]
+                      : []),
+                    {
+                      label: "Удалить",
+                      danger: true,
+                      disabled: bulkBusy,
+                      onSelect: () => void bulkAction("delete"),
+                    },
+                  ],
+                },
+              ]
+            : []),
+          ...(clipboard
+            ? [
+                {
+                  items: [
+                    {
+                      label: `Вставить: ${clipboard.label}`,
+                      onSelect: () => void pasteClipboard(),
+                    },
+                  ],
+                },
+              ]
+            : []),
+          {
+            title: "Файлы",
+            items: [
+              {
+                label: "Экспорт CSV",
+                disabled: csvBusy,
+                onSelect: () => void exportCsv(),
+              },
+              {
+                label: "Импорт CSV",
+                disabled: csvBusy,
+                onSelect: () => csvImportRef.current?.click(),
+              },
+              {
+                label: "Складской отчёт",
+                disabled: csvBusy,
+                onSelect: () => void exportWarehouseCsv(),
+              },
+            ],
+          },
+        ]}
+      />
 
       <ItemDrawer
         item={drawer}

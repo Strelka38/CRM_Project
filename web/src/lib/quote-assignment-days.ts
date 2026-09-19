@@ -236,7 +236,10 @@ export function formatZoneDateHint(
   return first === last ? first : `${first} – ${last}`;
 }
 
-/** Слоты дня: свои dayIndex, иначе общие (null). */
+/**
+ * Слоты дня: подневные (dayIndex) плюс общие (null).
+ * Один техник на день не должен выкидывать спецов с dayIndex = null.
+ */
 export function effectiveEventAssignments<T extends DayAssignmentLike>(
   assignments: T[],
   dayIndex: number,
@@ -248,15 +251,18 @@ export function effectiveEventAssignments<T extends DayAssignmentLike>(
     return event.filter((a) => normDayIndex(a.dayIndex) == null);
   }
   const perDay = event.filter((a) => normDayIndex(a.dayIndex) === day);
-  if (perDay.length > 0) return perDay;
-  if (opts?.zones == null && opts?.eventDays == null) {
-    return event.filter((a) => normDayIndex(a.dayIndex) == null);
-  }
+  const useZones = opts?.zones != null || opts?.eventDays != null;
   const eventDays = workingDayCount(opts?.eventDays);
-  return event.filter((a) => {
+  const shared = event.filter((a) => {
     if (normDayIndex(a.dayIndex) != null) return false;
+    if (!useZones) return true;
     return assignmentCoveredDays(a, eventDays, opts?.zones).includes(day);
   });
+  const perDayKeys = new Set(perDay.map(assignmentDayFingerprint));
+  const sharedKept = shared.filter(
+    (a) => !perDayKeys.has(assignmentDayFingerprint(a)),
+  );
+  return [...sharedKept, ...perDay];
 }
 
 function personKey(a: DayAssignmentLike): string {

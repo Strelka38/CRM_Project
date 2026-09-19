@@ -7,6 +7,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { ActionSheet, Button, type ActionSheetGroup } from "@/components/ui";
 import { cn } from "@/lib/cn";
 
 const ICON_BTN =
@@ -349,6 +350,177 @@ export function DirectoryCsvMenu({
         </div>
       ) : null}
     </div>
+  );
+}
+
+function IconKebab() {
+  return (
+    <svg viewBox="0 0 24 24" className="size-5" fill="currentColor" aria-hidden>
+      <circle cx="5" cy="12" r="1.6" />
+      <circle cx="12" cy="12" r="1.6" />
+      <circle cx="19" cy="12" r="1.6" />
+    </svg>
+  );
+}
+
+/**
+ * Тулбар справочника на мобильном: поиск на всю ширину, одно главное действие
+ * кнопкой, остальное — в шите с подписями.
+ *
+ * Стоит рядом с десктопным тулбаром (`md:hidden` против `hidden md:flex`), а не
+ * вместо него: на десктопе иконки с `title` быстрее, чем шит в два тапа.
+ */
+export function DirectoryMobileBar({
+  q,
+  onQ,
+  searchPlaceholder,
+  filter,
+  primary,
+  sheetTitle,
+  groups = [],
+  csv,
+  selection,
+}: {
+  /** Без `onQ` строка поиска не рисуется — не во всех справочниках она есть. */
+  q?: string;
+  onQ?: (value: string) => void;
+  searchPlaceholder?: string;
+  /** Свой фильтр на всю ширину над кнопками: выбор периода, статуса. */
+  filter?: ReactNode;
+  /** Главное действие — обычно «добавить». Остаётся кнопкой, а не уходит в шит. */
+  primary?: { label: string; onClick: () => void };
+  sheetTitle: string;
+  /** Группы поверх стандартной «Таблица» с CSV. */
+  groups?: ActionSheetGroup[];
+  csv?: { busy?: boolean; onExport: () => void; onImport?: () => void };
+  selection?: {
+    count: number;
+    busy?: boolean;
+    onCopy?: () => void;
+    onDelete?: () => void;
+    deleteLabel?: string;
+    /** Свои массовые операции отдельной строкой под счётчиком. */
+    extra?: ReactNode;
+  };
+}) {
+  const [sheetOpen, setSheetOpen] = useState(false);
+
+  const sheetGroups: ActionSheetGroup[] = [
+    ...groups,
+    ...(csv
+      ? [
+          {
+            title: "Таблица",
+            items: [
+              {
+                label: csv.busy ? "Экспорт CSV…" : "Экспорт CSV",
+                disabled: csv.busy,
+                onSelect: csv.onExport,
+              },
+              ...(csv.onImport
+                ? [
+                    {
+                      label: csv.busy ? "Импорт CSV…" : "Импорт CSV",
+                      disabled: csv.busy,
+                      onSelect: csv.onImport,
+                    },
+                  ]
+                : []),
+            ],
+          },
+        ]
+      : []),
+  ];
+
+  const count = selection?.count ?? 0;
+
+  const kebab =
+    sheetGroups.length > 0 ? (
+      <Button
+        variant="icon"
+        className="tap-target shrink-0 px-3"
+        aria-label="Ещё действия"
+        onClick={() => setSheetOpen(true)}
+      >
+        <IconKebab />
+      </Button>
+    ) : null;
+
+  return (
+    <>
+      <div className="flex flex-col gap-2 border-b border-[var(--line)] px-3 py-3 md:hidden">
+        {onQ ? (
+          <div className="flex items-center gap-2">
+            <input
+              type="search"
+              className="field min-w-0 flex-1 text-sm"
+              placeholder={searchPlaceholder}
+              value={q ?? ""}
+              onChange={(e) => onQ(e.target.value)}
+            />
+            {kebab}
+          </div>
+        ) : null}
+
+        {filter}
+
+        {/* Без поиска кебабу некуда встать — сажаем его в ряд с главной
+            кнопкой, иначе он висит отдельной строкой у правого края. */}
+        {primary || (!onQ && kebab) ? (
+          <div className="flex items-center gap-2">
+            {primary ? (
+              <Button
+                variant="secondary"
+                className="tap-target min-w-0 flex-1"
+                onClick={primary.onClick}
+              >
+                {primary.label}
+              </Button>
+            ) : null}
+            {onQ ? null : kebab}
+          </div>
+        ) : null}
+
+        {count > 0 ? (
+          <div className="animate-fade-up flex flex-col gap-2 rounded-md border border-[var(--accent)]/30 bg-[var(--selected)] px-3 py-1.5">
+            <div className="flex items-center gap-2">
+              <span className="text-sm">Выбрано: {count}</span>
+              {selection?.onCopy ? (
+                <button
+                  type="button"
+                  disabled={selection.busy}
+                  onClick={selection.onCopy}
+                  className="tap-target ml-auto px-2 text-sm text-[var(--ink)] disabled:opacity-40"
+                >
+                  Копировать
+                </button>
+              ) : null}
+              {selection?.onDelete ? (
+                <button
+                  type="button"
+                  disabled={selection.busy}
+                  onClick={selection.onDelete}
+                  className={cn(
+                    "tap-target px-2 text-sm text-[var(--danger)] disabled:opacity-40",
+                    !selection.onCopy && "ml-auto",
+                  )}
+                >
+                  {selection.deleteLabel ?? "Отключить"}
+                </button>
+              ) : null}
+            </div>
+            {selection?.extra}
+          </div>
+        ) : null}
+      </div>
+
+      <ActionSheet
+        open={sheetOpen}
+        onClose={() => setSheetOpen(false)}
+        title={sheetTitle}
+        groups={sheetGroups}
+      />
+    </>
   );
 }
 

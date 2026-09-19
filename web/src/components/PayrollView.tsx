@@ -16,7 +16,9 @@ import {
   Card,
   EmptyState,
   PageHeader,
+  SortableTh,
   StatusBadge,
+  useTableSort,
   type LifecycleStatus,
 } from "@/components/ui";
 import {
@@ -28,6 +30,7 @@ import {
   PayrollCompositionChart,
   PayrollEventsChart,
 } from "@/components/StatisticsCharts";
+import { dateSortValue } from "@/lib/table-sort";
 
 type Row = {
   id: string;
@@ -71,6 +74,38 @@ type AgencyRow = {
     place: string;
   };
 };
+
+function payrollSortValue(r: Row, key: string) {
+  switch (key) {
+    case "event":
+      return r.quote.eventName;
+    case "date":
+      return dateSortValue(r.quote.date);
+    case "role":
+      return r.specialty.name;
+    case "payMode":
+      return r.payMode;
+    case "amount":
+      return r.pay + (r.montageAmount ?? 0);
+    default:
+      return null;
+  }
+}
+
+function agencySortValue(r: AgencyRow, key: string) {
+  switch (key) {
+    case "event":
+      return r.quote.eventName;
+    case "date":
+      return dateSortValue(r.quote.date);
+    case "companies":
+      return r.byCompany.map((c) => c.short).join(" ");
+    case "amount":
+      return r.agencyTotal;
+    default:
+      return null;
+  }
+}
 
 type PayrollData = {
   confirmed: Row[];
@@ -555,6 +590,7 @@ function Section({
   rows: Row[];
   className?: string;
 }) {
+  const { sorted, sort, onSort } = useTableSort(rows, payrollSortValue);
   return (
     <section
       className={`rounded-xl border border-[var(--line)] bg-[var(--panel)] ${className}`}
@@ -579,16 +615,47 @@ function Section({
           <table className="data-table w-full min-w-[600px] text-sm">
             <thead className="bg-[var(--table-head)] text-xs uppercase text-[var(--muted)]">
               <tr>
-                <th className="px-4 py-2 text-left">Мероприятие</th>
-                <th className="px-3 py-2 text-left">Дата</th>
-                <th className="px-3 py-2 text-left">Должность</th>
-                <th className="px-3 py-2 text-left">Расчёт</th>
-                <th className="px-3 py-2 text-right">Сумма</th>
+                <SortableTh
+                  label="Мероприятие"
+                  sortKey="event"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-4 py-2"
+                />
+                <SortableTh
+                  label="Дата"
+                  sortKey="date"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-3 py-2"
+                />
+                <SortableTh
+                  label="Должность"
+                  sortKey="role"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-3 py-2"
+                />
+                <SortableTh
+                  label="Расчёт"
+                  sortKey="payMode"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-3 py-2"
+                />
+                <SortableTh
+                  label="Сумма"
+                  sortKey="amount"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-3 py-2"
+                  align="right"
+                />
                 <th className="w-12 px-3 py-2 text-left" />
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => {
+              {sorted.map((r) => {
                 const life = asLifecycle(r.quote.lifecycle);
                 return (
                   <tr
@@ -652,6 +719,7 @@ function AgencySection({
   rows: AgencyRow[];
   className?: string;
 }) {
+  const { sorted, sort, onSort } = useTableSort(rows, agencySortValue);
   return (
     <section
       className={`rounded-xl border border-[var(--line)] bg-[var(--panel)] ${className}`}
@@ -674,15 +742,40 @@ function AgencySection({
           <table className="data-table w-full min-w-[560px] text-sm">
             <thead className="bg-[var(--table-head)] text-xs uppercase text-[var(--muted)]">
               <tr>
-                <th className="px-4 py-2 text-left">Мероприятие</th>
-                <th className="px-3 py-2 text-left">Дата</th>
-                <th className="px-3 py-2 text-left">По фирмам</th>
-                <th className="px-3 py-2 text-right">Агентские 5%</th>
+                <SortableTh
+                  label="Мероприятие"
+                  sortKey="event"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-4 py-2"
+                />
+                <SortableTh
+                  label="Дата"
+                  sortKey="date"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-3 py-2"
+                />
+                <SortableTh
+                  label="По фирмам"
+                  sortKey="companies"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-3 py-2"
+                />
+                <SortableTh
+                  label="Агентские 5%"
+                  sortKey="amount"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-3 py-2"
+                  align="right"
+                />
                 <th className="w-12 px-3 py-2 text-left" />
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => {
+              {sorted.map((r) => {
                 const life = asLifecycle(r.quote.lifecycle);
                 return (
                   <tr

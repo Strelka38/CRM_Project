@@ -16,6 +16,8 @@ type SideDrawerProps = {
   wide?: boolean;
   /** Desktop: панель слева. На мобильном по-прежнему снизу. */
   side?: "left" | "right";
+  /** Без оверлея: колонка внутри календаря. */
+  embedded?: boolean;
 };
 
 export function SideDrawer({
@@ -28,6 +30,7 @@ export function SideDrawer({
   closeOnEscape = true,
   wide = false,
   side = "right",
+  embedded = false,
 }: SideDrawerProps) {
   const [mounted, setMounted] = useState(false);
   const [present, setPresent] = useState(false);
@@ -61,7 +64,7 @@ export function SideDrawer({
   }, [open, present]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || embedded) return;
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape" && closeOnEscape) onClose();
     }
@@ -72,7 +75,21 @@ export function SideDrawer({
       document.removeEventListener("keydown", onKey);
       document.body.style.overflow = prev;
     };
-  }, [open, onClose, closeOnEscape]);
+  }, [open, onClose, closeOnEscape, embedded]);
+
+  if (embedded) {
+    if (!open) return null;
+    return (
+      <div
+        role="dialog"
+        aria-modal="false"
+        aria-labelledby={labelledBy}
+        className={cn("flex h-full min-h-0 flex-col", className)}
+      >
+        {children}
+      </div>
+    );
+  }
 
   if (!mounted || !present) return null;
 

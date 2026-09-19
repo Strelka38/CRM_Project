@@ -12,13 +12,15 @@ import {
   ProfitStructureChart,
   ProjectsBarChart,
 } from "@/components/StatisticsCharts";
-import { Card, EmptyState, PageHeader, StatusBadge, lifecycleLabel } from "@/components/ui";
+import { Card, EmptyState, PageHeader, SortableTh, StatusBadge, lifecycleLabel, useTableSort } from "@/components/ui";
 import type { LifecycleStatus } from "@/components/ui";
 import {
   DirectoryCardLink,
   DirectoryCsvMenu,
   downloadCsvRows,
 } from "@/components/DirectoryToolbar";
+
+import { dateSortValue } from "@/lib/table-sort";
 
 type CompanyStat = {
   company: string;
@@ -118,6 +120,85 @@ type StatsData = {
 
 type ProfitMode = "overall" | "companies";
 
+function projectSortValue(p: ProjectRow, key: string) {
+  switch (key) {
+    case "project":
+      return `${p.proposalNumber} ${p.eventName}`;
+    case "date":
+      return dateSortValue(p.date);
+    case "client":
+      return p.client;
+    case "lifecycle":
+      return lifecycleLabel(p.lifecycle);
+    case "revenue":
+      return p.revenue;
+    case "labor":
+      return p.laborCost;
+    case "profit":
+      return p.profit;
+    case "shm":
+      return p.byCompany?.find((c) => c.company === "SHOW_MASTER")?.profit ?? 0;
+    case "dk":
+      return p.byCompany?.find((c) => c.company === "DIAKOM")?.profit ?? 0;
+    case "ne":
+      return p.byCompany?.find((c) => c.company === "NE_EVENT")?.profit ?? 0;
+    case "cash":
+      return p.cashRevenue ?? 0;
+    default:
+      return null;
+  }
+}
+
+function payrollPersonSortValue(
+  e: {
+    userId: string;
+    name: string;
+    confirmed: number;
+    pending: number;
+    confirmedShifts?: number;
+    pendingShifts?: number;
+  },
+  key: string,
+) {
+  switch (key) {
+    case "name":
+      return e.name;
+    case "confirmed":
+      return e.confirmed;
+    case "pending":
+      return e.pending;
+    case "total":
+      return e.confirmed + e.pending;
+    case "shifts":
+      return (e.confirmedShifts ?? 0) + (e.pendingShifts ?? 0);
+    default:
+      return null;
+  }
+}
+
+function payrollRowSortValue(r: PayrollRow, key: string) {
+  switch (key) {
+    case "person":
+      return r.user.name;
+    case "event":
+      return r.quote.eventName;
+    case "date":
+      return dateSortValue(r.quote.date);
+    case "place":
+      return r.quote.place;
+    case "role":
+      return r.specialty.name;
+    case "lifecycle":
+      return lifecycleLabel(r.quote.lifecycle);
+    case "payMode":
+      return r.payMode;
+    case "amount":
+      return r.pay ?? 0;
+    default:
+      return null;
+  }
+}
+
 export function StatisticsView() {
   const [period, setPeriod] = useState<StatsPeriod>("month");
   const [profitMode, setProfitMode] = useState<ProfitMode>("overall");
@@ -158,10 +239,16 @@ export function StatisticsView() {
   }, [period, userId, data?.hidePay]);
 
   const projects = data?.profitability?.projects ?? [];
+  const { sorted: sortedProjects, sort: projectSort, onSort: onProjectSort } =
+    useTableSort(projects, projectSortValue);
   const allProjectsSelected =
     projects.length > 0 && projects.every((p) => selectedProjects.has(p.id));
   const payrollRows = data?.payroll.rows ?? [];
   const payrollPeople = data?.payroll.byEmployee ?? [];
+  const { sorted: sortedPayrollPeople, sort: payrollPeopleSort, onSort: onPayrollPeopleSort } =
+    useTableSort(payrollPeople, payrollPersonSortValue);
+  const { sorted: sortedPayrollRows, sort: payrollRowSort, onSort: onPayrollRowSort } =
+    useTableSort(payrollRows, payrollRowSortValue);
   const payrollKeys = userId
     ? payrollRows.map((r) => r.id)
     : payrollPeople.map((e) => e.userId);
@@ -467,18 +554,60 @@ export function StatisticsView() {
                                 aria-label="Выбрать все проекты"
                               />
                             </th>
-                            <th className="px-4 py-3">Проект</th>
-                            <th className="px-4 py-3">Дата</th>
-                            <th className="px-4 py-3">Клиент</th>
-                            <th className="px-4 py-3">Статус</th>
-                            <th className="px-4 py-3 text-left">Выручка</th>
-                            <th className="px-4 py-3 text-left">ЗП</th>
-                            <th className="px-4 py-3 text-left">Прибыль</th>
+                            <SortableTh
+                              label="Проект"
+                              sortKey="project"
+                              state={projectSort}
+                              onSort={onProjectSort}
+                              className="px-4 py-3"
+                            />
+                            <SortableTh
+                              label="Дата"
+                              sortKey="date"
+                              state={projectSort}
+                              onSort={onProjectSort}
+                              className="px-4 py-3"
+                            />
+                            <SortableTh
+                              label="Клиент"
+                              sortKey="client"
+                              state={projectSort}
+                              onSort={onProjectSort}
+                              className="px-4 py-3"
+                            />
+                            <SortableTh
+                              label="Статус"
+                              sortKey="lifecycle"
+                              state={projectSort}
+                              onSort={onProjectSort}
+                              className="px-4 py-3"
+                            />
+                            <SortableTh
+                              label="Выручка"
+                              sortKey="revenue"
+                              state={projectSort}
+                              onSort={onProjectSort}
+                              className="px-4 py-3"
+                            />
+                            <SortableTh
+                              label="ЗП"
+                              sortKey="labor"
+                              state={projectSort}
+                              onSort={onProjectSort}
+                              className="px-4 py-3"
+                            />
+                            <SortableTh
+                              label="Прибыль"
+                              sortKey="profit"
+                              state={projectSort}
+                              onSort={onProjectSort}
+                              className="px-4 py-3"
+                            />
                             <th className="w-12 px-3 py-2 text-left" />
                           </tr>
                         </thead>
                         <tbody>
-                          {data.profitability.projects.map((p) => (
+                          {sortedProjects.map((p) => (
                             <tr
                               key={p.id}
                               className={`border-t border-[var(--line)] transition-colors hover:bg-subtle ${
@@ -627,16 +756,46 @@ export function StatisticsView() {
                                 aria-label="Выбрать все проекты"
                               />
                             </th>
-                            <th className="px-4 py-3">Проект</th>
-                            <th className="px-4 py-3 text-left">ШМ</th>
-                            <th className="px-4 py-3 text-left">ДК</th>
-                            <th className="px-4 py-3 text-left">NE</th>
-                            <th className="px-4 py-3 text-left">Итого нал.</th>
+                            <SortableTh
+                              label="Проект"
+                              sortKey="project"
+                              state={projectSort}
+                              onSort={onProjectSort}
+                              className="px-4 py-3"
+                            />
+                            <SortableTh
+                              label="ШМ"
+                              sortKey="shm"
+                              state={projectSort}
+                              onSort={onProjectSort}
+                              className="px-4 py-3"
+                            />
+                            <SortableTh
+                              label="ДК"
+                              sortKey="dk"
+                              state={projectSort}
+                              onSort={onProjectSort}
+                              className="px-4 py-3"
+                            />
+                            <SortableTh
+                              label="NE"
+                              sortKey="ne"
+                              state={projectSort}
+                              onSort={onProjectSort}
+                              className="px-4 py-3"
+                            />
+                            <SortableTh
+                              label="Итого нал."
+                              sortKey="cash"
+                              state={projectSort}
+                              onSort={onProjectSort}
+                              className="px-4 py-3"
+                            />
                             <th className="w-12 px-3 py-2 text-left" />
                           </tr>
                         </thead>
                         <tbody>
-                          {data.profitability.projects.map((p) => {
+                          {sortedProjects.map((p) => {
                             const by = Object.fromEntries(
                               (p.byCompany ?? []).map((c) => [c.company, c]),
                             );
@@ -782,16 +941,38 @@ export function StatisticsView() {
                                 aria-label="Выбрать всех сотрудников"
                               />
                             </th>
-                            <th className="px-4 py-3">Сотрудник</th>
-                            <th className="px-4 py-3 text-left">
-                              Подтверждено
-                            </th>
-                            <th className="px-4 py-3 text-left">Ожидается</th>
-                            <th className="px-4 py-3 text-left">Итого</th>
+                            <SortableTh
+                              label="Сотрудник"
+                              sortKey="name"
+                              state={payrollPeopleSort}
+                              onSort={onPayrollPeopleSort}
+                              className="px-4 py-3"
+                            />
+                            <SortableTh
+                              label="Подтверждено"
+                              sortKey="confirmed"
+                              state={payrollPeopleSort}
+                              onSort={onPayrollPeopleSort}
+                              className="px-4 py-3"
+                            />
+                            <SortableTh
+                              label="Ожидается"
+                              sortKey="pending"
+                              state={payrollPeopleSort}
+                              onSort={onPayrollPeopleSort}
+                              className="px-4 py-3"
+                            />
+                            <SortableTh
+                              label="Итого"
+                              sortKey="total"
+                              state={payrollPeopleSort}
+                              onSort={onPayrollPeopleSort}
+                              className="px-4 py-3"
+                            />
                           </tr>
                         </thead>
                         <tbody>
-                          {data.payroll.byEmployee.map((e) => (
+                          {sortedPayrollPeople.map((e) => (
                             <tr
                               key={e.userId}
                               className={`border-t border-[var(--line)] transition-colors hover:bg-subtle ${
@@ -865,17 +1046,53 @@ export function StatisticsView() {
                                 aria-label="Выбрать все начисления"
                               />
                             </th>
-                            <th className="px-4 py-3">Мероприятие</th>
-                            <th className="px-4 py-3">Дата</th>
-                            <th className="px-4 py-3">Должность</th>
-                            <th className="px-4 py-3">Статус</th>
-                            <th className="px-4 py-3">Расчёт</th>
-                            <th className="px-4 py-3 text-left">Сумма</th>
+                            <SortableTh
+                              label="Мероприятие"
+                              sortKey="event"
+                              state={payrollRowSort}
+                              onSort={onPayrollRowSort}
+                              className="px-4 py-3"
+                            />
+                            <SortableTh
+                              label="Дата"
+                              sortKey="date"
+                              state={payrollRowSort}
+                              onSort={onPayrollRowSort}
+                              className="px-4 py-3"
+                            />
+                            <SortableTh
+                              label="Должность"
+                              sortKey="role"
+                              state={payrollRowSort}
+                              onSort={onPayrollRowSort}
+                              className="px-4 py-3"
+                            />
+                            <SortableTh
+                              label="Статус"
+                              sortKey="lifecycle"
+                              state={payrollRowSort}
+                              onSort={onPayrollRowSort}
+                              className="px-4 py-3"
+                            />
+                            <SortableTh
+                              label="Расчёт"
+                              sortKey="payMode"
+                              state={payrollRowSort}
+                              onSort={onPayrollRowSort}
+                              className="px-4 py-3"
+                            />
+                            <SortableTh
+                              label="Сумма"
+                              sortKey="amount"
+                              state={payrollRowSort}
+                              onSort={onPayrollRowSort}
+                              className="px-4 py-3"
+                            />
                             <th className="w-12 px-3 py-2 text-left" />
                           </tr>
                         </thead>
                         <tbody>
-                          {data.payroll.rows.map((r) => (
+                          {sortedPayrollRows.map((r) => (
                             <tr
                               key={r.id}
                               className={`border-t border-[var(--line)] transition-colors hover:bg-subtle ${
@@ -972,6 +1189,8 @@ function WorkloadSection({ data }: { data: StatsData }) {
     const set = new Set(picked);
     return people.filter((e) => set.has(e.userId));
   }, [people, picked]);
+  const { sorted: sortedPeople, sort: peopleSort, onSort: onPeopleSort } =
+    useTableSort(selected, payrollPersonSortValue);
 
   const selectedIds = useMemo(
     () => new Set(selected.map((e) => e.userId)),
@@ -1069,15 +1288,45 @@ function WorkloadSection({ data }: { data: StatsData }) {
             <table className="data-table w-full min-w-[560px] text-left text-sm">
               <thead className="bg-[var(--table-head)] text-caption uppercase tracking-wider text-[var(--muted)]">
                 <tr>
-                  <th className="px-4 py-3">Сотрудник</th>
-                  <th className="px-4 py-3 text-left">Смены</th>
-                  <th className="px-4 py-3 text-left">Заработано</th>
-                  <th className="px-4 py-3 text-left">Ожидается</th>
-                  <th className="px-4 py-3 text-left">Итого</th>
+                  <SortableTh
+                    label="Сотрудник"
+                    sortKey="name"
+                    state={peopleSort}
+                    onSort={onPeopleSort}
+                    className="px-4 py-3"
+                  />
+                  <SortableTh
+                    label="Смены"
+                    sortKey="shifts"
+                    state={peopleSort}
+                    onSort={onPeopleSort}
+                    className="px-4 py-3"
+                  />
+                  <SortableTh
+                    label="Заработано"
+                    sortKey="confirmed"
+                    state={peopleSort}
+                    onSort={onPeopleSort}
+                    className="px-4 py-3"
+                  />
+                  <SortableTh
+                    label="Ожидается"
+                    sortKey="pending"
+                    state={peopleSort}
+                    onSort={onPeopleSort}
+                    className="px-4 py-3"
+                  />
+                  <SortableTh
+                    label="Итого"
+                    sortKey="total"
+                    state={peopleSort}
+                    onSort={onPeopleSort}
+                    className="px-4 py-3"
+                  />
                 </tr>
               </thead>
               <tbody>
-                {selected.map((e) => {
+                {sortedPeople.map((e) => {
                   const conf = e.confirmedShifts ?? 0;
                   const pend = e.pendingShifts ?? 0;
                   return (
@@ -1254,24 +1503,75 @@ function WorkloadRowsTable({
   rows: PayrollRow[];
   showPerson?: boolean;
 }) {
+  const { sorted, sort, onSort } = useTableSort(rows, payrollRowSortValue);
   return (
     <div className="data-table-shell overflow-x-auto">
       <table className="data-table w-full min-w-[800px] text-left text-sm">
         <thead className="bg-[var(--table-head)] text-caption uppercase tracking-wider text-[var(--muted)]">
           <tr>
-            {showPerson && <th className="px-4 py-3">Сотрудник</th>}
-            <th className="px-4 py-3">Мероприятие</th>
-            <th className="px-4 py-3">Дата</th>
-            <th className="px-4 py-3">Где</th>
-            <th className="px-4 py-3">Должность</th>
-            <th className="px-4 py-3">Статус</th>
-            <th className="px-4 py-3">Режим</th>
-            <th className="px-4 py-3 text-left">Сумма</th>
+            {showPerson && (
+              <SortableTh
+                label="Сотрудник"
+                sortKey="person"
+                state={sort}
+                onSort={onSort}
+                className="px-4 py-3"
+              />
+            )}
+            <SortableTh
+              label="Мероприятие"
+              sortKey="event"
+              state={sort}
+              onSort={onSort}
+              className="px-4 py-3"
+            />
+            <SortableTh
+              label="Дата"
+              sortKey="date"
+              state={sort}
+              onSort={onSort}
+              className="px-4 py-3"
+            />
+            <SortableTh
+              label="Где"
+              sortKey="place"
+              state={sort}
+              onSort={onSort}
+              className="px-4 py-3"
+            />
+            <SortableTh
+              label="Должность"
+              sortKey="role"
+              state={sort}
+              onSort={onSort}
+              className="px-4 py-3"
+            />
+            <SortableTh
+              label="Статус"
+              sortKey="lifecycle"
+              state={sort}
+              onSort={onSort}
+              className="px-4 py-3"
+            />
+            <SortableTh
+              label="Режим"
+              sortKey="payMode"
+              state={sort}
+              onSort={onSort}
+              className="px-4 py-3"
+            />
+            <SortableTh
+              label="Сумма"
+              sortKey="amount"
+              state={sort}
+              onSort={onSort}
+              className="px-4 py-3"
+            />
             <th className="w-12 px-3 py-2 text-left" />
           </tr>
         </thead>
         <tbody>
-          {rows.map((r) => (
+          {sorted.map((r) => (
             <tr
               key={r.id}
               className="border-t border-[var(--line)] transition-colors hover:bg-subtle"

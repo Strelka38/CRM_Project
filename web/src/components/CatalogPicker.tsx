@@ -16,6 +16,7 @@ export type PickedKit = {
   name: string;
   categoryId: string | null;
   category?: { id: string; name: string; path: string; subtotalLabel: string } | null;
+  showInCatalog?: boolean;
   components: Array<{
     qty: number;
     catalogItem: PickedCatalogItem;
@@ -182,7 +183,10 @@ export function CatalogPicker({
     const t = setTimeout(async () => {
       setLoading(true);
       if (tab === "kits") {
-        const res = await fetch("/api/kits");
+        const params = new URLSearchParams();
+        if (q) params.set("q", q);
+        if (!includeHidden) params.set("forQuote", "1");
+        const res = await fetch(`/api/kits?${params}`);
         setKits(await res.json());
         setLoading(false);
         return;

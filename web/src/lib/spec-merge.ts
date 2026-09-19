@@ -55,6 +55,17 @@ export function parseSpecLines(raw: unknown): SpecLine[] {
   return lines;
 }
 
+/** Снимок спецификации побеждает live-derive. Смена lifecycle не должна сюда вмешиваться. */
+export function specLinesFromRevisionOrDerived(
+  revision: { lines: unknown } | null | undefined,
+  derived: SpecLine[],
+): { lines: SpecLine[]; hasSnapshot: boolean } {
+  if (revision) {
+    return { lines: parseSpecLines(revision.lines), hasSnapshot: true };
+  }
+  return { lines: derived, hasSnapshot: false };
+}
+
 export function specLinesToJson(lines: SpecLine[]): SpecLine[] {
   return lines.map((l) => ({
     key: l.key,

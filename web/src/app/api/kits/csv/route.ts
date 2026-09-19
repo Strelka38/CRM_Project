@@ -69,6 +69,7 @@ export async function POST(req: NextRequest) {
           categoryId,
           sortOrder: r.sortOrder,
           active: r.active,
+          showInCatalog: r.showInCatalog,
         };
         const existing = r.id
           ? await prisma.kit.findUnique({ where: { id: r.id }, select: { id: true } })

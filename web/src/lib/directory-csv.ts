@@ -670,6 +670,7 @@ export const KIT_CSV_HEADERS = [
   "Путь",
   "Порядок",
   "Активен",
+  "В каталоге",
   "Состав",
 ] as const;
 
@@ -680,6 +681,7 @@ export type KitCsvRow = {
   categoryPath: string;
   sortOrder: number;
   active: boolean;
+  showInCatalog: boolean;
   components: KitComponentCsv[];
 };
 
@@ -713,6 +715,7 @@ export function kitToCsvCells(k: {
   description: string | null;
   sortOrder: number;
   active: boolean;
+  showInCatalog?: boolean;
   category: { path: string } | null;
   components: Array<{ qty: number; catalogItemId: string; catalogItem?: { name: string } }>;
 }): string[] {
@@ -723,6 +726,7 @@ export function kitToCsvCells(k: {
     k.category?.path ?? "",
     String(k.sortOrder),
     k.active ? "1" : "0",
+    k.showInCatalog ? "1" : "0",
     formatKitComponentsCsv(
       k.components.map((c) => ({
         qty: c.qty,
@@ -759,6 +763,10 @@ export function parseKitCsv(text: string): {
       categoryPath: csvCell(map, line, "Путь", "categoryPath", "path").trim(),
       sortOrder: Math.floor(csvNum(csvCell(map, line, "Порядок", "sortOrder")) ?? 0),
       active: csvBool(csvCell(map, line, "Активен", "active"), true),
+      showInCatalog: csvBool(
+        csvCell(map, line, "В каталоге", "showInCatalog", "В каталог"),
+        false,
+      ),
       components,
     });
   });
@@ -779,6 +787,7 @@ export const QUOTE_CSV_HEADERS = [
   "Счёт",
   "Оплачено",
   "Комментарий оплаты",
+  "Запросы на специалистов",
 ] as const;
 
 export type QuoteCsvRow = {
@@ -811,6 +820,7 @@ export function quoteToCsvCells(q: {
   invoiceSent: boolean;
   paid: boolean;
   paymentComment: string;
+  specialistRequests?: string;
 }): string[] {
   return [
     q.id,
@@ -826,6 +836,7 @@ export function quoteToCsvCells(q: {
     q.invoiceSent ? "1" : "0",
     q.paid ? "1" : "0",
     q.paymentComment,
+    q.specialistRequests ?? "",
   ];
 }
 

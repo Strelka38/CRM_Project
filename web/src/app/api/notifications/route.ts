@@ -6,15 +6,20 @@ import {
 } from "@/lib/notifications";
 import { requireSession } from "@/lib/session";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
     const session = await requireSession();
     await syncInvoiceNotifications();
     await syncOpenTaskNotifications();
+    const rawLimit = Number(req.nextUrl.searchParams.get("limit"));
+    const take =
+      Number.isFinite(rawLimit) && rawLimit > 0
+        ? Math.min(200, Math.floor(rawLimit))
+        : 50;
     const notifications = await prisma.notification.findMany({
       where: { userId: session.user.id },
       orderBy: { createdAt: "desc" },
-      take: 50,
+      take,
       include: {
         quote: {
           select: {

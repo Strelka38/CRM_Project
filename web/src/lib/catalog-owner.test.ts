@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   formatOwnersCsv,
+  ownerShortsWithFallback,
   parseOwnerCsv,
   parseOwnersCsv,
   parseOwnerToken,
@@ -17,5 +18,8 @@ assert.equal(parseOwnerCsv("диаком"), "DIAKOM");
 assert.deepEqual(parseOwnersCsv("ШМ;NE"), ["SHOW_MASTER", "NE_EVENT"]);
 assert.deepEqual(parseOwnersCsv("ДК+|SHOW_MASTER"), ["DIAKOM", "SHOW_MASTER"]);
 assert.equal(formatOwnersCsv(["SHOW_MASTER", "DIAKOM"]), "ШМ;ДК");
+assert.equal(ownerShortsWithFallback("", ["SHOW_MASTER"]), "ШМ");
+assert.equal(ownerShortsWithFallback("—", ["DIAKOM"]), "ДК");
+assert.equal(ownerShortsWithFallback("NE", ["SHOW_MASTER"]), "NE");
 
 console.log("catalog-owner.test.ts ok");

@@ -222,4 +222,69 @@ const zoomWithOverage = computeQuoteCalculation({
 });
 assert.equal(zoomWithOverage.breakdown.find((b) => b.company === "NE_EVENT")?.revenue, 1200);
 
+const shmLine = {
+  block: {
+    id: "mic",
+    type: "ITEM" as const,
+    sortOrder: 0,
+    name: "Микшер",
+    qty: 1,
+    unitPrice: 5000,
+    dayMode: "FIXED1" as const,
+    itemKind: "EQUIPMENT" as const,
+  },
+  catalogOwners: ["SHOW_MASTER" as const],
+  unitCost: null,
+  override: {
+    mode: "SHARE" as const,
+    ownersCustom: false,
+    owners: ["SHOW_MASTER" as const],
+    amounts: emptyAmounts(),
+    costOverride: 2000,
+  },
+};
+
+const dkLine = {
+  block: {
+    id: "zoom-dk",
+    type: "ITEM" as const,
+    sortOrder: 1,
+    name: "Zoom",
+    qty: 1,
+    unitPrice: 3000,
+    dayMode: "FIXED1" as const,
+    itemKind: "SERVICE" as const,
+  },
+  catalogOwners: ["DIAKOM" as const],
+  unitCost: null,
+  override: {
+    mode: "SHARE" as const,
+    ownersCustom: false,
+    owners: ["DIAKOM" as const],
+    amounts: emptyAmounts(),
+    costOverride: 1800,
+  },
+};
+
+const twoOwners = computeQuoteCalculation({
+  durationDays: 1,
+  discountPercent: 0,
+  lines: [shmLine, dkLine],
+  expenses: [],
+  sharesCustom: false,
+});
+assert.equal(twoOwners.payable, 8000);
+assert.equal(twoOwners.cogsTotal, 3800);
+assert.equal(twoOwners.marginTotal, 4200);
+const shm = twoOwners.breakdown.find((b) => b.company === "SHOW_MASTER");
+const dk = twoOwners.breakdown.find((b) => b.company === "DIAKOM");
+assert.ok(shm);
+assert.ok(dk);
+assert.equal(shm.revenue, 3000);
+assert.equal(shm.cogs, 2000);
+assert.equal(dk.revenue, 1200);
+assert.equal(dk.cogs, 1800);
+assert.notEqual(shm.revenue, 5000);
+assert.notEqual(dk.revenue, 3000);
+
 console.log("calc-margin.test.ts: ok");

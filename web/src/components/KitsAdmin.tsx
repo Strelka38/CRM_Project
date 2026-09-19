@@ -2,10 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { DataCards, SortableTh, useTableSort } from "@/components/ui";
 import {
   DirectoryAddButton,
   DirectoryCsvMenu,
   DirectoryIconButton,
+  DirectoryMobileBar,
   DirectorySelectionActions,
   IconPlusFolder,
   IconEdit,
@@ -29,6 +31,21 @@ type Kit = EditableKit & {
   computedPrice: number;
   category?: { id: string; name: string; path: string } | null;
 };
+
+function kitSortValue(kit: Kit, key: string) {
+  switch (key) {
+    case "name":
+      return kit.name;
+    case "category":
+      return kit.category?.path || "";
+    case "parts":
+      return kit.components.length;
+    case "price":
+      return kit.computedPrice;
+    default:
+      return null;
+  }
+}
 
 export function KitsAdmin() {
   const [kits, setKits] = useState<Kit[]>([]);
@@ -77,6 +94,7 @@ export function KitsAdmin() {
       (k.category?.path || "").toLowerCase().includes(needle)
     );
   });
+  const { sorted, sort, onSort } = useTableSort(filtered, kitSortValue);
 
   function toggleAll() {
     const ids = filtered.map((k) => k.id);
@@ -143,7 +161,9 @@ export function KitsAdmin() {
         <p className="text-xs uppercase tracking-[0.15em] text-[var(--muted)]">
           Склад
         </p>
-        <h1 className="mt-1 text-3xl font-medium tracking-tight">Комплекты</h1>
+        <h1 className="mt-1 text-2xl font-medium tracking-tight md:text-3xl">
+          Комплекты
+        </h1>
         <p className="mt-1 text-sm text-[var(--muted)]">
           Набор из существующих позиций каталога. В смету добавляется целиком
           и разворачивается в строки.
@@ -151,7 +171,49 @@ export function KitsAdmin() {
       </header>
 
       <section className="rounded-xl border border-[var(--line)] bg-[var(--panel)]">
-        <div className="flex w-full flex-wrap items-center gap-2 border-b border-[var(--line)] px-4 py-3">
+        <DirectoryMobileBar
+          q={q}
+          onQ={setQ}
+          searchPlaceholder="Поиск по комплектам…"
+          filter={
+            <label className="block text-caption uppercase tracking-[0.04em] text-[var(--muted)]">
+              Раздел для нового комплекта
+              <select
+                className="field mt-1 w-full text-sm"
+                value={categoryId}
+                onChange={(e) => setCategoryId(e.target.value)}
+              >
+                <option value="">Без раздела</option>
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.path}
+                  </option>
+                ))}
+              </select>
+            </label>
+          }
+          primary={{
+            label: "Добавить комплект",
+            onClick: () => {
+              setEditingKit(null);
+              setEditorOpen(true);
+            },
+          }}
+          sheetTitle="Комплекты"
+          csv={{
+            busy: csvBusy,
+            onExport: () => void exportCsv(),
+            onImport: () => csvImportRef.current?.click(),
+          }}
+          selection={{
+            count: selected.size,
+            busy,
+            onCopy: () => void bulk("copy"),
+            onDelete: () => setConfirmDelete(true),
+          }}
+        />
+
+        <div className="hidden w-full flex-wrap items-center gap-2 border-b border-[var(--line)] px-4 py-3 md:flex">
           <DirectoryAddButton
             title="+ Комплект"
             icon={<IconPlusFolder />}
@@ -193,18 +255,19 @@ export function KitsAdmin() {
               onImport={() => csvImportRef.current?.click()}
             />
           </div>
-          <input
-            ref={csvImportRef}
-            type="file"
-            accept=".csv,text/csv"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              e.target.value = "";
-              if (file) void importCsv(file);
-            }}
-          />
         </div>
+
+        <input
+          ref={csvImportRef}
+          type="file"
+          accept=".csv,text/csv"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = "";
+            if (file) void importCsv(file);
+          }}
+        />
         {csvMessage ? (
           <p className="border-b border-[var(--line)] px-4 py-2 text-xs text-[var(--muted)]">
             {csvMessage}
@@ -216,7 +279,44 @@ export function KitsAdmin() {
           </p>
         ) : null}
 
-        <div className="data-table-shell overflow-x-auto">
+        <div className="p-3 md:hidden">
+          <DataCards
+            items={sorted.map((kit) => ({
+              id: kit.id,
+              title: kit.name,
+              subtitle: kit.category?.path,
+              onPress: () => {
+                setEditingKit(kit);
+                setEditorOpen(true);
+              },
+              fields: [
+                {
+                  label: "Цена",
+                  value: (
+                    <span className="tabular-nums">
+                      {formatMoney(kit.computedPrice)}
+                    </span>
+                  ),
+                },
+                {
+                  label: `Состав · ${kit.components.length}`,
+                  value:
+                    kit.components
+                      .slice(0, 4)
+                      .map((c) => `${c.qty}× ${c.catalogItem.name}`)
+                      .join(" · ") +
+                    (kit.components.length > 4 ? " …" : ""),
+                  block: true,
+                },
+              ],
+            }))}
+            selectedIds={selected}
+            onToggleSelect={toggleOne}
+            emptyMessage="Комплектов пока нет"
+          />
+        </div>
+
+        <div className="data-table-shell hidden overflow-x-auto md:block">
           <table className="data-table w-full text-left text-sm">
             <thead className="bg-[var(--table-head)] text-xs uppercase text-[var(--muted)]">
               <tr>
@@ -228,15 +328,39 @@ export function KitsAdmin() {
                     aria-label="Выбрать все"
                   />
                 </th>
-                <th className="px-3 py-2 text-left">Название</th>
-                <th className="px-3 py-2 text-left">Раздел</th>
-                <th className="px-3 py-2 text-left">Позиций</th>
-                <th className="px-3 py-2 text-left">Цена</th>
+                <SortableTh
+                  label="Название"
+                  sortKey="name"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-3 py-2"
+                />
+                <SortableTh
+                  label="Раздел"
+                  sortKey="category"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-3 py-2"
+                />
+                <SortableTh
+                  label="Позиций"
+                  sortKey="parts"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-3 py-2"
+                />
+                <SortableTh
+                  label="Цена"
+                  sortKey="price"
+                  state={sort}
+                  onSort={onSort}
+                  className="px-3 py-2"
+                />
                 <th className="w-12 px-3 py-2 text-left" />
               </tr>
             </thead>
             <tbody>
-              {filtered.map((kit) => (
+              {sorted.map((kit) => (
                 <tr
                   key={kit.id}
                   className={`border-t border-[var(--line)] ${

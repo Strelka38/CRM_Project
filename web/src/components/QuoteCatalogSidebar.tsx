@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ItemDrawer, type DrawerItem } from "@/components/ItemDrawer";
-import { type PickedCatalogItem } from "@/components/CatalogPicker";
+import { type PickedCatalogItem, type PickedKit } from "@/components/CatalogPicker";
 import { cn } from "@/lib/cn";
 import {
   beginCatalogDrag,
@@ -15,11 +15,12 @@ type CategoryNode = {
   name: string;
   path: string;
   parentId: string | null;
-  _count: { items: number; children: number };
+  _count: { items: number; children: number; kits?: number };
 };
 
 type Props = {
   onPickItem: (item: PickedCatalogItem, qty?: number) => void;
+  onPickKit?: (kit: PickedKit, qty?: number) => void;
   eventDate?: string;
   durationDays?: number;
   zoneName?: string;
@@ -27,6 +28,7 @@ type Props = {
   selectionLabel?: string;
   onCancelSelection?: () => void;
   currentQtyByItem?: ReadonlyMap<string, number>;
+  currentQtyByKit?: ReadonlyMap<string, number>;
   currentQtyLabel?: string;
   embedded?: boolean;
   addTargetLabel?: string;
@@ -305,8 +307,82 @@ function CatalogItemRow({
   );
 }
 
+function CatalogKitRow({
+  kit,
+  branched,
+  addTargetLabel,
+  currentQty,
+  currentQtyLabel,
+  onPickKit,
+}: {
+  kit: PickedKit;
+  branched: boolean;
+  addTargetLabel: string;
+  currentQty: number;
+  currentQtyLabel: string;
+  onPickKit: (kit: PickedKit, qty?: number) => void;
+}) {
+  const [qty, setQty] = useState("1");
+  const componentCount = kit.components.length;
+
+  return (
+    <div className="relative">
+      {branched ? (
+        <span
+          className="catalog-tree-guide catalog-tree-guide-h absolute -left-3 top-5 h-px w-3"
+          aria-hidden
+        />
+      ) : null}
+      <div className="flex min-w-0 items-start gap-1 border-b border-[var(--line)]/50 px-1 py-0.5 hover:bg-[var(--header-hover)]">
+        <span className="mt-1 shrink-0 text-caption text-[var(--muted)]" aria-hidden>
+          ▣
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="grid min-w-0 grid-cols-[1.5rem_1.5rem_2.75rem_minmax(0,1fr)] items-center gap-0.5">
+            <span
+              className="text-right text-xs font-bold tabular-nums text-sky-400"
+              title={`Позиций в комплекте: ${componentCount}`}
+            >
+              {componentCount}
+            </span>
+            <span
+              className="text-right text-xs font-semibold tabular-nums text-[var(--muted)]"
+              title={currentQtyLabel}
+            >
+              {currentQty}
+            </span>
+            <span
+              className="text-right text-xs font-bold tabular-nums text-emerald-500 dark:text-emerald-400"
+              title="Цена комплекта"
+            >
+              {Math.round(kit.computedPrice)}
+            </span>
+            <span
+              className="min-w-0 truncate text-left text-xs font-medium text-[var(--ink)]"
+              title={`${kit.name} (комплект)`}
+            >
+              {kit.name}
+            </span>
+          </div>
+          <div className="mt-0.5">
+            <InlineQtyAdd
+              qty={qty}
+              onQtyChange={setQty}
+              addTargetLabel={addTargetLabel}
+              onAdd={(n) => {
+                onPickKit(kit, n);
+              }}
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function QuoteCatalogSidebar({
   onPickItem,
+  onPickKit,
   eventDate,
   durationDays = 1,
   zoneName,
@@ -314,6 +390,7 @@ export function QuoteCatalogSidebar({
   selectionLabel,
   onCancelSelection,
   currentQtyByItem,
+  currentQtyByKit,
   currentQtyLabel = "Уже в текущем документе",
   embedded = false,
   addTargetLabel = "смету",
@@ -324,8 +401,10 @@ export function QuoteCatalogSidebar({
   const [itemsByCat, setItemsByCat] = useState<Record<string, PickedCatalogItem[]>>(
     {},
   );
+  const [kitsByCat, setKitsByCat] = useState<Record<string, PickedKit[]>>({});
   const [loadingCats, setLoadingCats] = useState<Record<string, boolean>>({});
   const [searchItems, setSearchItems] = useState<PickedCatalogItem[]>([]);
+  const [searchKits, setSearchKits] = useState<PickedKit[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [drawer, setDrawer] = useState<DrawerItem | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -334,6 +413,7 @@ export function QuoteCatalogSidebar({
   const fetchGen = useRef(0);
 
   const searching = q.trim().length > 0;
+  const showKits = Boolean(onPickKit) && !includeHidden;
 
   useEffect(() => {
     const qs = includeHidden
@@ -379,15 +459,36 @@ export function QuoteCatalogSidebar({
       params.set("days", String(durationDays));
       if (includeHidden) params.set("includeHidden", "1");
       try {
-        const res = await fetch(`/api/catalog/items?${params}`);
-        const data: unknown = await res.json().catch(() => []);
+        const [itemsRes, kitsRes] = await Promise.all([
+          fetch(`/api/catalog/items?${params}`),
+          showKits
+            ? fetch(
+                `/api/kits?categoryId=${encodeURIComponent(categoryId)}&forQuote=1`,
+              )
+            : Promise.resolve(null),
+        ]);
+        const data: unknown = await itemsRes.json().catch(() => []);
+        const kitsData: unknown = kitsRes
+          ? await kitsRes.json().catch(() => [])
+          : [];
         if (gen !== fetchGen.current) return;
         loadedRef.current.add(categoryId);
         setItemsByCat((prev) => ({
           ...prev,
           [categoryId]:
-            res.ok && Array.isArray(data) ? (data as PickedCatalogItem[]) : [],
+            itemsRes.ok && Array.isArray(data)
+              ? (data as PickedCatalogItem[])
+              : [],
         }));
+        if (showKits) {
+          setKitsByCat((prev) => ({
+            ...prev,
+            [categoryId]:
+              kitsRes?.ok && Array.isArray(kitsData)
+                ? (kitsData as PickedKit[])
+                : [],
+          }));
+        }
       } finally {
         if (gen === fetchGen.current) {
           inFlightRef.current.delete(categoryId);
@@ -395,7 +496,7 @@ export function QuoteCatalogSidebar({
         }
       }
     },
-    [durationDays, eventDate, includeHidden],
+    [durationDays, eventDate, includeHidden, showKits],
   );
 
   useEffect(() => {
@@ -403,8 +504,9 @@ export function QuoteCatalogSidebar({
     inFlightRef.current.clear();
     loadedRef.current.clear();
     setItemsByCat({});
+    setKitsByCat({});
     setLoadingCats({});
-  }, [eventDate, durationDays, includeHidden]);
+  }, [eventDate, durationDays, includeHidden, showKits]);
 
   useEffect(() => {
     for (const id of expanded) {
@@ -415,6 +517,7 @@ export function QuoteCatalogSidebar({
   useEffect(() => {
     if (!searching) {
       setSearchItems([]);
+      setSearchKits([]);
       setSearchLoading(false);
       return;
     }
@@ -426,13 +529,28 @@ export function QuoteCatalogSidebar({
       if (eventDate) params.set("eventDate", eventDate);
       params.set("days", String(durationDays));
       if (includeHidden) params.set("includeHidden", "1");
-      const res = await fetch(`/api/catalog/items?${params}`);
-      const data: unknown = await res.json().catch(() => []);
-      setSearchItems(res.ok && Array.isArray(data) ? (data as PickedCatalogItem[]) : []);
+      const [itemsRes, kitsRes] = await Promise.all([
+        fetch(`/api/catalog/items?${params}`),
+        showKits
+          ? fetch(`/api/kits?q=${encodeURIComponent(trimmed)}&forQuote=1`)
+          : Promise.resolve(null),
+      ]);
+      const data: unknown = await itemsRes.json().catch(() => []);
+      const kitsData: unknown = kitsRes
+        ? await kitsRes.json().catch(() => [])
+        : [];
+      setSearchItems(
+        itemsRes.ok && Array.isArray(data) ? (data as PickedCatalogItem[]) : [],
+      );
+      setSearchKits(
+        showKits && kitsRes?.ok && Array.isArray(kitsData)
+          ? (kitsData as PickedKit[])
+          : [],
+      );
       setSearchLoading(false);
     }, 180);
     return () => window.clearTimeout(t);
-  }, [durationDays, eventDate, includeHidden, q, searching]);
+  }, [durationDays, eventDate, includeHidden, q, searching, showKits]);
 
   function toggleExpand(cat: CategoryNode) {
     setExpanded((prev) => {
@@ -458,6 +576,21 @@ export function QuoteCatalogSidebar({
     );
   }
 
+  function renderKit(kit: PickedKit, branched = true) {
+    if (!onPickKit) return null;
+    return (
+      <CatalogKitRow
+        key={`kit-${kit.id}`}
+        kit={kit}
+        branched={branched}
+        addTargetLabel={addTargetLabel}
+        currentQty={currentQtyByKit?.get(kit.id) || 0}
+        currentQtyLabel={currentQtyLabel}
+        onPickKit={onPickKit}
+      />
+    );
+  }
+
   function renderNode(
     cat: CategoryNode,
     depth: number,
@@ -466,9 +599,12 @@ export function QuoteCatalogSidebar({
     const hasKids = kids.length > 0;
     const isOpen = expanded.has(cat.id);
     const items = itemsByCat[cat.id];
+    const kits = kitsByCat[cat.id];
     const loading = loadingCats[cat.id];
-    const itemCount = items?.length ?? cat._count.items;
-    const canExpand = hasKids || cat._count.items > 0;
+    const kitCount = showKits ? (kits?.length ?? cat._count.kits ?? 0) : 0;
+    const itemCount = (items?.length ?? cat._count.items) + kitCount;
+    const canExpand =
+      hasKids || cat._count.items > 0 || (showKits && (cat._count.kits ?? 0) > 0);
 
     return (
       <div key={cat.id} className="relative">
@@ -555,8 +691,13 @@ export function QuoteCatalogSidebar({
                 Загрузка…
               </p>
             ) : null}
+            {kits?.map((kit) => renderKit(kit))}
             {items?.map((item) => renderItem(item))}
-            {items && items.length === 0 && !hasKids ? (
+            {items &&
+            (!showKits || kits) &&
+            items.length === 0 &&
+            (!showKits || (kits?.length ?? 0) === 0) &&
+            !hasKids ? (
               <p
                 className="px-2 py-1 text-caption text-[var(--muted)]"
               >
@@ -634,14 +775,17 @@ export function QuoteCatalogSidebar({
       >
         {searching ? (
           <>
-            {searchLoading && searchItems.length === 0 ? (
+            {searchLoading && searchItems.length === 0 && searchKits.length === 0 ? (
               <p className="px-2 py-3 text-xs text-[var(--muted)]">Поиск…</p>
             ) : null}
-            {!searchLoading && searchItems.length === 0 ? (
+            {!searchLoading &&
+            searchItems.length === 0 &&
+            searchKits.length === 0 ? (
               <p className="px-2 py-3 text-xs text-[var(--muted)]">
                 Ничего не найдено
               </p>
             ) : null}
+            {searchKits.map((kit) => renderKit(kit, false))}
             {searchItems.map((item) => renderItem(item, false))}
           </>
         ) : null}

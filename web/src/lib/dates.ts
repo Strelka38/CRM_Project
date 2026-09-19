@@ -57,6 +57,14 @@ export function formatRuDate(d: Date): string {
   return `${day}.${m}.${d.getFullYear()}`;
 }
 
+/** ISO / Date → ДД.ММ.ГГГГ, иначе «—». */
+export function formatIsoRuDate(raw: string | Date | null | undefined): string {
+  if (raw == null || raw === "") return "—";
+  const d = raw instanceof Date ? raw : new Date(raw);
+  if (Number.isNaN(d.getTime())) return "—";
+  return formatRuDate(d);
+}
+
 /** «26 авг» */
 export function formatDayMonth(d: Date): string {
   return d

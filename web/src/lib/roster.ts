@@ -953,6 +953,30 @@ export function isOpenMountDropSlot(
   return item.vacant && item.assignmentIds.length === 0 && item.mountDuty != null;
 }
 
+/** Пустой монтаж/демонтаж — подпись дня, не слот сотрудника. */
+export function isRosterDutyMark(
+  item: Pick<RosterItem, "vacant" | "mountDuty">,
+): boolean {
+  return Boolean(item.vacant && item.mountDuty);
+}
+
+export function dutyMarkKey(
+  item: Pick<RosterItem, "quoteId" | "mountDuty" | "start" | "end">,
+): string {
+  return `${item.quoteId || ""}:${item.mountDuty || ""}:${item.start}:${item.end}`;
+}
+
+/** Одно слово «монтаж»/«демонтаж» на окно: свободное поле важнее пустой строки сметы. */
+export function collapseRosterDutyMarks(items: RosterItem[]): RosterItem[] {
+  const openKeys = new Set(
+    items.filter(isOpenMountDropSlot).map(dutyMarkKey),
+  );
+  return items.filter((item) => {
+    if (!isRosterDutyMark(item) || isOpenMountDropSlot(item)) return true;
+    return !openKeys.has(dutyMarkKey(item));
+  });
+}
+
 export function isVacantInstallerSlot(
   item: Pick<RosterItem, "vacant" | "assignmentKind" | "mountDuty" | "assignmentIds">,
 ): boolean {
@@ -961,67 +985,16 @@ export function isVacantInstallerSlot(
   return item.assignmentKind === "MOUNT" || item.mountDuty != null;
 }
 
+/** Растягивание смены — только по дням мероприятия, без авто-монтажа. */
 export function dateInRosterResizeWindow(
-  item: Pick<
-    RosterItem,
-    | "eventStart"
-    | "eventDays"
-    | "mountStart"
-    | "mountEnd"
-    | "demountStart"
-    | "demountEnd"
-  >,
+  item: Pick<RosterItem, "eventStart" | "eventDays">,
   dayKey: string,
 ): boolean {
-  if (item.eventStart && item.eventDays > 0) {
-    const start = parseEventDate(item.eventStart);
-    if (start) {
-      const end = formatDateKey(addDays(start, item.eventDays - 1));
-      if (item.eventStart <= dayKey && dayKey <= end) return true;
-    }
-  }
-  if (
-    item.mountStart &&
-    item.mountEnd &&
-    item.mountStart <= dayKey &&
-    dayKey <= item.mountEnd
-  ) {
-    return true;
-  }
-  if (
-    item.demountStart &&
-    item.demountEnd &&
-    item.demountStart <= dayKey &&
-    dayKey <= item.demountEnd
-  ) {
-    return true;
-  }
-  return false;
-}
-
-function rangesOverlap(
-  aStart: string,
-  aEnd: string,
-  bStart: string | null,
-  bEnd: string | null,
-): boolean {
-  if (!bStart || !bEnd) return false;
-  return aStart <= bEnd && aEnd >= bStart;
-}
-
-export function rosterRangeDuties(
-  item: Pick<RosterItem, "mountStart" | "mountEnd" | "demountStart" | "demountEnd">,
-  startKey: string,
-  endKey: string,
-): Array<"mount" | "demount"> {
-  const out: Array<"mount" | "demount"> = [];
-  if (rangesOverlap(startKey, endKey, item.mountStart, item.mountEnd)) {
-    out.push("mount");
-  }
-  if (rangesOverlap(startKey, endKey, item.demountStart, item.demountEnd)) {
-    out.push("demount");
-  }
-  return out;
+  if (!item.eventStart || item.eventDays <= 0) return false;
+  const start = parseEventDate(item.eventStart);
+  if (!start) return false;
+  const end = formatDateKey(addDays(start, item.eventDays - 1));
+  return item.eventStart <= dayKey && dayKey <= end;
 }
 
 export function personHasRosterRole(

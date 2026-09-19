@@ -299,6 +299,7 @@ export async function PATCH(
       }>,
     );
     let stockIssues: Awaited<ReturnType<typeof validateQuoteStock>> = [];
+    // Инвариант: дефицит склада — warning в JSON, сохранение не блокируется (не 409).
     if (
       (nextLifecycle === "CONFIRMED" || existing.lifecycle === "CONFIRMED") &&
       nextLifecycle !== "CANCELLED"

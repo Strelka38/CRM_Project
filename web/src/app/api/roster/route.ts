@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { addDays, formatDateKey, parseEventDate } from "@/lib/dates";
 import { freelancerAssignmentPay, freelancerNameKey } from "@/lib/freelancer-directory";
 import { ensureQuoteSchemaColumns } from "@/lib/ensure-schema";
+import { ROSTER_LIFECYCLES } from "@/lib/lifecycle";
 import { calcAssignmentPay } from "@/lib/payroll";
 import { getYearMonthRange, parseYearMonth } from "@/lib/period";
 import {
@@ -12,7 +13,7 @@ import {
   collectFreelancerBusyDates,
 } from "@/lib/roster";
 import { requireAssignmentManager } from "@/lib/session";
-import { ROSTER_LIFECYCLES } from "@/lib/lifecycle";
+import { overlappingEntryWhere } from "@/lib/calendar-entries";
 
 function dateOnlyUtc(d: Date): Date {
   return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
@@ -138,13 +139,12 @@ export async function GET(req: NextRequest) {
       prisma.calendarEntry.findMany({
         where: {
           kind: "DAY_OFF",
-          date: {
-            gte: dateOnlyUtc(padFrom),
-            lte: dateOnlyUtc(padTo),
-          },
+          ...overlappingEntryWhere(padFrom, padTo),
         },
         select: {
           date: true,
+          endDate: true,
+          durationDays: true,
           assignees: { select: { userId: true } },
         },
       }),
@@ -242,14 +242,28 @@ export async function GET(req: NextRequest) {
     const busyByUser = collectBusyDates(
       items,
       dayOffs.flatMap((entry) => {
-        const date = formatDateKey(
-          new Date(
-            entry.date.getUTCFullYear(),
-            entry.date.getUTCMonth(),
-            entry.date.getUTCDate(),
-          ),
+        const start = new Date(
+          entry.date.getUTCFullYear(),
+          entry.date.getUTCMonth(),
+          entry.date.getUTCDate(),
         );
-        return entry.assignees.map((a) => ({ userId: a.userId, date }));
+        const endSrc = entry.endDate ?? entry.date;
+        const end = new Date(
+          endSrc.getUTCFullYear(),
+          endSrc.getUTCMonth(),
+          endSrc.getUTCDate(),
+        );
+        const keys: string[] = [];
+        for (
+          let cur = start;
+          cur.getTime() <= end.getTime();
+          cur = addDays(cur, 1)
+        ) {
+          keys.push(formatDateKey(cur));
+        }
+        return entry.assignees.flatMap((a) =>
+          keys.map((date) => ({ userId: a.userId, date })),
+        );
       }),
     );
     const ratesByUser = new Map(

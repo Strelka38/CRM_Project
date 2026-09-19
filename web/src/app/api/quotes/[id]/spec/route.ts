@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { ownerShorts, type CatalogOwnerValue } from "@/lib/catalog-owner";
+import {
+  ownerShortsWithFallback,
+  type CatalogOwnerValue,
+} from "@/lib/catalog-owner";
 import { canAccessQuote } from "@/lib/quote-access";
 import {
   applyOwnerLabels,
@@ -18,6 +21,7 @@ import {
   linesFromRevision,
   writeSpecRevision,
 } from "@/lib/spec-revision";
+import { specLinesFromRevisionOrDerived } from "@/lib/spec-merge";
 import {
   canEditSpec,
   requireSession,
@@ -26,7 +30,7 @@ import {
 
 const overrideSchema = z.object({
   deriveKey: z.string().min(1),
-  action: z.enum(["HIDE", "SET_QTY", "RENAME", "SET_COMMENT", "REPLACE"]),
+  action: z.enum(["HIDE", "SET_QTY", "RENAME", "SET_COMMENT", "REPLACE", "DELETE"]),
   qty: z.number().nullable().optional(),
   name: z.string().nullable().optional(),
   catalogItemId: z.string().nullable().optional(),
@@ -44,6 +48,7 @@ const extraSchema = z.object({
   name: z.string().nullable().optional(),
   qty: z.number().optional(),
   comment: z.string().optional(),
+  hidden: z.boolean().optional(),
   catalogItemId: z.string().nullable().optional(),
   ownerLabel: z.string().nullable().optional(),
 });
@@ -134,16 +139,13 @@ async function enrichOwnerLabels(lines: SpecLine[]): Promise<SpecLine[]> {
     select: { id: true, owners: true },
   });
   const map = new Map(
-    items.map((i) => [i.id, ownerShorts(i.owners as CatalogOwnerValue[])]),
+    items.map((i) => [i.id, i.owners as CatalogOwnerValue[]]),
   );
   return lines.map((l) => ({
     ...l,
-    ownerLabel:
-      typeof l.ownerLabel === "string"
-        ? l.ownerLabel
-        : l.catalogItemId
-          ? map.get(l.catalogItemId) || "—"
-          : "—",
+    ownerLabel: l.catalogItemId
+      ? ownerShortsWithFallback(l.ownerLabel, map.get(l.catalogItemId))
+      : ownerShortsWithFallback(l.ownerLabel, []),
   }));
 }
 
@@ -197,7 +199,10 @@ async function loadSpecPayload(id: string) {
   if (revision) {
     hasSnapshot = true;
     snapshotAt = revision.createdAt.toISOString();
-    built = linesFromRevision(revision.lines);
+    built = applySpecOverrides(
+      specLinesFromRevisionOrDerived(revision, []).lines,
+      specOverrides,
+    );
   } else {
     built = await buildSpecLines(
       quote.blocks,
@@ -226,14 +231,15 @@ async function loadSpecPayload(id: string) {
       data: { specLineOrder: lineOrder },
     });
   }
+  const enrichedLines = await enrichOwnerLabels(lines);
 
   return {
     quote,
-    lines: await enrichOwnerLabels(lines),
+    lines: enrichedLines,
     lineOrder,
     overrides,
     extras: specExtras.map((extra) => {
-      const line = built.find((row) => row.extraId === extra.id);
+      const line = enrichedLines.find((row) => row.extraId === extra.id);
       return {
         ...extra,
         zoneId: line?.zoneId ?? null,
@@ -361,6 +367,7 @@ export async function PATCH(
             name: e.name ?? null,
             qty: e.qty ?? 0,
             comment: e.comment ?? "",
+            hidden: Boolean(e.hidden),
             catalogItemId: e.catalogItemId ?? null,
           })),
         });

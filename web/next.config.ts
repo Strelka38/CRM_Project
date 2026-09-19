@@ -25,6 +25,9 @@ const nextConfig: NextConfig = {
     "qrcode",
   ],
   experimental: {
+    // JSON/catalog backups from prod are often > 10MB; truncated multipart
+    // then fails as "Failed to parse body as FormData".
+    proxyClientMaxBodySize: "50mb",
     ...(isDockerBuild
       ? {
           cpus: dockerCpus,

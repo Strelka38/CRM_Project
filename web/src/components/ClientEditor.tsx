@@ -5,7 +5,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatMoney } from "@/lib/format";
 import { LegalCardImport } from "@/components/LegalCardImport";
-import { lifecycleLabel } from "@/components/ui";
+import { lifecycleLabel, SortableTh, useTableSort } from "@/components/ui";
+import { dateSortValue } from "@/lib/table-sort";
 
 type ProjectRow = {
   id: string;
@@ -42,11 +43,34 @@ type ClientDetail = {
   projects: ProjectRow[];
 };
 
+function clientProjectSortValue(p: ProjectRow, key: string) {
+  switch (key) {
+    case "number":
+      return p.proposalNumber;
+    case "event":
+      return p.eventName;
+    case "date":
+      return dateSortValue(p.date);
+    case "lifecycle":
+      return lifecycleLabel(p.lifecycle);
+    case "revenue":
+      return p.revenue;
+    case "labor":
+      return p.laborCost;
+    case "profit":
+      return p.profit;
+    default:
+      return null;
+  }
+}
+
 export function ClientEditor({ clientId }: { clientId: string }) {
   const router = useRouter();
   const [client, setClient] = useState<ClientDetail | null>(null);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const projects = client?.projects ?? [];
+  const { sorted, sort, onSort } = useTableSort(projects, clientProjectSortValue);
 
   async function load() {
     const res = await fetch(`/api/clients/${clientId}`);
@@ -312,17 +336,62 @@ export function ClientEditor({ clientId }: { clientId: string }) {
             <table className="data-table w-full min-w-[720px] text-sm">
               <thead className="bg-[var(--table-head)] text-xs uppercase text-[var(--muted)]">
                 <tr>
-                  <th className="px-2 py-2 text-left">КП</th>
-                  <th className="px-2 py-2 text-left">Мероприятие</th>
-                  <th className="px-2 py-2 text-left">Дата</th>
-                  <th className="px-2 py-2 text-left">Статус</th>
-                  <th className="px-2 py-2 text-right">Выручка</th>
-                  <th className="px-2 py-2 text-right">ЗП</th>
-                  <th className="px-2 py-2 text-right">Прибыль</th>
+                  <SortableTh
+                    label="КП"
+                    sortKey="number"
+                    state={sort}
+                    onSort={onSort}
+                    className="px-2 py-2"
+                  />
+                  <SortableTh
+                    label="Мероприятие"
+                    sortKey="event"
+                    state={sort}
+                    onSort={onSort}
+                    className="px-2 py-2"
+                  />
+                  <SortableTh
+                    label="Дата"
+                    sortKey="date"
+                    state={sort}
+                    onSort={onSort}
+                    className="px-2 py-2"
+                  />
+                  <SortableTh
+                    label="Статус"
+                    sortKey="lifecycle"
+                    state={sort}
+                    onSort={onSort}
+                    className="px-2 py-2"
+                  />
+                  <SortableTh
+                    label="Выручка"
+                    sortKey="revenue"
+                    state={sort}
+                    onSort={onSort}
+                    className="px-2 py-2"
+                    align="right"
+                  />
+                  <SortableTh
+                    label="ЗП"
+                    sortKey="labor"
+                    state={sort}
+                    onSort={onSort}
+                    className="px-2 py-2"
+                    align="right"
+                  />
+                  <SortableTh
+                    label="Прибыль"
+                    sortKey="profit"
+                    state={sort}
+                    onSort={onSort}
+                    className="px-2 py-2"
+                    align="right"
+                  />
                 </tr>
               </thead>
               <tbody>
-                {client.projects.map((p) => (
+                {sorted.map((p) => (
                   <tr
                     key={p.id}
                     className={`border-t border-[var(--line)] ${

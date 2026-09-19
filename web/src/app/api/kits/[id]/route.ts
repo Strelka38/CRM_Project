@@ -1,7 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
+import { ensureQuoteSchemaColumns } from "@/lib/ensure-schema";
 import { requireDatabaseAccess, requireSession } from "@/lib/session";
+
+let ensureOnce: Promise<void> | null = null;
+
+function ensureSchemaOnce() {
+  if (!ensureOnce) {
+    ensureOnce = ensureQuoteSchemaColumns().catch((e) => {
+      ensureOnce = null;
+      throw e;
+    });
+  }
+  return ensureOnce;
+}
 
 export async function GET(
   _req: NextRequest,
@@ -9,6 +22,7 @@ export async function GET(
 ) {
   try {
     await requireSession();
+    await ensureSchemaOnce();
     const { id } = await params;
     const kit = await prisma.kit.findUnique({
       where: { id },
@@ -34,6 +48,7 @@ const patchSchema = z.object({
   description: z.string().nullable().optional(),
   categoryId: z.string().nullable().optional(),
   active: z.boolean().optional(),
+  showInCatalog: z.boolean().optional(),
   components: z
     .array(
       z.object({
@@ -50,6 +65,7 @@ export async function PATCH(
 ) {
   try {
     await requireDatabaseAccess();
+    await ensureSchemaOnce();
     const { id } = await params;
     const body = patchSchema.parse(await req.json());
     const { components, ...meta } = body;

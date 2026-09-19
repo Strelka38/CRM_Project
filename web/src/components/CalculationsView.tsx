@@ -5,11 +5,12 @@ import { useEffect, useState } from "react";
 import { formatMoney } from "@/lib/format";
 import { LIST_PERIODS, type ListPeriod } from "@/lib/period";
 import type { CatalogOwnerValue } from "@/lib/catalog-owner";
+import { dateSortValue } from "@/lib/table-sort";
 import {
   summaryEventFromCalcRow,
   type SummaryPerson,
 } from "@/lib/export/calc-summary";
-import { Card, EmptyState, StatusBadge, type LifecycleStatus } from "@/components/ui";
+import { Card, EmptyState, SortableTh, StatusBadge, useTableSort, type LifecycleStatus, lifecycleLabel } from "@/components/ui";
 import {
   DirectoryCardLink,
   DirectoryCsvMenu,
@@ -51,6 +52,35 @@ type Row = {
   extraByCompany?: Partial<Record<CatalogOwnerValue, number>>;
   people?: SummaryPerson[];
 };
+
+function calcSortValue(r: Row, key: string) {
+  switch (key) {
+    case "number": {
+      const n = Number(r.proposalNumber);
+      return Number.isFinite(n) && r.proposalNumber.trim() !== ""
+        ? n
+        : r.proposalNumber;
+    }
+    case "event":
+      return r.eventName;
+    case "date":
+      return dateSortValue(r.eventDate || r.date);
+    case "manager":
+      return r.owner.name;
+    case "lifecycle":
+      return lifecycleLabel(r.lifecycle);
+    case "revenue":
+      return r.payable;
+    case "expenses":
+      return r.expensesTotal;
+    case "shares":
+      return r.breakdown[0]?.percent ?? 0;
+    case "net":
+      return r.netTotal;
+    default:
+      return null;
+  }
+}
 
 export function CalculationsView() {
   const [mine, setMine] = useState(true);
@@ -107,6 +137,7 @@ export function CalculationsView() {
   }, [mine, lifecycle, period]);
 
   const allSelected = rows.length > 0 && rows.every((r) => selected.has(r.id));
+  const { sorted, sort, onSort } = useTableSort(rows, calcSortValue);
 
   function toggleAll() {
     setExportHint("");
@@ -287,19 +318,74 @@ export function CalculationsView() {
                         aria-label="Выбрать все"
                       />
                     </th>
-                    <th className="px-4 py-3 text-left">Проект</th>
-                    <th className="px-4 py-3">Дата</th>
-                    <th className="px-4 py-3">Менеджер</th>
-                    <th className="px-4 py-3">Статус</th>
-                    <th className="px-4 py-3 text-left">Выручка</th>
-                    <th className="px-4 py-3 text-left">Расходы</th>
-                    <th className="px-4 py-3">Доли</th>
-                    <th className="px-4 py-3 text-left">Нетто</th>
+                    <SortableTh
+                      label="№"
+                      sortKey="number"
+                      state={sort}
+                      onSort={onSort}
+                      className="w-px whitespace-nowrap px-4 py-3"
+                    />
+                    <SortableTh
+                      label="Мероприятие"
+                      sortKey="event"
+                      state={sort}
+                      onSort={onSort}
+                      className="px-4 py-3"
+                    />
+                    <SortableTh
+                      label="Дата"
+                      sortKey="date"
+                      state={sort}
+                      onSort={onSort}
+                      className="px-4 py-3"
+                    />
+                    <SortableTh
+                      label="Менеджер"
+                      sortKey="manager"
+                      state={sort}
+                      onSort={onSort}
+                      className="px-4 py-3"
+                    />
+                    <SortableTh
+                      label="Статус"
+                      sortKey="lifecycle"
+                      state={sort}
+                      onSort={onSort}
+                      className="px-4 py-3"
+                    />
+                    <SortableTh
+                      label="Выручка"
+                      sortKey="revenue"
+                      state={sort}
+                      onSort={onSort}
+                      className="px-4 py-3"
+                    />
+                    <SortableTh
+                      label="Расходы"
+                      sortKey="expenses"
+                      state={sort}
+                      onSort={onSort}
+                      className="px-4 py-3"
+                    />
+                    <SortableTh
+                      label="Доли"
+                      sortKey="shares"
+                      state={sort}
+                      onSort={onSort}
+                      className="px-4 py-3"
+                    />
+                    <SortableTh
+                      label="Нетто"
+                      sortKey="net"
+                      state={sort}
+                      onSort={onSort}
+                      className="px-4 py-3"
+                    />
                     <th className="w-12 px-3 py-2 text-left" />
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((r) => (
+                  {sorted.map((r) => (
                     <tr
                       key={r.id}
                       className={`border-t border-[var(--line)] transition-colors hover:bg-subtle ${
@@ -314,12 +400,20 @@ export function CalculationsView() {
                           aria-label={`Выбрать №${r.proposalNumber}`}
                         />
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3 whitespace-nowrap tabular-nums">
                         <Link
                           href={`/calculations/${r.id}`}
                           className="font-medium text-[var(--accent-deep)] hover:underline"
                         >
-                          №{r.proposalNumber} {r.eventName || "Без названия"}
+                          № {r.proposalNumber}
+                        </Link>
+                      </td>
+                      <td className="px-4 py-3">
+                        <Link
+                          href={`/calculations/${r.id}`}
+                          className="text-[var(--ink)] hover:text-[var(--accent)] hover:underline"
+                        >
+                          {r.eventName || "Без названия"}
                         </Link>
                         <div className="text-xs text-[var(--muted)]">
                           {r.client || "—"}

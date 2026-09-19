@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
-import { formatRuDate, startOfDay } from "@/lib/dates";
+import { overlappingEntryWhere } from "@/lib/calendar-entries";
+import { addDays, formatRuDate, startOfDay } from "@/lib/dates";
 import {
   overlapDateLabels,
   quoteOccupancyRange,
@@ -58,17 +59,19 @@ export async function dayOffsOverlappingQuote(
 ): Promise<DayOffConflictRow[]> {
   const win = occupancyUtcWindow(quote);
   if (!win) return [];
-  const { targetRange, fromUtc, toUtc } = win;
+  const { targetRange } = win;
 
   const dayOffEntries = await prisma.calendarEntry.findMany({
     where: {
       kind: "DAY_OFF",
-      date: { gte: fromUtc, lte: toUtc },
+      ...overlappingEntryWhere(targetRange.start, targetRange.end),
       assignees: { some: { userId } },
     },
     select: {
       id: true,
       date: true,
+      endDate: true,
+      durationDays: true,
       startTime: true,
       endTime: true,
       title: true,
@@ -78,15 +81,19 @@ export async function dayOffsOverlappingQuote(
   });
 
   return dayOffEntries.map((e) => {
-    const day = entryDay(e.date);
+    const start = entryDay(e.date);
+    const end = e.endDate ? entryDay(e.endDate) : addDays(start, Math.max(1, e.durationDays || 1) - 1);
     return {
       id: e.id,
-      date: formatRuDate(day),
+      date:
+        start.getTime() === end.getTime()
+          ? formatRuDate(start)
+          : `${formatRuDate(start)} — ${formatRuDate(end)}`,
       startTime: e.startTime,
       endTime: e.endTime,
       title: e.title || "Выходной",
       note: e.note || "",
-      overlapDates: overlapDateLabels(targetRange, { start: day, end: day }),
+      overlapDates: overlapDateLabels(targetRange, { start, end }),
     };
   });
 }

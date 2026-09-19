@@ -150,7 +150,7 @@ export async function exportSpecExcel(
     pushItem(
       lineLabel(line),
       line.qty,
-      line.kitName ? `из комплекта: ${line.kitName}` : "",
+      line.kitName ? `из комплекта «${line.kitName}»` : "",
       (line.comment || "").trim(),
       (line.ownerLabel || "").trim() === "—" ? "" : (line.ownerLabel || "").trim(),
     );
@@ -242,7 +242,7 @@ export async function exportSpecPdf(
     pushItem(
       lineLabel(line),
       String(line.qty),
-      line.kitName ? `из комплекта: ${line.kitName}` : "",
+      line.kitName ? `из комплекта «${line.kitName}»` : "",
       (line.comment || "").trim(),
       (line.ownerLabel || "").trim() === "—" ? "" : (line.ownerLabel || "").trim(),
     );

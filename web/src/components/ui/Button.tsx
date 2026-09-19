@@ -15,8 +15,10 @@ const buttonVariants = cva(
           "rounded-md text-[var(--muted)] hover:bg-white/10 hover:text-[var(--ink)]",
         outline:
           "rounded-md border border-[var(--line)] bg-[var(--panel)] text-[var(--ink)] hover:bg-white/10",
+        icon:
+          "rounded-md border border-[var(--line)] bg-[var(--btn-icon-bg)] text-[var(--ink)] hover:bg-[var(--btn-icon-hover)] shrink-0",
         danger: "rounded-full bg-[var(--danger)] text-white hover:bg-red-600",
-        "danger-ghost": "rounded-md text-[var(--danger)] hover:bg-red-500/150/15",
+        "danger-ghost": "rounded-md text-[var(--danger)] hover:bg-red-500/15",
       },
       size: {
         sm: "px-3 py-1.5 text-xs",
