@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type PointerEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { lockSwipeAxis } from "@/lib/calendar-swipe";
 import { cn } from "@/lib/cn";
 
 type SideDrawerProps = {
@@ -14,8 +15,13 @@ type SideDrawerProps = {
   zIndex?: number;
   closeOnEscape?: boolean;
   wide?: boolean;
-  /** Desktop: панель слева. На мобильном по-прежнему снизу. */
+  /** Desktop: панель слева. На мобильном по-прежнему снизу (если from=auto). */
   side?: "left" | "right";
+  /**
+   * auto — на телефоне снизу; right — всегда сбоку справа
+   * (свайп вправо закрывает, без grab-бара).
+   */
+  from?: "auto" | "right";
   /** Без оверлея: колонка внутри календаря. */
   embedded?: boolean;
   /** false — панель справа без диммера, клики в дерево/страницу проходят. */
@@ -28,10 +34,12 @@ const LOCK_PX = 12;
 
 type DragState = {
   pointerId: number;
+  startX: number;
   startY: number;
   startT: number;
   locked: boolean;
-  y: number;
+  axis: "x" | "y";
+  offset: number;
   scrollable: HTMLElement | null;
 };
 
@@ -40,6 +48,20 @@ function sheetIsBottom(): boolean {
   if (layout === "desktop") return false;
   if (layout === "mobile") return true;
   return window.matchMedia("(max-width: 767px)").matches;
+}
+
+let sheetLockCount = 0;
+
+function addSheetLock() {
+  sheetLockCount += 1;
+  document.documentElement.classList.add("sheet-open");
+}
+
+function removeSheetLock() {
+  sheetLockCount = Math.max(0, sheetLockCount - 1);
+  if (sheetLockCount === 0) {
+    document.documentElement.classList.remove("sheet-open");
+  }
 }
 
 function isField(el: HTMLElement) {
@@ -71,15 +93,18 @@ export function SideDrawer({
   closeOnEscape = true,
   wide = false,
   side = "right",
+  from = "auto",
   embedded = false,
   modal = true,
 }: SideDrawerProps) {
   const [mounted, setMounted] = useState(false);
   const [present, setPresent] = useState(false);
   const [shown, setShown] = useState(false);
+  const enteredRef = useRef(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const drag = useRef<DragState | null>(null);
+  const edge = from === "right";
 
   useEffect(() => {
     setMounted(true);
@@ -90,6 +115,7 @@ export function SideDrawer({
       setPresent(true);
       return;
     }
+    enteredRef.current = false;
     setShown(false);
     const t = window.setTimeout(() => setPresent(false), 280);
     return () => window.clearTimeout(t);
@@ -97,10 +123,15 @@ export function SideDrawer({
 
   useEffect(() => {
     if (!open || !present) return;
+    // Already on-screen (day swipe, children change) — do not replay enter.
+    if (enteredRef.current) return;
     setShown(false);
     let inner = 0;
     const outer = requestAnimationFrame(() => {
-      inner = requestAnimationFrame(() => setShown(true));
+      inner = requestAnimationFrame(() => {
+        enteredRef.current = true;
+        setShown(true);
+      });
     });
     return () => {
       cancelAnimationFrame(outer);
@@ -122,12 +153,12 @@ export function SideDrawer({
     const prevHtml = html.style.overflow;
     document.body.style.overflow = "hidden";
     html.style.overflow = "hidden";
-    html.classList.add("sheet-open");
+    addSheetLock();
     return () => {
       document.removeEventListener("keydown", onKey);
       document.body.style.overflow = prevBody;
       html.style.overflow = prevHtml;
-      html.classList.remove("sheet-open");
+      removeSheetLock();
     };
   }, [open, onClose, closeOnEscape, embedded, modal]);
 
@@ -154,6 +185,7 @@ export function SideDrawer({
         return;
       }
       if (isField(target)) return;
+      if (edge) return;
       const scrollable = state?.scrollable ?? nearestScrollable(target, panel);
       const dy = state ? e.touches[0].clientY - state.startY : 0;
       if (!scrollable || (scrollable.scrollTop <= 0 && dy > 0)) {
@@ -162,18 +194,20 @@ export function SideDrawer({
     }
     root.addEventListener("touchmove", onTouchMove, { passive: false });
     return () => root.removeEventListener("touchmove", onTouchMove);
-  }, [open, present, embedded, modal]);
+  }, [open, present, embedded, modal, edge]);
 
   useEffect(() => {
     if (open) return;
     const root = rootRef.current;
     if (!root) return;
-    root.classList.remove("is-sheet-drag");
+    root.classList.remove("is-sheet-drag", "is-h-swipe");
+    delete root.dataset.swipeAxis;
     root.style.removeProperty("--sheet-y");
+    root.style.removeProperty("--sheet-x");
     root.style.removeProperty("--sheet-dim");
   }, [open]);
 
-  function applyDrag(y: number) {
+  function applyDragY(y: number) {
     const root = rootRef.current;
     const panel = panelRef.current;
     if (!root || !panel) return;
@@ -186,11 +220,26 @@ export function SideDrawer({
     );
   }
 
+  function applyDragX(x: number) {
+    const root = rootRef.current;
+    const panel = panelRef.current;
+    if (!root || !panel) return;
+    const w = panel.getBoundingClientRect().width || 1;
+    const clamped = Math.max(0, x);
+    root.style.setProperty("--sheet-x", `${clamped}px`);
+    root.style.setProperty(
+      "--sheet-dim",
+      String(Math.max(0.15, 1 - clamped / w)),
+    );
+  }
+
   function clearDragVars() {
     const root = rootRef.current;
     if (!root) return;
-    root.classList.remove("is-sheet-drag");
+    root.classList.remove("is-sheet-drag", "is-h-swipe");
+    delete root.dataset.swipeAxis;
     root.style.removeProperty("--sheet-y");
+    root.style.removeProperty("--sheet-x");
     root.style.removeProperty("--sheet-dim");
   }
 
@@ -204,19 +253,41 @@ export function SideDrawer({
     }
   }
 
+  function usesBottomDrag() {
+    return !edge && sheetIsBottom();
+  }
+
   function onPointerDown(e: PointerEvent<HTMLDivElement>) {
-    if (embedded || !sheetIsBottom() || e.button !== 0) return;
+    if (embedded || e.button !== 0) return;
     const panel = panelRef.current;
     if (!panel) return;
     const target = e.target as HTMLElement;
     if (isField(target)) return;
+
+    if (edge) {
+      drag.current = {
+        pointerId: e.pointerId,
+        startX: e.clientX,
+        startY: e.clientY,
+        startT: e.timeStamp,
+        locked: false,
+        axis: "x",
+        offset: 0,
+        scrollable: nearestScrollable(target, panel),
+      };
+      return;
+    }
+
+    if (!usesBottomDrag()) return;
     const onGrab = Boolean(target.closest("[data-sheet-grab]"));
     drag.current = {
       pointerId: e.pointerId,
+      startX: e.clientX,
       startY: e.clientY,
       startT: e.timeStamp,
       locked: onGrab,
-      y: 0,
+      axis: "y",
+      offset: 0,
       scrollable: onGrab ? null : nearestScrollable(target, panel),
     };
     if (onGrab) lockDrag(e.pointerId);
@@ -225,8 +296,55 @@ export function SideDrawer({
   function onPointerMove(e: PointerEvent<HTMLDivElement>) {
     const state = drag.current;
     if (!state || state.pointerId !== e.pointerId) return;
+
+    // Day list already locked this pointer to horizontal paging.
+    if (
+      state.axis === "y" &&
+      (rootRef.current?.dataset.swipeAxis === "x" ||
+        rootRef.current?.classList.contains("is-h-swipe") ||
+        Boolean(
+          (e.target as HTMLElement | null)?.closest?.("[data-swipe-axis=x]"),
+        ))
+    ) {
+      drag.current = null;
+      if (state.locked) clearDragVars();
+      return;
+    }
+
+    if (state.axis === "x") {
+      const dx = e.clientX - state.startX;
+      const dy = e.clientY - state.startY;
+      if (!state.locked) {
+        if (Math.abs(dx) < LOCK_PX && Math.abs(dy) < LOCK_PX) return;
+        if (Math.abs(dy) > Math.abs(dx)) {
+          drag.current = null;
+          return;
+        }
+        if (dx < LOCK_PX) return;
+        state.locked = true;
+        lockDrag(e.pointerId);
+      }
+      if (dx < 0) {
+        state.offset = 0;
+        applyDragX(0);
+        return;
+      }
+      e.preventDefault();
+      state.offset = dx;
+      applyDragX(dx);
+      return;
+    }
+
+    const dx = e.clientX - state.startX;
     const dy = e.clientY - state.startY;
     if (!state.locked) {
+      const axisLock = lockSwipeAxis(dx, dy, LOCK_PX);
+      if (!axisLock) return;
+      // Dominant axis is horizontal — don't dismiss the sheet on this pointer sequence.
+      if (axisLock === "x") {
+        drag.current = null;
+        return;
+      }
       if (dy < LOCK_PX) return;
       if (state.scrollable && state.scrollable.scrollTop > 0) {
         drag.current = null;
@@ -236,13 +354,13 @@ export function SideDrawer({
       lockDrag(e.pointerId);
     }
     if (dy < 0) {
-      state.y = 0;
-      applyDrag(0);
+      state.offset = 0;
+      applyDragY(0);
       return;
     }
     e.preventDefault();
-    state.y = dy;
-    applyDrag(dy);
+    state.offset = dy;
+    applyDragY(dy);
   }
 
   function onPointerUp(e: PointerEvent<HTMLDivElement>) {
@@ -253,17 +371,21 @@ export function SideDrawer({
     if (panel?.hasPointerCapture(e.pointerId)) {
       panel.releasePointerCapture(e.pointerId);
     }
+    rootRef.current?.classList.remove("is-h-swipe");
+    if (rootRef.current) delete rootRef.current.dataset.swipeAxis;
     if (!state.locked) return;
     const dt = Math.max(1, e.timeStamp - state.startT);
-    const velocity = state.y / dt;
+    const velocity = state.offset / dt;
     const shouldClose =
-      state.y > DISMISS_PX || velocity > DISMISS_VELOCITY;
-    rootRef.current?.classList.remove("is-sheet-drag");
+      state.offset > DISMISS_PX || velocity > DISMISS_VELOCITY;
+    rootRef.current?.classList.remove("is-sheet-drag", "is-h-swipe");
+    if (rootRef.current) delete rootRef.current.dataset.swipeAxis;
     if (shouldClose) {
       onClose();
       return;
     }
-    applyDrag(0);
+    if (state.axis === "x") applyDragX(0);
+    else applyDragY(0);
     window.setTimeout(clearDragVars, 280);
   }
 
@@ -290,6 +412,7 @@ export function SideDrawer({
       style={{ zIndex }}
       data-open={shown ? "1" : "0"}
       data-side={side}
+      data-from={from}
       data-modal={modal ? "1" : "0"}
     >
       {modal ? (
@@ -316,9 +439,11 @@ export function SideDrawer({
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
       >
-        <div className="side-drawer-grab" data-sheet-grab>
-          <div className="side-drawer-handle" aria-hidden />
-        </div>
+        {!edge ? (
+          <div className="side-drawer-grab" data-sheet-grab>
+            <div className="side-drawer-handle" aria-hidden />
+          </div>
+        ) : null}
         {children}
       </div>
     </div>,

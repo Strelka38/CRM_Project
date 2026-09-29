@@ -78,7 +78,7 @@ export async function POST(req: NextRequest) {
     await ensureSchemaOnce();
     const body = createSchema.parse(await req.json());
 
-    if (!canCreateEntryKind(session.user.role, body.kind)) {
+    if (!canCreateEntryKind(session.user.role, body.kind, session.permissions)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 

@@ -1,12 +1,14 @@
 #!/bin/sh
 set -eu
 
-echo "==> Waiting for database..."
+host="${POSTGRES_HOST:-db}"
+port="${POSTGRES_PORT:-5432}"
+echo "==> Waiting for database at ${host}:${port}..."
 i=0
-until node -e "const n=require('net');const s=n.connect(5432,'db',()=>{s.end();process.exit(0)});s.on('error',()=>process.exit(1))"; do
+until node -e "const n=require('net');const h=process.env.POSTGRES_HOST||'db';const p=Number(process.env.POSTGRES_PORT||5432);const s=n.connect(p,h,()=>{s.end();process.exit(0)});s.on('error',()=>process.exit(1))"; do
   i=$((i + 1))
   if [ "$i" -ge 60 ]; then
-    echo "Database is not ready after 60s" >&2
+    echo "Database is not ready after 60s (${host}:${port})" >&2
     exit 1
   fi
   sleep 1

@@ -11,17 +11,45 @@ import { cn } from "@/lib/cn";
 
 export function DrawerCloseButton({
   onClick,
+  variant = "close",
 }: {
   onClick: () => void;
+  /** back — стрелка «назад» для карточек, выезжающих справа. */
+  variant?: "close" | "back";
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="drawer-close flex size-8 shrink-0 items-center justify-center rounded-[var(--radius-sm)] text-lg leading-none text-[var(--muted)] hover:bg-[var(--panel-muted)] hover:text-[var(--ink)]"
-      aria-label="Закрыть"
+      className="drawer-close flex size-8 shrink-0 items-center justify-center rounded-[var(--radius-sm)] text-[var(--muted)] hover:bg-[var(--ink)]/10 hover:text-[var(--ink)]"
+      aria-label={variant === "back" ? "Назад" : "Закрыть"}
     >
-      ×
+      {variant === "back" ? (
+        <svg
+          viewBox="0 0 24 24"
+          className="size-5"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+        >
+          <path d="M15 6 9 12l6 6" />
+        </svg>
+      ) : (
+        <svg
+          viewBox="0 0 24 24"
+          className="size-5"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          aria-hidden
+        >
+          <path d="M6 6l12 12M18 6 6 18" />
+        </svg>
+      )}
     </button>
   );
 }
@@ -79,7 +107,7 @@ export function PeekKebabMenu({ items }: { items: PeekMenuItem[] }) {
           setRect(btnRef.current?.getBoundingClientRect() ?? null);
           setOpen(true);
         }}
-        className="flex size-8 shrink-0 items-center justify-center rounded-[var(--radius-sm)] text-[var(--muted)] hover:bg-[var(--panel-muted)] hover:text-[var(--ink)]"
+        className="flex size-8 shrink-0 items-center justify-center rounded-[var(--radius-sm)] text-[var(--muted)] hover:bg-[var(--ink)]/10 hover:text-[var(--ink)]"
       >
         <span className="flex flex-col items-center gap-[3px]" aria-hidden>
           <span className="size-1 rounded-full bg-current" />
@@ -132,6 +160,7 @@ export function PeekHeader({
   kind,
   kindId,
   children,
+  closeVariant = "close",
 }: {
   onClose: () => void;
   menuItems?: PeekMenuItem[];
@@ -139,11 +168,12 @@ export function PeekHeader({
   kind: string;
   kindId?: string;
   children?: ReactNode;
+  closeVariant?: "close" | "back";
 }) {
   return (
     <div className="border-b border-[var(--line)]">
-      <div className="flex items-center gap-1 px-3 py-1.5">
-        <DrawerCloseButton onClick={onClose} />
+      <div className="flex items-center gap-1 px-2 py-1.5">
+        <DrawerCloseButton onClick={onClose} variant={closeVariant} />
         <p
           id={kindId}
           className="min-w-0 flex-1 truncate text-xs font-medium uppercase tracking-wider text-[var(--muted)]"
@@ -152,7 +182,7 @@ export function PeekHeader({
         </p>
         {menuItems ? <PeekKebabMenu items={menuItems} /> : null}
       </div>
-      {children ? <div className="px-4 pb-3">{children}</div> : null}
+      {children ? <div className="px-4 pb-4">{children}</div> : null}
     </div>
   );
 }

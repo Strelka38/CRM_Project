@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { SpecEditor } from "@/components/SpecEditor";
 import { auth } from "@/lib/auth";
+import { getRolePermissionOverrides } from "@/lib/role-permissions";
 import { canEditSpec, isManager } from "@/lib/roles";
 
 export default async function SpecPage({
@@ -14,7 +15,8 @@ export default async function SpecPage({
   const { zone } = await searchParams;
   const session = await auth();
   const role = session?.user?.role;
-  if (canEditSpec(role)) {
+  const overrides = await getRolePermissionOverrides();
+  if (canEditSpec(role, overrides)) {
     const q = new URLSearchParams();
     q.set("tab", "spec");
     if (zone) q.set("zone", zone);

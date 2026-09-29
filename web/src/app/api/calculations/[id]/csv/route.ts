@@ -22,7 +22,7 @@ import {
 import { buildAssignmentLaborRows } from "@/lib/calc-labor";
 import { calcBlock } from "@/lib/quote-calc";
 import { amountsFromOverride } from "@/lib/quote-calculation";
-import { requireManager } from "@/lib/session";
+import { requireSection } from "@/lib/session";
 
 function kindParam(req: NextRequest): "lines" | "staff" | "stats" {
   const raw = (req.nextUrl.searchParams.get("kind") || "lines").toLowerCase();
@@ -86,7 +86,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    await requireManager();
+    await requireSection("section.calculations");
     const { id } = await params;
     const quote = await loadQuote(id);
     if (!quote) {
@@ -210,7 +210,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    await requireManager();
+    await requireSection("section.calculations");
     const { id } = await params;
     const kind = kindParam(req);
     if (kind === "stats") {

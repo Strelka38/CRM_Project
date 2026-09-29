@@ -49,6 +49,7 @@ import {
   isVacantInstallerSlot,
   isRosterDutyMark,
   isRosterZoneMark,
+  isRosterPersonSlotLocked,
   collapseRosterDutyMarks,
   packRosterLanes,
   dateInRosterResizeWindow,
@@ -97,9 +98,9 @@ const DENSITY_DESKTOP: Density = {
 
 /** Текущая неделя + половина следующей (при зуме 1). */
 const BASE_VISIBLE_DAYS = 10;
-/** Дни слева вне кадра — длинные мероприятия дольше держат упаковку, подъём позже. */
-const LEFT_PACK_BUFFER = 4;
-const RIGHT_PACK_BUFFER = 1;
+/** Буфер дней слева/справа для нативного горизонтального скролла. */
+const LEFT_PACK_BUFFER = 7;
+const RIGHT_PACK_BUFFER = 7;
 const ROSTER_ZOOM_STORAGE_KEY = "roster.zoom";
 const ROSTER_LANE_ZOOM_STORAGE_KEY = "roster.laneZoom";
 const ROSTER_ZOOM_MIN = 0.55;
@@ -558,7 +559,6 @@ export function RosterView() {
   const [viewReady, setViewReady] = useState(false);
   const [dayZoom, setDayZoom] = useState(1);
   const [laneZoom, setLaneZoom] = useState(1);
-  const [panPx, setPanPx] = useState(0);
   const [zoomMotion, setZoomMotion] = useState(false);
   const [items, setItems] = useState<RosterItem[]>([]);
   const [people, setPeople] = useState<RosterPerson[]>([]);
@@ -748,25 +748,26 @@ export function RosterView() {
   }, [people, freelancers, peopleKind, peopleQuery, specialtyFilter, selectedSlot, selectedKey, ownerFilter]);
 
   function shiftDays(delta: number) {
-    panPxRef.current = 0;
-    setPanPx(0);
+    const el = viewRef.current;
+    if (el && dayWidth > 0) {
+      el.scrollBy({ left: delta * dayWidth, behavior: "smooth" });
+      return;
+    }
     setViewStart((prev) => addDays(prev, delta));
   }
 
   function goToday() {
     const t = startOfDay(new Date());
-    panPxRef.current = 0;
-    setPanPx(0);
     setViewStart(startOfWeekMonday(t));
     setSelectedDay(t);
+    scrollToAnchorRef.current = true;
     if (showingDesktop) setDayPanelOpen(true);
   }
 
   function nudgeZoom(dir: 1 | -1) {
     setZoomMotion(true);
     setDayZoom((z) => clampRosterZoom(z + dir * 0.12));
-    panPxRef.current = 0;
-    setPanPx(0);
+    scrollToAnchorRef.current = true;
   }
 
   function nudgeLaneZoom(dir: 1 | -1) {
@@ -775,11 +776,110 @@ export function RosterView() {
   }
 
   const viewRef = useRef<HTMLDivElement>(null);
-  const panPxRef = useRef(0);
-  const panRafRef = useRef(0);
+  const syncingScrollRef = useRef(false);
+  const scrollToAnchorRef = useRef(true);
+  const scrollIdleTimerRef = useRef(0);
+  const dayWidthRef = useRef(80);
+  const [dayWidth, setDayWidth] = useState(80);
+  dayWidthRef.current = dayWidth;
+  const prevDayWidthRef = useRef(0);
+  const panRef = useRef<{
+    pointerId: number;
+    x: number;
+    y: number;
+    moved: boolean;
+    weekEl: HTMLElement | null;
+  } | null>(null);
+  const suppressDayClickRef = useRef(false);
+
   const zoomAccRef = useRef(0);
   const peopleSearchRef = useRef<HTMLInputElement>(null);
   const peopleListRef = useRef<HTMLUListElement>(null);
+
+  useLayoutEffect(() => {
+    const el = viewRef.current;
+    if (!el) return;
+    const measure = () => {
+      const next = Math.max(48, el.clientWidth / Math.max(1, visibleDayCount));
+      setDayWidth((prev) => (Math.abs(prev - next) < 0.5 ? prev : next));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [visibleDayCount]);
+
+  useLayoutEffect(() => {
+    const el = viewRef.current;
+    if (!el || dayWidth <= 0) return;
+    if (scrollToAnchorRef.current) {
+      scrollToAnchorRef.current = false;
+      syncingScrollRef.current = true;
+      el.scrollLeft = LEFT_PACK_BUFFER * dayWidth;
+      prevDayWidthRef.current = dayWidth;
+      requestAnimationFrame(() => {
+        syncingScrollRef.current = false;
+      });
+      return;
+    }
+    const prevW = prevDayWidthRef.current;
+    if (prevW > 0 && Math.abs(prevW - dayWidth) >= 0.5) {
+      syncingScrollRef.current = true;
+      el.scrollLeft = el.scrollLeft * (dayWidth / prevW);
+      requestAnimationFrame(() => {
+        syncingScrollRef.current = false;
+      });
+    }
+    prevDayWidthRef.current = dayWidth;
+  }, [viewStart, dayWidth, visibleDayCount, renderDayCount]);
+
+  function recycleScrollWindow() {
+    const el = viewRef.current;
+    if (!el || syncingScrollRef.current) return;
+    const dayW = dayWidthRef.current;
+    if (dayW <= 0) return;
+    const left = el.scrollLeft;
+    const maxScroll = el.scrollWidth - el.clientWidth;
+    const edge = dayW * 2.5;
+    let shift = 0;
+    if (left < edge) {
+      shift = -Math.max(3, Math.ceil((edge - left) / dayW));
+    } else if (left > maxScroll - edge) {
+      shift = Math.max(3, Math.ceil((left - (maxScroll - edge)) / dayW));
+    }
+    if (shift === 0) return;
+    syncingScrollRef.current = true;
+    setViewStart((prev) => addDays(prev, shift));
+    // После смены буфера компенсируем scrollLeft в layout-эффекте ниже.
+    pendingScrollCompRef.current = -shift * dayW;
+  }
+
+  const pendingScrollCompRef = useRef(0);
+
+  useLayoutEffect(() => {
+    const el = viewRef.current;
+    const comp = pendingScrollCompRef.current;
+    if (!el || !comp) return;
+    pendingScrollCompRef.current = 0;
+    el.scrollLeft += comp;
+    requestAnimationFrame(() => {
+      syncingScrollRef.current = false;
+    });
+  }, [viewStart]);
+
+  function onRosterScroll() {
+    if (syncingScrollRef.current) return;
+    const el = viewRef.current;
+    if (el) el.classList.add("is-panning");
+    // Recycle только после инерции — mid-scroll setState даёт дрожь.
+    if (scrollIdleTimerRef.current) window.clearTimeout(scrollIdleTimerRef.current);
+    scrollIdleTimerRef.current = window.setTimeout(() => {
+      scrollIdleTimerRef.current = 0;
+      recycleScrollWindow();
+      viewRef.current?.classList.remove("is-panning");
+    }, 140);
+  }
+
   useEffect(() => {
     if (!peopleOpen) return;
     peopleSearchRef.current?.focus();
@@ -809,14 +909,7 @@ export function RosterView() {
   useEffect(() => {
     const el = viewRef.current;
     if (!el) return;
-
-    const flushPan = () => {
-      panRafRef.current = 0;
-      setPanPx(panPxRef.current);
-    };
-
     const onWheel = (e: WheelEvent) => {
-      // Pinch / ctrl+wheel — зум числа дней.
       if (e.ctrlKey || e.metaKey) {
         e.preventDefault();
         setZoomMotion(true);
@@ -824,47 +917,105 @@ export function RosterView() {
         if (Math.abs(zoomAccRef.current) < 0.01) return;
         const step = zoomAccRef.current;
         zoomAccRef.current = 0;
-        panPxRef.current = 0;
-        setPanPx(0);
+        scrollToAnchorRef.current = true;
         setDayZoom((z) => clampRosterZoom(z + step));
         return;
       }
-
-      const absX = Math.abs(e.deltaX);
-      const absY = Math.abs(e.deltaY);
-      const horizontal = absX > absY || e.shiftKey;
-      if (!horizontal) return;
-
-      e.preventDefault();
-      const raw = e.shiftKey ? e.deltaY : e.deltaX;
-      if (raw === 0) return;
-
-      const dayW = Math.max(24, el.clientWidth / Math.max(1, visibleDayCount));
-      let next = panPxRef.current + raw;
-      let shift = 0;
-      while (next >= dayW) {
-        next -= dayW;
-        shift += 1;
-      }
-      while (next <= -dayW) {
-        next += dayW;
-        shift -= 1;
-      }
-      panPxRef.current = next;
-      if (shift !== 0) {
-        setViewStart((prev) => addDays(prev, shift));
-      }
-      if (!panRafRef.current) {
-        panRafRef.current = requestAnimationFrame(flushPan);
+      // Над датами native overflow-x уже листает. Из тела (.roster-week-scroll)
+      // горизонталь не доходит — overflow-x там hidden, пробрасываем deltaX.
+      const t = e.target;
+      if (!(t instanceof Element) || !t.closest(".roster-week-scroll")) return;
+      let dx = e.deltaX;
+      if (e.shiftKey && Math.abs(dx) < Math.abs(e.deltaY)) dx = e.deltaY;
+      if (dx === 0) return;
+      const before = el.scrollLeft;
+      el.scrollLeft = before + dx;
+      if (el.scrollLeft === before) return;
+      if (e.shiftKey || Math.abs(e.deltaX) >= Math.abs(e.deltaY)) {
+        e.preventDefault();
       }
     };
-
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => {
       el.removeEventListener("wheel", onWheel);
-      if (panRafRef.current) cancelAnimationFrame(panRafRef.current);
+      if (scrollIdleTimerRef.current) window.clearTimeout(scrollIdleTimerRef.current);
     };
-  }, [visibleDayCount]);
+  }, []);
+
+  function endGrabPan(pointerId: number) {
+    const pan = panRef.current;
+    if (!pan || pan.pointerId !== pointerId) return;
+    const moved = pan.moved;
+    panRef.current = null;
+    const viewport = viewRef.current;
+    viewport?.classList.remove("is-grab-panning");
+    if (moved) {
+      suppressDayClickRef.current = true;
+      if (scrollIdleTimerRef.current) window.clearTimeout(scrollIdleTimerRef.current);
+      scrollIdleTimerRef.current = window.setTimeout(() => {
+        scrollIdleTimerRef.current = 0;
+        recycleScrollWindow();
+        viewRef.current?.classList.remove("is-panning");
+      }, 140);
+    }
+  }
+
+  function onGrabPanPointerDown(e: ReactPointerEvent) {
+    if (e.button !== 0 || drag || panRef.current) return;
+    suppressDayClickRef.current = false;
+    const t = e.target;
+    if (!(t instanceof Element)) return;
+    if (
+      t.closest(
+        "[data-roster-slot], .roster-bar, .roster-event-label, .roster-zoom-pad, [data-roster-people], a, input, textarea, select",
+      )
+    ) {
+      return;
+    }
+    if (!t.closest(".roster-day-cols, .roster-dates-sticky, .roster-week-scroll")) {
+      return;
+    }
+    const week = viewRef.current?.querySelector(".roster-week-scroll");
+    panRef.current = {
+      pointerId: e.pointerId,
+      x: e.clientX,
+      y: e.clientY,
+      moved: false,
+      weekEl: week instanceof HTMLElement ? week : null,
+    };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  }
+
+  function onGrabPanPointerMove(e: ReactPointerEvent) {
+    const pan = panRef.current;
+    if (!pan || pan.pointerId !== e.pointerId) return;
+    const dx = e.clientX - pan.x;
+    const dy = e.clientY - pan.y;
+    if (!pan.moved) {
+      if (Math.hypot(dx, dy) < 4) return;
+      pan.moved = true;
+      const viewport = viewRef.current;
+      viewport?.classList.add("is-panning", "is-grab-panning");
+    }
+    pan.x = e.clientX;
+    pan.y = e.clientY;
+    const viewport = viewRef.current;
+    if (viewport) viewport.scrollLeft -= dx;
+    if (pan.weekEl) pan.weekEl.scrollTop -= dy;
+  }
+
+  function onGrabPanPointerUp(e: ReactPointerEvent) {
+    endGrabPan(e.pointerId);
+  }
+
+  function onDayAreaClick(day: Date) {
+    if (suppressDayClickRef.current) {
+      suppressDayClickRef.current = false;
+      return;
+    }
+    setSelectedDay(startOfDay(day));
+    setDayPanelOpen(true);
+  }
 
   function openItem(item: RosterItem) {
     selectSlot(item);
@@ -882,8 +1033,9 @@ export function RosterView() {
   }
 
   function selectSlot(item: RosterItem) {
-    if (isRosterZoneMark(item)) {
+    if (isRosterZoneMark(item) || isRosterPersonSlotLocked(item)) {
       if (item.quoteId) setOpenQuoteId(item.quoteId);
+      else if (item.entryId) setOpenEntryId(item.entryId);
       return;
     }
     setSelectedSlotId(item.id);
@@ -895,7 +1047,7 @@ export function RosterView() {
   }
 
   async function unassignItem(item: RosterItem) {
-    if (item.vacant) return;
+    if (item.vacant || isRosterPersonSlotLocked(item)) return;
     confirmIfPast([item], async (forcePast) => {
       await postMove({
         source: { type: "slot", slot: slotRef(item) },
@@ -911,6 +1063,11 @@ export function RosterView() {
     force = false,
     forcePast = false,
   ) {
+    if (isRosterPersonSlotLocked(item)) {
+      if (item.quoteId) setOpenQuoteId(item.quoteId);
+      closePeoplePanel();
+      return;
+    }
     if (item.userId && person.kind !== "freelancer" && item.userId === person.id) {
       closePeoplePanel();
       return;
@@ -1039,7 +1196,9 @@ export function RosterView() {
   }
 
   function onBarPointerDown(e: ReactPointerEvent, item: RosterItem) {
-    if (e.button !== 0 || isRosterZoneMark(item)) return;
+    if (e.button !== 0 || isRosterZoneMark(item) || isRosterPersonSlotLocked(item)) {
+      return;
+    }
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     setDrag({
       mode: "move",
@@ -1055,7 +1214,12 @@ export function RosterView() {
     item: RosterItem,
     edge: "start" | "end",
   ) {
-    if (e.button !== 0 || !item.resizable || item.vacant) {
+    if (
+      e.button !== 0 ||
+      !item.resizable ||
+      item.vacant ||
+      isRosterPersonSlotLocked(item)
+    ) {
       return;
     }
     e.stopPropagation();
@@ -1470,19 +1634,24 @@ export function RosterView() {
         <div
           ref={viewRef}
           className="roster-pan-viewport relative flex min-h-0 min-w-0 flex-1 flex-col"
+          onScroll={onRosterScroll}
+          onPointerDown={onGrabPanPointerDown}
+          onPointerMove={onGrabPanPointerMove}
+          onPointerUp={onGrabPanPointerUp}
+          onPointerCancel={onGrabPanPointerUp}
         >
           <div
-            className="roster-pan-track flex min-h-0 min-w-0 flex-1 flex-col"
+            className="roster-pan-track flex min-h-0 flex-1 flex-col"
             style={{
-              width: `${(colCount / Math.max(1, visibleDayCount)) * 100}%`,
-              transform: `translate3d(calc(-100% / ${colCount} * ${LEFT_PACK_BUFFER} - ${panPx}px), 0, 0)`,
+              width: colCount * dayWidth,
+              minWidth: colCount * dayWidth,
             }}
           >
           <div className="roster-dates-sticky">
             <div
-              className="grid shrink-0 px-0.5"
+              className="grid shrink-0"
               style={{
-                gridTemplateColumns: `repeat(${colCount}, minmax(0, 1fr))`,
+                gridTemplateColumns: `repeat(${colCount}, ${dayWidth}px)`,
               }}
             >
               {visibleDays.map((day) => {
@@ -1502,9 +1671,9 @@ export function RosterView() {
               })}
             </div>
             <div
-              className="grid px-0.5"
+              className="grid"
               style={{
-                gridTemplateColumns: `repeat(${colCount}, minmax(0, 1fr))`,
+                gridTemplateColumns: `repeat(${colCount}, ${dayWidth}px)`,
               }}
             >
               {visibleDays.map((day) => {
@@ -1519,10 +1688,7 @@ export function RosterView() {
                     key={`num-${key}`}
                     type="button"
                     data-roster-day={key}
-                    onClick={() => {
-                      setSelectedDay(startOfDay(day));
-                      setDayPanelOpen(true);
-                    }}
+                    onClick={() => onDayAreaClick(day)}
                     className={cn(
                       "relative flex items-center justify-center border-r border-[var(--line)]/70 bg-[var(--panel)] py-0.5 last:border-r-0",
                       nextWeek &&
@@ -1565,9 +1731,9 @@ export function RosterView() {
             data-roster-week={visibleDays.map((d) => formatDateKey(d)).join(",")}
           >
             <div
-              className="roster-day-cols grid px-0.5"
+              className="roster-day-cols grid"
               style={{
-                gridTemplateColumns: `repeat(${colCount}, minmax(0, 1fr))`,
+                gridTemplateColumns: `repeat(${colCount}, ${dayWidth}px)`,
               }}
             >
               {visibleDays.map((day) => {
@@ -1579,10 +1745,7 @@ export function RosterView() {
                     key={key}
                     type="button"
                     data-roster-day={key}
-                    onClick={() => {
-                      setSelectedDay(startOfDay(day));
-                      setDayPanelOpen(true);
-                    }}
+                    onClick={() => onDayAreaClick(day)}
                     className={cn(
                       "h-full border-r border-[var(--line)]/70 bg-[var(--panel)] last:border-r-0",
                       nextWeek &&
@@ -1627,11 +1790,16 @@ export function RosterView() {
                     const dutyMark = isRosterDutyMark(seg.item);
                     const zoneMark = isRosterZoneMark(seg.item);
                     const softMark = dutyMark || zoneMark;
+                    const calculated = isRosterPersonSlotLocked(seg.item);
+                    const slotInteractive = !zoneMark && !calculated;
                     if (seg.header) {
                       return (
                         <div
                           key={`${seg.item.id}-${seg.startCol}`}
-                          className="roster-event-label pointer-events-auto absolute overflow-hidden text-left font-medium"
+                          className={cn(
+                            "roster-event-label pointer-events-auto absolute overflow-hidden text-left font-medium",
+                            calculated && "is-calculated",
+                          )}
                           style={{
                             left,
                             width,
@@ -1642,7 +1810,11 @@ export function RosterView() {
                             borderRadius: `${radiusLeft} ${radiusRight} ${radiusRight} ${radiusLeft}`,
                             ["--roster-col" as string]: seg.startCol,
                           }}
-                          title={seg.item.title}
+                          title={
+                            calculated
+                              ? `${seg.item.title} · посчитано, не подтверждено — открыть смету`
+                              : seg.item.title
+                          }
                           onClick={() => {
                             if (seg.item.quoteId) setOpenQuoteId(seg.item.quoteId);
                             else if (seg.item.entryId) setOpenEntryId(seg.item.entryId);
@@ -1655,29 +1827,32 @@ export function RosterView() {
                     return (
                       <div
                         key={`${seg.item.id}-${seg.startCol}`}
-                        {...(zoneMark
-                          ? {}
-                          : { "data-roster-slot": seg.item.id })}
+                        {...(slotInteractive
+                          ? { "data-roster-slot": seg.item.id }
+                          : {})}
                         role="button"
                         tabIndex={0}
                         aria-label={
                           zoneMark
                             ? `Зона ${seg.item.zoneName || seg.item.role}`
-                            : dutyMark
-                              ? `День ${seg.item.role}`
-                              : seg.item.vacant
-                                ? `Запрос: ${seg.item.role}`
-                                : `Сменить: ${rosterBarLabel(seg.item)}`
+                            : calculated
+                              ? `Посчитано: ${seg.item.title} — открыть смету`
+                              : dutyMark
+                                ? `День ${seg.item.role}`
+                                : seg.item.vacant
+                                  ? `Запрос: ${seg.item.role}`
+                                  : `Сменить: ${rosterBarLabel(seg.item)}`
                         }
                         className={cn(
                           "roster-bar pointer-events-auto absolute overflow-hidden text-left font-medium",
                           softMark && "roster-bar-duty-mark",
                           seg.item.vacant && !softMark && "roster-bar-vacant",
-                          selected && !softMark && "roster-bar-selected",
+                          selected && !softMark && !calculated && "roster-bar-selected",
                           past && "roster-bar-past",
-                          dropOver && !softMark && "roster-bar-drop",
+                          dropOver && !softMark && slotInteractive && "roster-bar-drop",
                           dragging && "pointer-events-none opacity-40",
                           (seg.item.vacant || past) && "roster-bar-fixed",
+                          calculated && "is-calculated",
                         )}
                         style={{
                           left,
@@ -1699,16 +1874,18 @@ export function RosterView() {
                           borderRadius: softMark
                             ? "0"
                             : `${radiusLeft} ${radiusRight} ${radiusRight} ${radiusLeft}`,
-                          opacity: dragging ? 0.4 : 1,
+                          opacity: dragging ? 0.4 : undefined,
                           touchAction: "none",
                           ["--roster-col" as string]: seg.startCol,
                         }}
                         title={
-                          zoneMark
-                            ? `${seg.item.title} · зона ${seg.item.zoneName || seg.item.role}`
-                            : dutyMark
-                              ? `${seg.item.title} · день ${seg.item.role}`
-                              : `${ROSTER_KIND_LABELS[seg.item.kind]} · ${seg.item.title} · ${rosterBarLabel(seg.item)}`
+                          calculated
+                            ? `${seg.item.title} · посчитано — откройте смету для правок`
+                            : zoneMark
+                              ? `${seg.item.title} · зона ${seg.item.zoneName || seg.item.role}`
+                              : dutyMark
+                                ? `${seg.item.title} · день ${seg.item.role}`
+                                : `${ROSTER_KIND_LABELS[seg.item.kind]} · ${seg.item.title} · ${rosterBarLabel(seg.item)}`
                         }
                         onKeyDown={(e) => {
                           if (e.key === "Enter" || e.key === " ") {
@@ -1721,7 +1898,7 @@ export function RosterView() {
                         onPointerMove={onPointerMove}
                         onPointerUp={(e) => void onPointerUp(e)}
                       >
-                        {canResize ? (
+                        {canResize && slotInteractive ? (
                           <span
                             className="roster-handle roster-handle-start"
                             onPointerDown={(e) =>
@@ -1731,10 +1908,10 @@ export function RosterView() {
                             onPointerUp={(e) => void onPointerUp(e)}
                           />
                         ) : null}
-                        <span className={cn("block truncate px-1.5", !seg.item.vacant && "pr-3.5")}>
+                        <span className={cn("block truncate px-1.5", !seg.item.vacant && slotInteractive && "pr-3.5")}>
                           {rosterBarLabel(seg.item)}
                         </span>
-                        {!seg.item.vacant ? (
+                        {!seg.item.vacant && slotInteractive ? (
                           <button
                             type="button"
                             className="roster-bar-clear"
@@ -1749,7 +1926,7 @@ export function RosterView() {
                             ×
                           </button>
                         ) : null}
-                        {canResize ? (
+                        {canResize && slotInteractive ? (
                           <span
                             className="roster-handle roster-handle-end"
                             onPointerDown={(e) =>
@@ -2161,9 +2338,29 @@ function RosterDayAgenda({
                         className={cn(
                           "mb-1.5 text-caption font-medium text-[var(--ink)]",
                           blockIdx > 0 && "border-t border-[var(--line)] pt-2",
+                          (slots[0] || dutyMarks[0] || zoneMarks[0]) &&
+                            isRosterPersonSlotLocked(
+                              slots[0] || dutyMarks[0] || zoneMarks[0]!,
+                            ) &&
+                            "opacity-50",
                         )}
                       >
-                        {block.title}
+                        {(() => {
+                          const sample =
+                            slots[0] || dutyMarks[0] || zoneMarks[0];
+                          if (sample?.quoteId) {
+                            return (
+                              <button
+                                type="button"
+                                className="hover:underline"
+                                onClick={() => onOpen(sample)}
+                              >
+                                {block.title}
+                              </button>
+                            );
+                          }
+                          return block.title;
+                        })()}
                         {zoneMarks.length || dutyMarks.length ? (
                           <span className="ml-1.5 font-normal text-[var(--muted)]">
                             {[
@@ -2178,18 +2375,35 @@ function RosterDayAgenda({
                     ) : null}
                     {slots.length ? (
                     <ul className="space-y-1.5">
-                      {slots.map((item) => (
+                      {slots.map((item) => {
+                        const locked = isRosterPersonSlotLocked(item);
+                        return (
                         <li key={item.id}>
-                          <div className="flex items-stretch gap-1">
+                          <div
+                            className={cn(
+                              "flex items-stretch gap-1",
+                              locked && "opacity-50",
+                            )}
+                          >
                             <button
                               type="button"
                               disabled={busy}
                               onClick={() => onOpen(item)}
+                              title={
+                                locked
+                                  ? "Посчитано — откройте смету"
+                                  : undefined
+                              }
                               className={cn(
-                                "flex min-w-0 flex-1 items-stretch gap-3 rounded-xl border bg-[var(--panel)] px-3 py-2.5 text-left transition-colors hover:border-[var(--accent)]",
-                                selectedId === item.id
+                                "flex min-w-0 flex-1 items-stretch gap-3 rounded-xl border bg-[var(--panel)] px-3 py-2.5 text-left transition-colors",
+                                locked
+                                  ? "border-[var(--line)] hover:border-[var(--ink)]/30"
+                                  : "hover:border-[var(--accent)]",
+                                !locked &&
+                                  selectedId === item.id
                                   ? "border-[var(--accent)] ring-2 ring-[var(--accent)]/40"
-                                  : "border-[var(--line)]",
+                                  : !locked && "border-[var(--line)]",
+                                locked && "border-[var(--line)]",
                               )}
                             >
                               <span
@@ -2203,13 +2417,15 @@ function RosterDayAgenda({
                                     : item.name || "Сотрудник"}
                                 </span>
                                 <span className="text-caption text-[var(--muted)]">
-                                  {item.zoneName
-                                    ? `${item.zoneName} · ${item.role}`
-                                    : item.role}
+                                  {locked
+                                    ? "Посчитано · открыть смету"
+                                    : item.zoneName
+                                      ? `${item.zoneName} · ${item.role}`
+                                      : item.role}
                                 </span>
                               </span>
                             </button>
-                            {!item.vacant ? (
+                            {!item.vacant && !locked ? (
                               <button
                                 type="button"
                                 disabled={busy}
@@ -2223,7 +2439,8 @@ function RosterDayAgenda({
                             ) : null}
                           </div>
                         </li>
-                      ))}
+                        );
+                      })}
                     </ul>
                     ) : dutyMarks.length ? (
                       <button

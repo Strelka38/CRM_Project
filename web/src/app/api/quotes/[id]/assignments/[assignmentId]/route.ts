@@ -49,7 +49,7 @@ export async function PATCH(
 ) {
   try {
     const session = await requireAssignmentManager();
-    const showPay = canSeeAssignmentPay(session.user.role);
+    const showPay = canSeeAssignmentPay(session.user.role, session.permissions);
     const { id, assignmentId } = await params;
     const body = patchSchema.parse(await req.json());
 

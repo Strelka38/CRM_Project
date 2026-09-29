@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
       const lineNo = i + 2;
       try {
         const role: AppRole = r.role ?? "EMPLOYEE";
-        if (!canAssignRole(session.user.role, role)) {
+        if (!canAssignRole(session.user.role, role, session.permissions)) {
           rowErrors.push(`Строка ${lineNo}: нельзя назначить роль ${role}`);
           skipped += 1;
           continue;

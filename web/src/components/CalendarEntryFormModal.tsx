@@ -8,7 +8,7 @@ import {
 } from "@/components/CatalogPicker";
 import { ClientQuickSearch, type PickedClient } from "@/components/ClientQuickSearch";
 import { DateRangePicker } from "@/components/DateRangePicker";
-import { Button, Modal } from "@/components/ui";
+import { Button, PeekHeader, SideDrawer } from "@/components/ui";
 import {
   ENTRY_KIND_LABELS,
   displayUserName,
@@ -329,24 +329,39 @@ export function CalendarEntryFormModal({
     }
   }
 
+  function closeForm() {
+    if (pickerOpen) {
+      setPickerOpen(false);
+      return;
+    }
+    onClose();
+  }
+
   return (
     <>
-      <Modal
+      <SideDrawer
         open={open}
-        onClose={() => {
-          if (pickerOpen) {
-            setPickerOpen(false);
-            return;
-          }
-          onClose();
-        }}
-        title={`${entryId ? "Изменить" : "Создать"}: ${ENTRY_KIND_LABELS[kind]}`}
-        className="max-w-lg max-h-[90vh] overflow-y-auto"
+        onClose={closeForm}
+        from="right"
+        labelledBy="entry-form-title"
+        className="calendar-sheet"
+        zIndex={72}
       >
-        {loading ? (
-          <p className="text-sm text-[var(--muted)]">Загрузка…</p>
-        ) : (
-          <div className="space-y-4">
+        <div className="flex h-full min-h-0 flex-col overflow-hidden">
+          <PeekHeader
+            onClose={closeForm}
+            kind={ENTRY_KIND_LABELS[kind]}
+            kindId="entry-form-title"
+          >
+            <h2 className="font-display text-base font-medium leading-snug text-[var(--ink)]">
+              {entryId ? "Изменить" : "Создать"}
+            </h2>
+          </PeekHeader>
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+            {loading ? (
+              <p className="text-sm text-[var(--muted)]">Загрузка…</p>
+            ) : (
+              <div className="space-y-4">
             {kind !== "DAY_OFF" ? (
               <p className="text-sm text-[var(--muted)]">Дата: {dayLabel}</p>
             ) : null}
@@ -660,22 +675,24 @@ export function CalendarEntryFormModal({
               <p className="text-sm text-[var(--danger)]">{error}</p>
             )}
 
-            <div className="flex justify-end gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={onClose}
-                disabled={saving}
-              >
-                Отмена
-              </Button>
-              <Button type="button" onClick={() => void submit()} disabled={saving}>
-                {saving ? "Сохранение…" : "Сохранить"}
-              </Button>
-            </div>
+                <div className="flex justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={onClose}
+                    disabled={saving}
+                  >
+                    Отмена
+                  </Button>
+                  <Button type="button" onClick={() => void submit()} disabled={saving}>
+                    {saving ? "Сохранение…" : "Сохранить"}
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
-        )}
-      </Modal>
+        </div>
+      </SideDrawer>
 
       <CatalogPicker
         open={pickerOpen}

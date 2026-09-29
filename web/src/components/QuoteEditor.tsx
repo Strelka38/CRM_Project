@@ -11,6 +11,7 @@ import { VenueQuickSearch } from "@/components/VenueQuickSearch";
 import { DateRangePicker } from "@/components/DateRangePicker";
 import { QuoteFilesField } from "@/components/QuoteFilesField";
 import { SpecEditor } from "@/components/SpecEditor";
+import { createEditorUndo, isUndoHotkey } from "@/lib/editor-undo";
 import { ExportQuoteModal } from "@/components/ExportQuoteModal";
 import { QuoteDocumentsPanel } from "@/components/QuoteDocumentsModal";
 import { QuoteAssignments } from "@/components/QuoteAssignments";
@@ -125,6 +126,13 @@ type QuoteMeta = {
 };
 
 type EditableBlock = QuoteBlockInput & { key: string; zoneId: string };
+
+type QuoteUndoSnap = {
+  meta: QuoteMeta;
+  zones: ZoneTab[];
+  blocks: EditableBlock[];
+  activeTab: string;
+};
 
 function uid() {
   return `tmp-${Math.random().toString(36).slice(2, 10)}`;
@@ -247,6 +255,9 @@ export function QuoteEditor({
   const [catalogSheetOpen, setCatalogSheetOpen] = useState(false);
   const [actionsSheetOpen, setActionsSheetOpen] = useState(false);
   const tableRef = useRef<HTMLDivElement>(null);
+  const quoteUndoRef = useRef(createEditorUndo<QuoteUndoSnap>());
+  const quoteSnapRef = useRef<QuoteUndoSnap | null>(null);
+  const undoQuoteRef = useRef<() => boolean>(() => false);
   const [error, setError] = useState("");
   const [stockIssues, setStockIssues] = useState<
     Array<{
@@ -398,6 +409,19 @@ export function QuoteEditor({
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
+      const quotePane = editorPane === "quote" || editorPane === "main";
+      if (
+        quotePane &&
+        !exportOpen &&
+        !templateOpen &&
+        !fromTemplateOpen &&
+        !duplicateOpen &&
+        !deleteOpen &&
+        isUndoHotkey(e)
+      ) {
+        if (undoQuoteRef.current()) e.preventDefault();
+        return;
+      }
       if (!canEditQuote || exportOpen || templateOpen || fromTemplateOpen) return;
       const el = e.target as HTMLElement | null;
       const inField =
@@ -418,7 +442,15 @@ export function QuoteEditor({
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [canEditQuote, exportOpen, templateOpen, fromTemplateOpen]);
+  }, [
+    canEditQuote,
+    editorPane,
+    exportOpen,
+    templateOpen,
+    fromTemplateOpen,
+    duplicateOpen,
+    deleteOpen,
+  ]);
 
   const zoneSummary = useMemo(() => {
     if (!meta) {
@@ -666,8 +698,36 @@ export function QuoteEditor({
     return () => clearTimeout(t);
   }, [canAutosave, canEditQuote, meta, zones, blocks, loading, persist]);
 
+  function rememberQuote(gesture?: string) {
+    const snap = quoteSnapRef.current;
+    if (!snap) return;
+    quoteUndoRef.current.capture(snap, gesture);
+  }
+
+  function undoQuote() {
+    const prev = quoteUndoRef.current.undo();
+    if (!prev) return false;
+    setMeta(prev.meta);
+    setZones(prev.zones);
+    setBlocks(prev.blocks);
+    setActiveTab(prev.activeTab);
+    return true;
+  }
+  undoQuoteRef.current = undoQuote;
+  quoteSnapRef.current = meta
+    ? { meta, zones, blocks, activeTab }
+    : null;
+
+  function patchMeta(
+    recipe: (prev: QuoteMeta) => QuoteMeta,
+    gesture?: string,
+  ) {
+    rememberQuote(gesture);
+    setMeta((prev) => (prev ? recipe(prev) : prev));
+  }
+
   function updateMeta<K extends keyof QuoteMeta>(key: K, value: QuoteMeta[K]) {
-    setMeta((prev) => (prev ? { ...prev, [key]: value } : prev));
+    patchMeta((prev) => ({ ...prev, [key]: value }), `meta:${String(key)}`);
   }
 
   function goToPane(next: EditorPane) {
@@ -702,6 +762,7 @@ export function QuoteEditor({
     payload: unknown;
   }) {
     if (!meta) return;
+    rememberQuote();
     const structure = parseTemplatePayload(template.payload);
     const nextZones: ZoneTab[] = structure.zones.map((z, i) => ({
       id: newId(),
@@ -773,17 +834,21 @@ export function QuoteEditor({
   }
 
   function updateBlock(key: string, patch: Partial<EditableBlock>) {
+    const fields = Object.keys(patch).sort().join(",");
+    rememberQuote(`block:${key}:${fields}`);
     setBlocks((prev) =>
       prev.map((b) => (b.key === key ? { ...b, ...patch } : b)),
     );
   }
 
   function removeBlock(key: string) {
+    rememberQuote();
     setBlocks((prev) => prev.filter((b) => b.key !== key));
   }
 
   function applyZoneOrder(nextZoneBlocks: EditableBlock[]) {
     if (!activeZoneId) return;
+    rememberQuote();
     setBlocks((prev) => {
       const others = prev.filter((b) => b.zoneId !== activeZoneId);
       const merged = [...others, ...nextZoneBlocks];
@@ -822,6 +887,7 @@ export function QuoteEditor({
   function addSection() {
     const zoneId = requireZone();
     if (!zoneId) return;
+    rememberQuote();
     setBlocks((prev) => [
       ...prev,
       {
@@ -837,6 +903,7 @@ export function QuoteEditor({
   function addCustomItem() {
     const zoneId = requireZone();
     if (!zoneId) return;
+    rememberQuote();
     setBlocks((prev) => [
       ...prev,
       {
@@ -894,6 +961,7 @@ export function QuoteEditor({
     const zoneId = requireZone();
     if (!zoneId) return;
     const addQty = Math.max(1, Math.round(qty) || 1);
+    rememberQuote();
     const sectionTitle = isPersonnelOrServiceKind(item.itemKind)
       ? SERVICES_SECTION_TITLE
       : item.category.path.split("/")[0] || item.category.name;
@@ -960,6 +1028,7 @@ export function QuoteEditor({
     const zoneId = requireZone();
     if (!zoneId) return;
     const addQty = Math.max(1, Math.round(qty) || 1);
+    rememberQuote();
     const sectionTitle =
       kit.category?.path.split("/")[0] || kit.category?.name || "Комплекты";
     setLineNotice("");
@@ -1014,6 +1083,7 @@ export function QuoteEditor({
     const zoneId = requireZone();
     if (!zoneId) return;
     const addQty = Math.max(1, Math.round(qty) || 1);
+    rememberQuote();
     setLineNotice("");
     setBlocks((prev) => {
       const zone = prev
@@ -1099,6 +1169,7 @@ export function QuoteEditor({
     const id = newId();
     const name = prompt("Название зоны", `Зона ${zones.length + 1}`);
     if (!name?.trim()) return;
+    rememberQuote();
     setZones((prev) => [
       ...prev,
       { id, name: name.trim(), sortOrder: prev.length, active: true, workingDayIndexes: [] },
@@ -1107,10 +1178,12 @@ export function QuoteEditor({
   }
 
   function renameZone(id: string, name: string) {
+    rememberQuote(`zone:${id}:name`);
     setZones((prev) => prev.map((z) => (z.id === id ? { ...z, name } : z)));
   }
 
   function setZoneWorkingDays(zoneId: string, workingDayIndexes: number[]) {
+    rememberQuote();
     setZones((prev) =>
       prev.map((z) => (z.id === zoneId ? { ...z, workingDayIndexes } : z)),
     );
@@ -1128,6 +1201,7 @@ export function QuoteEditor({
   }
 
   function toggleZoneActive(id: string) {
+    rememberQuote();
     setZones((prev) =>
       prev.map((z) =>
         z.id === id ? { ...z, active: z.active === false } : z,
@@ -1143,6 +1217,7 @@ export function QuoteEditor({
       return;
     }
     if (!confirm("Удалить пустую зону?")) return;
+    rememberQuote();
     setZones((prev) => prev.filter((z) => z.id !== id));
     if (activeTab === id) {
       setActiveTab(zones.find((z) => z.id !== id)?.id || "summary");
@@ -1479,7 +1554,7 @@ export function QuoteEditor({
                       paymentComment={meta.paymentComment}
                       disabled={!isManager}
                       onChange={(patch) => {
-                        setMeta((prev) => (prev ? { ...prev, ...patch } : prev));
+                        patchMeta((prev) => ({ ...prev, ...patch }), "meta:payment");
                       }}
                     />
                   </div>
@@ -1493,8 +1568,7 @@ export function QuoteEditor({
                   durationDays={meta.durationDays}
                   disabled={!editSchedule}
                   onChange={(date, durationDays) => {
-                    setMeta((prev) => {
-                      if (!prev) return prev;
+                    patchMeta((prev) => {
                       const auto = applyAutoMountDemount({
                         prevDate: prev.date,
                         prevDurationDays: prev.durationDays,
@@ -1515,11 +1589,7 @@ export function QuoteEditor({
                   durationDays={meta.mountDurationDays}
                   disabled={!editSchedule}
                   onChange={(mountDate, mountDurationDays) => {
-                    setMeta((prev) =>
-                      prev
-                        ? { ...prev, mountDate, mountDurationDays }
-                        : prev,
-                    );
+                    patchMeta((prev) => ({ ...prev, mountDate, mountDurationDays }));
                   }}
                 />
                 <label className="text-caption text-[var(--muted)]">
@@ -1546,11 +1616,11 @@ export function QuoteEditor({
                   durationDays={meta.demountDurationDays}
                   disabled={!editSchedule}
                   onChange={(demountDate, demountDurationDays) => {
-                    setMeta((prev) =>
-                      prev
-                        ? { ...prev, demountDate, demountDurationDays }
-                        : prev,
-                    );
+                    patchMeta((prev) => ({
+                      ...prev,
+                      demountDate,
+                      demountDurationDays,
+                    }));
                   }}
                 />
                 <div className="col-span-2 text-caption text-[var(--muted)] sm:col-span-1">
@@ -1561,11 +1631,7 @@ export function QuoteEditor({
                         type="button"
                         className="text-caption text-[var(--accent)] hover:underline"
                         onClick={() =>
-                          setMeta((prev) =>
-                            prev
-                              ? { ...prev, place: "", venueId: null }
-                              : prev,
-                          )
+                          patchMeta((prev) => ({ ...prev, place: "", venueId: null }))
                         }
                       >
                         Сменить
@@ -1586,27 +1652,20 @@ export function QuoteEditor({
                     selectedId={meta.venueId}
                     disabled={!isManager}
                     onChange={(text) =>
-                      setMeta((prev) =>
-                        prev
-                          ? { ...prev, place: text, venueId: null }
-                          : prev,
+                      patchMeta(
+                        (prev) => ({ ...prev, place: text, venueId: null }),
+                        "meta:place",
                       )
                     }
                     onPick={(v) =>
-                      setMeta((prev) =>
-                        prev
-                          ? {
-                              ...prev,
-                              place: v.name,
-                              venueId: v.id,
-                            }
-                          : prev,
-                      )
+                      patchMeta((prev) => ({
+                        ...prev,
+                        place: v.name,
+                        venueId: v.id,
+                      }))
                     }
                     onClear={() =>
-                      setMeta((prev) =>
-                        prev ? { ...prev, place: "", venueId: null } : prev,
-                      )
+                      patchMeta((prev) => ({ ...prev, place: "", venueId: null }))
                     }
                   />
                 </div>
@@ -1619,15 +1678,11 @@ export function QuoteEditor({
                       onChange={(e) => {
                         const ownerId = e.target.value;
                         const m = managers.find((x) => x.id === ownerId);
-                        setMeta((prev) =>
-                          prev
-                            ? {
-                                ...prev,
-                                ownerId,
-                                managerName: m?.name || prev.managerName,
-                              }
-                            : prev,
-                        );
+                        patchMeta((prev) => ({
+                          ...prev,
+                          ownerId,
+                          managerName: m?.name || prev.managerName,
+                        }));
                       }}
                     >
                       {!managers.some((m) => m.id === meta.ownerId) &&
@@ -1655,22 +1710,17 @@ export function QuoteEditor({
                     value={meta.client}
                     disabled={!isManager}
                     onChange={(text) =>
-                      setMeta((prev) =>
-                        prev
-                          ? { ...prev, client: text, clientId: null }
-                          : prev,
+                      patchMeta(
+                        (prev) => ({ ...prev, client: text, clientId: null }),
+                        "meta:client",
                       )
                     }
                     onPick={(c) =>
-                      setMeta((prev) =>
-                        prev
-                          ? {
-                              ...prev,
-                              client: c.companyName,
-                              clientId: c.id,
-                            }
-                          : prev,
-                      )
+                      patchMeta((prev) => ({
+                        ...prev,
+                        client: c.companyName,
+                        clientId: c.id,
+                      }))
                     }
                   />
                 </label>
@@ -2342,6 +2392,7 @@ export function QuoteEditor({
             quoteId={quoteId}
             isManager={isManager}
             embedded
+            hotkeys={editorPane === "spec"}
             flushRef={specFlushRef}
           />
         </div>
@@ -2380,9 +2431,7 @@ export function QuoteEditor({
             blocks={blocks}
             canEdit={isManager}
             onInvoiceSentChange={(sent) =>
-              setMeta((prev) =>
-                prev ? { ...prev, invoiceSent: sent || prev.paid } : prev,
-              )
+              patchMeta((prev) => ({ ...prev, invoiceSent: sent || prev.paid }))
             }
             exportMeta={{
               proposalNumber: meta.proposalNumber,

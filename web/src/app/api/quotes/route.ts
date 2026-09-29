@@ -21,6 +21,7 @@ import {
 import {
   canSeeAllEvents,
   requireManager,
+  requireSection,
   requireSession,
 } from "@/lib/session";
 
@@ -36,13 +37,13 @@ export async function GET(req: NextRequest) {
 
     // Неоплаченные — только менеджеры
     if (unpaid) {
-      await requireManager();
+      await requireSection("section.unpaid");
     }
 
     // Календарь / менеджер / бригадир: все мероприятия.
     // Список «Мероприятия» у сотрудника: только свои назначения.
     const employeeScope =
-      !canSeeAllEvents(session.user.role) && !calendar
+      !canSeeAllEvents(session.user.role, session.permissions) && !calendar
         ? { assignments: { some: { userId: session.user.id } } }
         : {};
 

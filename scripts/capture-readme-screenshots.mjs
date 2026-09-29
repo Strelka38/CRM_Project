@@ -87,6 +87,7 @@ const desktop = await browser.newContext({
 await desktop.addInitScript(() => {
   localStorage.setItem("bs-crm-theme", "dark");
   localStorage.setItem("bs-crm-layout", "desktop");
+  localStorage.setItem("calendar.dashCollapsed", "1");
   document.cookie = "bs-crm-layout=desktop; path=/; max-age=31536000; SameSite=Lax";
 });
 
@@ -180,6 +181,10 @@ try {
   await goto(page, "/legal-entities");
   await settle(page, 900);
   await shot(page, "17-legal-entities.jpg");
+
+  await goto(page, "/settings/access");
+  await settle(page, 1200);
+  await shot(page, "24-role-access.jpg");
 
   const storage = await desktop.storageState();
   const mobile = await browser.newContext({

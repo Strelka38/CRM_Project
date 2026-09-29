@@ -1,12 +1,14 @@
+import { headers } from "next/headers";
+import { redirect } from "next/navigation";
 import { AppChrome } from "@/components/AppChrome";
+import { PermissionProvider } from "@/components/PermissionProvider";
 import { auth, signOut } from "@/lib/auth";
 import {
-  canAccessDatabase,
-  canAccessWorkloadStats,
-  canBackupDatabase,
-  isManager,
-  roleLabelRu,
-} from "@/lib/roles";
+  allowedNavHrefs,
+  navPathBlocked,
+} from "@/lib/permission-tree";
+import { getRolePermissionOverrides } from "@/lib/role-permissions";
+import { canBackupDatabase, isManager, roleLabelRu } from "@/lib/roles";
 import { prisma } from "@/lib/db";
 
 async function logout() {
@@ -36,23 +38,34 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
       if (dbUser) role = dbUser.role;
     }
   }
+
+  const overrides = await getRolePermissionOverrides();
+  const pathname = (await headers()).get("x-pathname") ?? "";
+  if (
+    pathname &&
+    !pathname.startsWith("/calendar") &&
+    navPathBlocked(pathname, role, overrides, { payoutsAccess })
+  ) {
+    redirect("/calendar");
+  }
+
   const manager = isManager(role);
-  const database = canAccessDatabase(role);
-  const workloadStats = canAccessWorkloadStats(role);
-  const showBackup = canBackupDatabase(role);
+  const showBackup = canBackupDatabase(role, overrides);
+  const allowedHrefs = allowedNavHrefs(role, overrides, { payoutsAccess });
 
   return (
-    <AppChrome
-      userName={session?.user?.name ?? null}
-      roleLabel={roleLabelRu(role)}
-      manager={manager}
-      database={database}
-      workloadStats={workloadStats}
-      showBackup={showBackup}
-      payoutsAccess={payoutsAccess}
-      logoutAction={logout}
-    >
-      {children}
-    </AppChrome>
+    <PermissionProvider role={role} overrides={overrides}>
+      <AppChrome
+        userName={session?.user?.name ?? null}
+        roleLabel={roleLabelRu(role)}
+        manager={manager}
+        showBackup={showBackup}
+        payoutsAccess={payoutsAccess}
+        allowedHrefs={allowedHrefs}
+        logoutAction={logout}
+      >
+        {children}
+      </AppChrome>
+    </PermissionProvider>
   );
 }

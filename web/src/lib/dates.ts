@@ -85,3 +85,14 @@ export function daysInclusive(start: Date, end: Date): number {
 export function endDateFromDuration(start: Date, durationDays: number): Date {
   return addDays(startOfDay(start), Math.max(1, durationDays) - 1);
 }
+
+/** ISO-8601 номер недели (пн–вс), как в TimeTree. */
+export function isoWeekNumber(date: Date): number {
+  const d = new Date(
+    Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()),
+  );
+  const day = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - day);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil(((d.getTime() - yearStart.getTime()) / 86_400_000 + 1) / 7);
+}

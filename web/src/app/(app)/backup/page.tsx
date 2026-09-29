@@ -4,7 +4,7 @@ import { requireSession } from "@/lib/session";
 
 export default async function BackupPage() {
   const session = await requireSession();
-  if (!canBackupDatabase(session.user.role)) {
+  if (!canBackupDatabase(session.user.role, session.permissions)) {
     return (
       <div className="mx-auto max-w-3xl px-4 py-6 md:px-6">
         <header className="mb-8">

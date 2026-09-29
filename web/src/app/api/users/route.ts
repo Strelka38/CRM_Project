@@ -19,7 +19,7 @@ export async function GET() {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const showSalary = canAccessDatabase(session.user.role);
+    const showSalary = canAccessDatabase(session.user.role, session.permissions);
     const users = await prisma.user.findMany({
       orderBy: { createdAt: "desc" },
       select: {
@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
   try {
     const session = await requireDatabaseAccess();
     const body = createSchema.parse(await req.json());
-    if (!canAssignRole(session.user.role, body.role)) {
+    if (!canAssignRole(session.user.role, body.role, session.permissions)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
     const fio = [body.lastName, body.firstName, body.patronymic]

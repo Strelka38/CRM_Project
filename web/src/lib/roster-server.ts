@@ -532,6 +532,23 @@ async function assertSlotNotPast(slot: RosterSlotRef, forcePast = false) {
   if (slot.entryId) await assertEntryNotPast(slot.entryId);
 }
 
+async function assertQuoteRosterEditable(quoteId: string) {
+  const quote = await prisma.quote.findUnique({
+    where: { id: quoteId },
+    select: { lifecycle: true },
+  });
+  if (!quote) throw new Error("Мероприятие не найдено");
+  if (quote.lifecycle === "CALCULATED") {
+    throw new Error("Сначала подтвердите смету — назначения пока недоступны");
+  }
+}
+
+async function assertSlotRosterEditable(slot: RosterSlotRef) {
+  if (slot.source === "quote" && slot.quoteId) {
+    await assertQuoteRosterEditable(slot.quoteId);
+  }
+}
+
 async function assertUserSpecialty(
   userId: string,
   assignmentIds: string[],
@@ -647,6 +664,7 @@ export async function applyRosterAssignUser(
   forcePast = false,
 ) {
   await assertSlotNotPast(slot, forcePast);
+  await assertSlotRosterEditable(slot);
   const person = await staffPerson(userId);
   if (slot.source === "quote") {
     const quoteId = slot.quoteId;
@@ -722,6 +740,7 @@ export async function applyRosterAssignFreelancer(
   forcePast = false,
 ) {
   await assertSlotNotPast(slot, forcePast);
+  await assertSlotRosterEditable(slot);
   if (slot.source !== "quote") {
     throw new Error("Фрилансера можно назначить только на слот сметы");
   }
@@ -752,6 +771,7 @@ export async function applyRosterAssignFreelancer(
 
 export async function applyRosterUnassign(slot: RosterSlotRef, forcePast = false) {
   await assertSlotNotPast(slot, forcePast);
+  await assertSlotRosterEditable(slot);
   if (slot.source === "quote") {
     if (slot.assignmentIds.length === 0) throw new Error("Некорректный слот");
     await applyMountDutyPerson(slot, emptyPerson());
@@ -782,6 +802,8 @@ export async function applyRosterSwap(
 ) {
   await assertSlotNotPast(a, forcePast);
   await assertSlotNotPast(b, forcePast);
+  await assertSlotRosterEditable(a);
+  await assertSlotRosterEditable(b);
   if (a.source === "quote" && b.source === "quote") {
     const personA = await quoteSlotPerson(a.assignmentIds);
     const personB = await quoteSlotPerson(b.assignmentIds);
@@ -936,6 +958,7 @@ export async function applyRosterShiftToDay(
   forcePast = false,
 ) {
   await assertSlotNotPast(slot, forcePast);
+  await assertSlotRosterEditable(slot);
   const day = parseEventDate(dateKey);
   if (!day) throw new Error("Некорректная дата");
 
@@ -1116,6 +1139,7 @@ export async function applyRosterSpan(opts: {
   forcePast?: boolean;
 }) {
   await assertQuoteNotPast(opts.quoteId, opts.forcePast);
+  await assertQuoteRosterEditable(opts.quoteId);
   const quote = await prisma.quote.findUnique({
     where: { id: opts.quoteId },
     select: { id: true, durationDays: true },

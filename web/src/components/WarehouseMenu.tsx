@@ -12,12 +12,14 @@ import {
 
 export function WarehouseMenu({
   variant = "sidebar",
+  allowedHrefs,
 }: {
   variant?: "sidebar" | "top";
+  allowedHrefs?: readonly string[];
 }) {
-  const ITEMS = navMenuItems("warehouse");
+  const ITEMS = navMenuItems("warehouse", { allowedHrefs });
   const pathname = usePathname();
-  const active = navGroupIsActive(pathname, "warehouse");
+  const active = navGroupIsActive(pathname, "warehouse", { allowedHrefs });
   const [open, setOpen] = useState(variant === "sidebar" ? active : false);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -34,6 +36,8 @@ export function WarehouseMenu({
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
   }, [open, variant]);
+
+  if (ITEMS.length === 0) return null;
 
   const links = ITEMS.map((item) => {
     const isActive = isNavItemActive(pathname, item.href, item.exactActive);

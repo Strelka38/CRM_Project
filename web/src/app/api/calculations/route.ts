@@ -29,11 +29,11 @@ import {
   getPeriodRange,
   parseListPeriod,
 } from "@/lib/period";
-import { requireManager } from "@/lib/session";
+import { requireSection } from "@/lib/session";
 
 export async function GET(req: NextRequest) {
   try {
-    const session = await requireManager();
+    const session = await requireSection("section.calculations");
     const mine = req.nextUrl.searchParams.get("mine") === "1";
     const lifecycle =
       req.nextUrl.searchParams.get("lifecycle") ?? "settlement";

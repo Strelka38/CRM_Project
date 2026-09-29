@@ -1,7 +1,6 @@
 import NextAuth from "next-auth";
 import { NextResponse } from "next/server";
 import { authConfig } from "@/lib/auth.config";
-import { allowsNavGate, navGateForPath } from "@/lib/nav-sections";
 
 const { auth } = NextAuth(authConfig);
 
@@ -27,17 +26,9 @@ export default auth((req) => {
     return NextResponse.redirect(new URL("/calendar", req.nextUrl.origin));
   }
 
-  const role =
-    req.auth?.user && "role" in req.auth.user
-      ? String(req.auth.user.role)
-      : "";
-
-  const gate = navGateForPath(pathname);
-  if (isLoggedIn && gate && !allowsNavGate(gate, role)) {
-    return NextResponse.redirect(new URL("/calendar", req.nextUrl.origin));
-  }
-
-  return NextResponse.next();
+  const requestHeaders = new Headers(req.headers);
+  requestHeaders.set("x-pathname", pathname);
+  return NextResponse.next({ request: { headers: requestHeaders } });
 });
 
 export const config = {

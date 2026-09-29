@@ -13,6 +13,7 @@ export function mobileChromeActive(): boolean {
 }
 
 export function isTextEntry(el: EventTarget | null): boolean {
+  if (typeof HTMLElement === "undefined") return false;
   if (!(el instanceof HTMLElement)) return false;
   if (el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) {
     return true;
@@ -32,39 +33,21 @@ export function isTextEntry(el: EventTarget | null): boolean {
   ].includes(el.type);
 }
 
-/** Сдвиг бара: только при открытой клавиатуре, иначе 0 — бар на низу экрана. */
-export function bottomBarShift(
-  innerHeight: number,
-  visual: { height: number; offsetTop: number } | null,
-  inputFocused: boolean,
-): number {
-  if (!inputFocused || !visual) return 0;
-  return Math.min(0, visual.offsetTop + visual.height - innerHeight);
-}
-
 function applyLock() {
   const root = document.documentElement;
   if (!mobileChromeActive()) {
-    root.classList.remove("app-vv-lock");
-    root.style.removeProperty("--app-bar-shift");
+    root.classList.remove("app-vv-lock", "app-keyboard-open");
     root.style.removeProperty("--app-bottom-inset");
     return;
   }
   root.classList.add("app-vv-lock");
+  root.classList.toggle("app-keyboard-open", isTextEntry(document.activeElement));
   if (window.scrollX || window.scrollY) window.scrollTo(0, 0);
 
   const bar = document.querySelector(".app-bottombar");
   if (bar instanceof HTMLElement) {
     root.style.setProperty("--app-bottom-inset", `${Math.round(bar.offsetHeight)}px`);
   }
-
-  const vv = window.visualViewport;
-  const shift = bottomBarShift(
-    window.innerHeight,
-    vv ? { height: vv.height, offsetTop: vv.offsetTop } : null,
-    isTextEntry(document.activeElement),
-  );
-  root.style.setProperty("--app-bar-shift", `${shift}px`);
 }
 
 const PIN_DELAYS = [50, 180, 400, 700];
@@ -72,7 +55,7 @@ const PIN_DELAYS = [50, 180, 400, 700];
 /**
  * Нижнее меню — position:fixed к низу экрана.
  * document-scroll после клавиатуры/шаринга сбрасываем.
- * Сдвигаем бар вверх только пока в поле ввода (клавиатура).
+ * Пока фокус в поле — бар прячем: на iOS он иначе садится на клавиатуру.
  */
 export function useMobileViewportLock() {
   useEffect(() => {
@@ -100,6 +83,8 @@ export function useMobileViewportLock() {
     window.addEventListener("orientationchange", pinSoon);
     window.addEventListener("focusin", pinSoon);
     window.addEventListener("focusout", pinSoon);
+    document.addEventListener("focusin", pinSoon);
+    document.addEventListener("focusout", pinSoon);
     window.addEventListener("pageshow", pinSoon);
     window.addEventListener("focus", pinSoon);
     window.addEventListener("bs-crm-viewport-pin", pinSoon);
@@ -119,6 +104,8 @@ export function useMobileViewportLock() {
       window.removeEventListener("orientationchange", pinSoon);
       window.removeEventListener("focusin", pinSoon);
       window.removeEventListener("focusout", pinSoon);
+      document.removeEventListener("focusin", pinSoon);
+      document.removeEventListener("focusout", pinSoon);
       window.removeEventListener("pageshow", pinSoon);
       window.removeEventListener("focus", pinSoon);
       window.removeEventListener("bs-crm-viewport-pin", pinSoon);
@@ -126,8 +113,7 @@ export function useMobileViewportLock() {
       mq.removeEventListener("change", pinSoon);
       mo.disconnect();
       for (const id of timers) window.clearTimeout(id);
-      document.documentElement.classList.remove("app-vv-lock");
-      document.documentElement.style.removeProperty("--app-bar-shift");
+      document.documentElement.classList.remove("app-vv-lock", "app-keyboard-open");
       document.documentElement.style.removeProperty("--app-bottom-inset");
     };
   }, []);

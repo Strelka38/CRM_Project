@@ -179,9 +179,11 @@ export function CalendarEntryModal({
     <SideDrawer
       open={open}
       onClose={onClose}
+      from={embedded ? "auto" : "right"}
       labelledBy="entry-title"
-      zIndex={55}
+      zIndex={70}
       embedded={embedded}
+      className="calendar-sheet"
     >
       <div className="flex h-full min-h-0 flex-col overflow-hidden">
         <PeekHeader
@@ -215,8 +217,8 @@ export function CalendarEntryModal({
               : undefined
           }
         />
-        <div className="min-h-0 flex-1 overflow-y-auto p-4">
-      {error && !entry ? (
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+          {error && !entry ? (
         <p className="text-sm text-[var(--danger)]">{error}</p>
       ) : !entry ? (
         <p className="text-sm text-[var(--muted)]">Загрузка…</p>
@@ -322,11 +324,11 @@ export function CalendarEntryModal({
             </div>
           ) : null}
 
-          {error && (
-            <p className="text-sm text-[var(--danger)]">{error}</p>
+            {error && (
+              <p className="text-sm text-[var(--danger)]">{error}</p>
+            )}
+          </div>
           )}
-        </div>
-      )}
         </div>
       </div>
     </SideDrawer>

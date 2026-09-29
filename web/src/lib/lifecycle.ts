@@ -26,7 +26,7 @@ export const ROSTER_LIFECYCLES = [
 ] as const;
 export type RosterLifecycle = (typeof ROSTER_LIFECYCLES)[number];
 
-/** Дашборд: ещё не завершённые. */
+/** Черновик + подтверждено (ещё не завершённые). Сводка календаря — STATS. */
 export const OPEN_LIFECYCLES = ["CALCULATED", "CONFIRMED"] as const;
 export type OpenLifecycle = (typeof OPEN_LIFECYCLES)[number];
 

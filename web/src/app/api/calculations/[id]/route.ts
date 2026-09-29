@@ -19,7 +19,7 @@ import {
   computeQuoteCalculation,
   equalShares,
 } from "@/lib/quote-calculation";
-import { requireManager } from "@/lib/session";
+import { requireSection } from "@/lib/session";
 
 const companyEnum = catalogOwnerZod;
 const amountsZod = catalogOwnerAmountsZod();
@@ -382,7 +382,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    await requireManager();
+    await requireSection("section.calculations");
     const { id } = await params;
     const quote = await loadQuote(id);
     if (!quote) {
@@ -404,7 +404,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    await requireManager();
+    await requireSection("section.calculations");
     const { id } = await params;
     const body = patchSchema.parse(await req.json());
 

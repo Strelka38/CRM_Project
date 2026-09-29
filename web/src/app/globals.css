@@ -42,6 +42,8 @@
   --lifecycle-confirmed: #528f4b;
   --lifecycle-cancelled: #7f7770;
   --lifecycle-completed: #c4961a;
+  --cal-completed: #1a3f73;
+  --cal-rental: #1a5c38;
 
   /* Controls */
   --field-bg: rgba(255, 255, 255, 0.03);
@@ -103,6 +105,8 @@
   --lifecycle-confirmed: #387034;
   --lifecycle-cancelled: #726960;
   --lifecycle-completed: #b58614;
+  --cal-completed: #1a3f73;
+  --cal-rental: #1a5c38;
 
   --field-bg: #f6f6f4;
   --field-bg-focus: #ffffff;
@@ -564,10 +568,50 @@ body {
   z-index: 3;
 }
 
+.cal-bar.is-confirmed {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.cal-bar.is-calculated {
+  background: var(--panel);
+  color: var(--ink);
+  border: 1px solid var(--ink);
+  box-shadow: inset 0 0 0 1px var(--bg);
+}
+
+.cal-bar.is-calculated.cal-event-vacant {
+  border-color: #fff;
+  box-shadow: inset 0 0 0 1px var(--bg);
+}
+
+.cal-bar.is-completed {
+  background: var(--cal-completed);
+  color: var(--accent-ink);
+}
+
+.cal-bar.is-rental {
+  background: var(--cal-rental);
+  color: var(--accent-ink);
+}
+
 .roster-bar {
   z-index: 2;
   cursor: grab;
   user-select: none;
+}
+
+.roster-bar.is-calculated,
+.roster-event-label.is-calculated {
+  opacity: 0.48;
+}
+
+.roster-bar.is-calculated {
+  cursor: pointer;
+}
+
+.roster-event-label.is-calculated {
+  cursor: pointer;
 }
 
 .roster-bar-fixed {
@@ -804,6 +848,15 @@ html.sheet-open .app-frame {
   transition: none;
 }
 
+/* Horizontal day paging: lock touch only. Do not toggle `transition` on the
+   panel — iOS then replays translateY(100%) → 0 (sheet re-enters from bottom). */
+.side-drawer.is-h-swipe .side-drawer-overlay,
+.side-drawer.is-h-swipe .side-drawer-panel,
+.side-drawer[data-swipe-axis="x"] .side-drawer-overlay,
+.side-drawer[data-swipe-axis="x"] .side-drawer-panel {
+  touch-action: none;
+}
+
 .side-drawer-panel {
   position: relative;
   z-index: 1;
@@ -818,6 +871,10 @@ html.sheet-open .app-frame {
   box-shadow: -12px 0 40px rgba(0, 0, 0, 0.28);
   transform: translateX(100%);
   transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.side-drawer-panel.calendar-sheet {
+  background: var(--bg);
 }
 
 .side-drawer-panel-wide {
@@ -939,6 +996,113 @@ html[data-layout="mobile"] .side-drawer-panel .drawer-close {
   display: none;
 }
 
+/* Карточка мероприятия / записи — всегда справа, даже на телефоне */
+.side-drawer[data-from="right"] {
+  align-items: stretch;
+  justify-content: flex-end;
+}
+
+.side-drawer[data-from="right"] .side-drawer-panel,
+.side-drawer[data-from="right"] .side-drawer-panel-wide {
+  height: 100%;
+  max-height: none;
+  max-width: min(36rem, 100%);
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  border-left: 1px solid var(--line);
+  border-top: none;
+  border-radius: 0;
+  box-shadow: -12px 0 40px rgba(0, 0, 0, 0.28);
+  transform: translateX(100%);
+}
+
+.side-drawer[data-from="right"][data-open="1"] .side-drawer-panel {
+  transform: translateX(var(--sheet-x, 0px));
+}
+
+.side-drawer[data-from="right"] .side-drawer-grab {
+  display: none;
+}
+
+.side-drawer[data-from="right"] .side-drawer-panel .drawer-close {
+  display: flex;
+}
+
+@media (max-width: 767px) {
+  html:not([data-layout="desktop"]) .side-drawer[data-from="right"] {
+    align-items: stretch;
+    justify-content: flex-end;
+  }
+  html:not([data-layout="desktop"]) .side-drawer[data-from="right"] .side-drawer-panel,
+  html:not([data-layout="desktop"]) .side-drawer[data-from="right"] .side-drawer-panel-wide {
+    height: 100%;
+    max-height: none;
+    max-width: 100%;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    border-left: 1px solid var(--line);
+    border-top: none;
+    border-radius: 0;
+    box-shadow: -12px 0 40px rgba(0, 0, 0, 0.28);
+    transform: translateX(100%);
+  }
+  html:not([data-layout="desktop"])
+    .side-drawer[data-from="right"][data-open="1"]
+    .side-drawer-panel {
+    transform: translateX(var(--sheet-x, 0px));
+  }
+  html:not([data-layout="desktop"]) .side-drawer[data-from="right"] .side-drawer-grab {
+    display: none;
+  }
+  html:not([data-layout="desktop"])
+    .side-drawer[data-from="right"]
+    .side-drawer-panel
+    .drawer-close {
+    display: flex;
+  }
+}
+
+html[data-layout="mobile"] .side-drawer[data-from="right"] {
+  align-items: stretch;
+  justify-content: flex-end;
+}
+
+html[data-layout="mobile"] .side-drawer[data-from="right"] .side-drawer-panel,
+html[data-layout="mobile"] .side-drawer[data-from="right"] .side-drawer-panel-wide {
+  height: 100%;
+  max-height: none;
+  max-width: 100%;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  border-left: 1px solid var(--line);
+  border-top: none;
+  border-radius: 0;
+  box-shadow: -12px 0 40px rgba(0, 0, 0, 0.28);
+  transform: translateX(100%);
+}
+
+html[data-layout="mobile"] .side-drawer[data-from="right"][data-open="1"] .side-drawer-panel {
+  transform: translateX(var(--sheet-x, 0px));
+}
+
+html[data-layout="mobile"] .side-drawer[data-from="right"] .side-drawer-grab {
+  display: none;
+}
+
+html[data-layout="mobile"] .side-drawer[data-from="right"] .side-drawer-panel .drawer-close {
+  display: flex;
+}
+
+html[data-layout="mobile"] .side-drawer-panel.calendar-sheet .drawer-close {
+  display: flex;
+}
+
+@media (max-width: 767px) {
+  html:not([data-layout="desktop"]) .side-drawer-panel.calendar-sheet .drawer-close {
+    display: flex;
+  }
+}
+
 .side-drawer[data-side="left"] {
   justify-content: flex-start;
 }
@@ -1056,7 +1220,6 @@ html[data-layout="mobile"] .app-topbar {
 html[data-layout="mobile"] .app-bottombar {
   position: fixed;
   bottom: 0;
-  transform: translate3d(0, var(--app-bar-shift, 0px), 0);
 }
 
 html[data-layout="mobile"] .app-main:has(.cal-page),
@@ -1107,7 +1270,6 @@ html[data-layout="mobile"] .cal-filters::-webkit-scrollbar {
   html:not([data-layout="desktop"]) .app-bottombar {
     position: fixed;
     bottom: 0;
-    transform: translate3d(0, var(--app-bar-shift, 0px), 0);
   }
 
   html:not([data-layout="desktop"]) .app-main:has(.cal-page),
@@ -1187,13 +1349,39 @@ html[data-layout="desktop"] {
 }
 
 .roster-pan-viewport {
-  overflow: hidden;
-  overscroll-behavior: contain;
-  touch-action: pan-y;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  touch-action: pan-x pan-y;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.roster-pan-viewport::-webkit-scrollbar {
+  display: none;
 }
 
 .roster-pan-track {
-  will-change: transform;
+  min-height: 0;
+}
+
+.roster-pan-viewport.is-panning .roster-bar,
+.roster-pan-viewport.is-panning .roster-event-label {
+  transition: none !important;
+}
+
+.roster-pan-viewport.is-grab-panning {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.roster-pan-viewport.is-grab-panning * {
+  cursor: grabbing !important;
+}
+
+.roster-day-cols button,
+.roster-dates-sticky {
+  cursor: grab;
 }
 
 .roster-week-scroll {
@@ -1204,7 +1392,9 @@ html[data-layout="desktop"] {
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
-  overscroll-behavior: contain;
+  overscroll-behavior-y: contain;
+  overscroll-behavior-x: auto;
+  touch-action: pan-x pan-y;
 }
 
 .roster-day-cols {
@@ -1342,7 +1532,13 @@ html[data-layout="desktop"] {
   padding: 0.35rem 1.25rem max(0.45rem, env(safe-area-inset-bottom));
   border-top: 1px solid var(--header-line);
   background: var(--bg-elevated);
-  transform: translate3d(0, var(--app-bar-shift, 0px), 0);
+}
+
+html.app-keyboard-open .app-bottombar,
+.app-main:focus-within ~ .app-bottombar {
+  visibility: hidden;
+  pointer-events: none;
+  opacity: 0;
 }
 
 .app-bottombar-btn {
@@ -1631,6 +1827,29 @@ html.cal-lock-x body {
   min-height: 0;
   flex: 1 1 auto;
   flex-direction: column;
+  padding-right: 0.4rem;
+}
+
+.cal-tt-weeknum {
+  flex: 0 0 1.05rem;
+  align-self: flex-end;
+  padding-bottom: 1px;
+  padding-right: 1px;
+  text-align: center;
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  color: color-mix(in srgb, var(--muted) 72%, transparent);
+  pointer-events: none;
+  user-select: none;
+}
+
+.cal-tt-weekdays .cal-tt-weeknum {
+  align-self: stretch;
+}
+
+.cal-tt-week-grid {
+  min-height: 0;
 }
 
 .cal-tt-swipe {
@@ -1639,6 +1858,11 @@ html.cal-lock-x body {
   flex: 1 1 auto;
   overflow: hidden;
   touch-action: pan-y;
+}
+
+.cal-tt-swipe.is-h-swipe,
+.cal-tt-swipe[data-swipe-axis="x"] {
+  touch-action: none;
 }
 
 .cal-tt-swipe-track {
@@ -1684,7 +1908,7 @@ html.cal-lock-x body {
   flex-direction: column;
   overflow: hidden;
   border-left: 1px solid var(--line);
-  background: var(--panel);
+  background: var(--bg);
 }
 
 .cal-tt-peek-inner > * {
@@ -1707,12 +1931,12 @@ html.cal-lock-x body {
   overflow: hidden;
 }
 
-.cal-tt-cell {
-  border-right: 1px solid color-mix(in srgb, var(--ink) 8%, transparent);
+.cal-tt-week-grid > .cal-tt-cell:nth-child(7n) {
+  border-right: 0;
 }
 
-.cal-tt-week > .cal-tt-cell:nth-child(7n) {
-  border-right: 0;
+.cal-tt-cell {
+  border-right: 1px solid color-mix(in srgb, var(--ink) 8%, transparent);
 }
 
 .cal-tt-cell.is-selected {

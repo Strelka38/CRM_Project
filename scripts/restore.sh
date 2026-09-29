@@ -67,7 +67,7 @@ fi
 UPLOADS_DIR="${UPLOADS_DIR:-$ROOT/data/uploads}"
 
 echo "Архив:    $ARCHIVE"
-echo "База:     $DB_USER @ $DB_NAME"
+echo "База:     $DB_USER @ $(db_host):$(db_port) / $DB_NAME"
 echo "Файлы:    $UPLOADS_DIR"
 echo "Это заменит текущую Postgres и каталог uploads."
 echo
@@ -104,31 +104,27 @@ if [[ "$KIND" != "baikal-crm-full" ]]; then
   exit 1
 fi
 
-if ! compose ps -q db >/dev/null 2>&1 || [[ -z "$(compose ps -q db 2>/dev/null)" ]]; then
-  echo "==> Поднимаю db"
-  compose up -d db
-  echo "    жду healthcheck..."
-  i=0
-  until compose exec -T db pg_isready -U "$DB_USER" -d postgres >/dev/null 2>&1; do
-    i=$((i + 1))
-    if [[ "$i" -ge 40 ]]; then
-      echo "Postgres не готов." >&2
-      exit 1
-    fi
-    sleep 2
-  done
+if using_local_db; then
+  if ! db_container_running; then
+    echo "==> Поднимаю db"
+    compose up -d db
+  fi
+else
+  echo "==> удалённый Postgres $(db_host):$(db_port)"
 fi
+echo "    жду Postgres..."
+wait_for_db || exit 1
 
 echo "==> Останавливаю приложение"
 compose stop app 2>/dev/null || true
 
 echo "==> Восстанавливаю Postgres"
-compose exec -T db psql -U "$DB_USER" -d postgres -v ON_ERROR_STOP=1 \
+pg_tool psql -U "$DB_USER" -d postgres -v ON_ERROR_STOP=1 \
   -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '${DB_NAME}' AND pid <> pg_backend_pid();" \
   >/dev/null
-compose exec -T db dropdb -U "$DB_USER" --if-exists "$DB_NAME"
-compose exec -T db createdb -U "$DB_USER" "$DB_NAME"
-compose exec -T db pg_restore -U "$DB_USER" -d "$DB_NAME" --no-owner --no-acl --exit-on-error \
+pg_tool dropdb -U "$DB_USER" --if-exists "$DB_NAME"
+pg_tool createdb -U "$DB_USER" "$DB_NAME"
+pg_tool pg_restore -U "$DB_USER" -d "$DB_NAME" --no-owner --no-acl --exit-on-error \
   <"$WORKDIR/postgres.dump"
 
 echo "==> Восстанавливаю uploads"

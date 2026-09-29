@@ -13,16 +13,22 @@ import {
 export function AccountingMenu({
   variant = "sidebar",
   showPayouts = false,
+  allowedHrefs,
 }: {
   variant?: "sidebar" | "top";
   showPayouts?: boolean;
+  allowedHrefs?: readonly string[];
 }) {
   const ITEMS = navMenuItems("accounting", {
     showPayouts,
     mobile: variant === "sidebar",
+    allowedHrefs,
   });
   const pathname = usePathname();
-  const active = navGroupIsActive(pathname, "accounting", { showPayouts });
+  const active = navGroupIsActive(pathname, "accounting", {
+    showPayouts,
+    allowedHrefs,
+  });
   const [open, setOpen] = useState(variant === "sidebar" ? active : false);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -39,6 +45,8 @@ export function AccountingMenu({
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
   }, [open, variant]);
+
+  if (ITEMS.length === 0) return null;
 
   const links = ITEMS.map((item) => {
     const isActive = isNavItemActive(pathname, item.href, item.exactActive);

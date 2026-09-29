@@ -26,7 +26,7 @@ import {
 import { CalendarEntryModal } from "@/components/CalendarEntryModal";
 import { useLayoutDensity } from "@/components/LayoutDensityProvider";
 import { ProjectModal } from "@/components/ProjectModal";
-import { Button, SideDrawer } from "@/components/ui";
+import { Button, DrawerCloseButton, SideDrawer } from "@/components/ui";
 import {
   LIFECYCLE_LABELS,
   LIFECYCLE_STATUSES,
@@ -42,11 +42,14 @@ import {
   addDays,
   formatDateKey,
   formatRuDate,
+  isoWeekNumber,
   parseEventDate,
   startOfDay,
 } from "@/lib/dates";
 import { laneHeightToFit, lanesThatFit } from "@/lib/calendar-lanes";
-import { swipeMonthDelta } from "@/lib/calendar-swipe";
+import { lockSwipeAxis, swipeMonthDelta } from "@/lib/calendar-swipe";
+import { CALENDAR_WEEK_ROWS, buildWeeks } from "@/lib/calendar-weeks";
+import { usePermissions } from "@/components/PermissionProvider";
 import { canOpenCalendarCreateMenu } from "@/lib/roles";
 import {
   persistCalendarView,
@@ -70,6 +73,7 @@ type Quote = {
   paid: boolean;
   staffVacantCount?: number;
   staffVacant?: string;
+  brief?: string;
 };
 
 type CalendarEntryRow = {
@@ -235,12 +239,14 @@ function FilterChip({
   active,
   onToggle,
   showLabel,
+  outlined,
 }: {
   label: string;
   color: string;
   active: boolean;
   onToggle: () => void;
   showLabel: boolean;
+  outlined?: boolean;
 }) {
   return (
     <button
@@ -262,9 +268,16 @@ function FilterChip({
         )}
         // Без подписи заливка/обводка — единственный признак включённого фильтра.
         style={
-          showLabel || active
-            ? { background: color }
-            : { boxShadow: `inset 0 0 0 1.5px ${color}` }
+          outlined
+            ? showLabel || active
+              ? {
+                  background: "var(--panel)",
+                  boxShadow: "inset 0 0 0 1px var(--bg), 0 0 0 1px var(--ink)",
+                }
+              : { boxShadow: "inset 0 0 0 1.5px var(--ink)" }
+            : showLabel || active
+              ? { background: color }
+              : { boxShadow: `inset 0 0 0 1.5px ${color}` }
         }
       />
       {showLabel ? label : null}
@@ -297,6 +310,30 @@ function calendarQuoteStatus(q: Pick<Quote, "lifecycle" | "paid">): LifecycleSta
   return q.lifecycle;
 }
 
+function calendarStatusColor(status: LifecycleStatus): string {
+  if (status === "CONFIRMED") return "var(--accent)";
+  if (status === "CALCULATED") return "var(--ink)";
+  if (status === "COMPLETED") return "var(--cal-completed)";
+  return lifecycleColor(status);
+}
+
+function calendarBarKind(
+  status: LifecycleStatus,
+): "is-confirmed" | "is-calculated" | "is-completed" | "" {
+  if (status === "CONFIRMED") return "is-confirmed";
+  if (status === "CALCULATED") return "is-calculated";
+  if (status === "COMPLETED") return "is-completed";
+  return "";
+}
+
+function calendarItemBarKind(item: CalItem): string {
+  if (item.type === "entry" && item.entry.kind === "RENTAL") return "is-rental";
+  if (item.type === "quote") {
+    return calendarBarKind(calendarQuoteStatus(item.quote));
+  }
+  return "";
+}
+
 function quoteLabel(q: Quote) {
   return `№${q.proposalNumber} ${q.eventName || q.client || "КП"}`;
 }
@@ -326,33 +363,6 @@ function entryLabel(e: CalendarEntryRow) {
   if (e.kind === "TASK") return e.title || "Задача";
   const bits = [e.title?.trim(), e.client?.companyName].filter(Boolean);
   return bits.length ? `Аренда · ${bits.join(" · ")}` : "Аренда";
-}
-
-const CALENDAR_WEEK_ROWS = 6;
-
-/** Full weeks including leading/trailing days of adjacent months. Always 6 rows so swipe density does not jump. */
-function buildWeeks(year: number, month: number): Date[][] {
-  const first = startOfDay(new Date(year, month, 1));
-  const firstDow = (first.getDay() + 6) % 7;
-  const gridStart = addDays(first, -firstDow);
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const trailing = (7 - ((firstDow + daysInMonth) % 7)) % 7;
-  const total = firstDow + daysInMonth + trailing;
-
-  const cells: Date[] = [];
-  for (let i = 0; i < total; i++) {
-    cells.push(addDays(gridStart, i));
-  }
-
-  const weeks: Date[][] = [];
-  for (let i = 0; i < cells.length; i += 7) {
-    weeks.push(cells.slice(i, i + 7));
-  }
-  while (weeks.length < CALENDAR_WEEK_ROWS) {
-    const last = weeks[weeks.length - 1]![6]!;
-    weeks.push([0, 1, 2, 3, 4, 5, 6].map((i) => addDays(last, i + 1)));
-  }
-  return weeks;
 }
 
 function assignLanes(segs: Omit<EventSeg, "lane">[]): EventSeg[] {
@@ -413,14 +423,6 @@ function itemsOnDay(items: CalItem[], day: Date): CalItem[] {
       if (byStart !== 0) return byStart;
       return a.label.localeCompare(b.label, "ru");
     });
-}
-
-function ruRecords(n: number) {
-  const n10 = n % 10;
-  const n100 = n % 100;
-  if (n10 === 1 && n100 !== 11) return "запись";
-  if (n10 >= 2 && n10 <= 4 && (n100 < 12 || n100 > 14)) return "записи";
-  return "записей";
 }
 
 function itemTimeLabel(item: CalItem): string {
@@ -589,7 +591,19 @@ function CalendarMonthYearJump({
   );
 }
 
-function DayAgenda({
+function dayAgendaHeading(date: Date) {
+  return date.toLocaleDateString("ru-RU", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  });
+}
+
+function quoteBriefPreview(brief: string | undefined): string {
+  return brief?.replace(/\s+/g, " ").trim() ?? "";
+}
+
+function DayAgendaPage({
   date,
   items,
   canCreate,
@@ -606,79 +620,327 @@ function DayAgenda({
   onClose?: () => void;
   headingId?: string;
 }) {
-  const heading = date.toLocaleDateString("ru-RU", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-  });
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 items-start gap-2 px-3 pb-3 pt-3">
-        {onClose ? (
+      <div className="flex shrink-0 items-center gap-1 px-2 py-1.5">
+        {onClose ? <DrawerCloseButton onClick={onClose} /> : null}
+        <h2
+          id={headingId}
+          className="min-w-0 flex-1 truncate text-xs font-medium uppercase tracking-wider text-[var(--muted)]"
+        >
+          {dayAgendaHeading(date)}
+        </h2>
+        {canCreate && onAdd ? (
           <button
             type="button"
-            onClick={onClose}
-            className="drawer-close flex size-8 shrink-0 items-center justify-center rounded-[var(--radius-sm)] text-lg leading-none text-[var(--muted)] hover:bg-[var(--ink)]/10 hover:text-[var(--ink)]"
-            aria-label="Закрыть"
+            onClick={onAdd}
+            className="flex size-8 shrink-0 items-center justify-center rounded-[var(--radius-sm)] text-xl leading-none text-[var(--ink)] hover:bg-[var(--ink)]/10"
+            aria-label="Добавить"
+            title="Добавить"
           >
-            ×
+            +
           </button>
-        ) : null}
-        <div className="min-w-0 flex-1">
-          <h2
-            id={headingId}
-            className="font-display capitalize text-xl leading-tight text-[var(--ink)]"
-          >
-            {heading}
-          </h2>
-          <p className="mt-0.5 text-xs text-[var(--muted)]">
-            {items.length} {ruRecords(items.length)}
-          </p>
-        </div>
-        {canCreate && onAdd ? (
-          <Button type="button" size="sm" variant="outline" onClick={onAdd}>
-            Добавить
-          </Button>
         ) : null}
       </div>
       {items.length === 0 ? (
-        <p className="px-4 text-sm text-[var(--muted)]">
-          Нет событий. {canCreate ? "Нажмите «Добавить», чтобы создать запись." : ""}
+        <p className="px-2 text-sm text-[var(--muted)]">
+          Нет событий.{" "}
+          {canCreate ? "Нажмите «+», чтобы создать запись." : ""}
         </p>
       ) : (
-        <ul className="min-h-0 flex-1 space-y-1.5 overflow-y-auto px-3 pb-4">
-          {items.map((item) => (
-            <li key={`${item.type}-${item.id}`}>
-              <button
-                type="button"
-                onClick={() => onOpen(item)}
-                className="flex w-full items-stretch gap-3 rounded-xl px-2 py-2 text-left transition-colors hover:bg-white/5"
-              >
-                <span
-                  className="w-1.5 shrink-0 self-stretch rounded-full"
-                  style={{ background: item.color }}
-                />
-                <span className="w-[4.5rem] shrink-0 pt-0.5 text-[11px] leading-tight text-[var(--muted)]">
-                  {itemTimeLabel(item)}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-medium text-[var(--ink)]">
-                    {item.label}
+        <ul className="min-h-0 flex-1 space-y-1.5 overflow-y-auto px-2 pb-4">
+          {items.map((item) => {
+            const quoteStatus =
+              item.type === "quote" ? calendarQuoteStatus(item.quote) : null;
+            const stripeKind = calendarItemBarKind(item);
+            const statusLabel =
+              item.type === "quote"
+                ? LIFECYCLE_LABELS[quoteStatus ?? item.quote.lifecycle]
+                : ENTRY_KIND_LABELS[item.entry.kind];
+            const gray =
+              item.type === "quote"
+                ? quoteBriefPreview(item.quote.brief)
+                : item.entry.note?.trim() || "";
+            return (
+              <li key={`${item.type}-${item.id}`}>
+                <button
+                  type="button"
+                  onClick={() => onOpen(item)}
+                  className="flex w-full items-stretch gap-3 rounded-xl px-2 py-2 text-left transition-colors hover:bg-white/5"
+                >
+                  <span
+                    className={cn(
+                      "w-1.5 shrink-0 self-stretch rounded-full",
+                      stripeKind === "is-calculated" &&
+                        "border border-[var(--ink)] bg-[var(--panel)] shadow-[inset_0_0_0_1px_var(--bg)]",
+                      stripeKind === "is-confirmed" && "bg-[var(--accent)]",
+                      stripeKind === "is-completed" &&
+                        "bg-[var(--cal-completed)]",
+                      stripeKind === "is-rental" && "bg-[var(--cal-rental)]",
+                    )}
+                    style={stripeKind ? undefined : { background: item.color }}
+                  />
+                  <span className="w-[4.5rem] shrink-0 pt-0.5 text-[11px] leading-tight text-[var(--muted)]">
+                    {itemTimeLabel(item)}
+                    {statusLabel ? (
+                      <span className="mt-0.5 block">{statusLabel}</span>
+                    ) : null}
                   </span>
-                  <span className="text-[11px] text-[var(--muted)]">
-                    {item.subtitle}
-                  </span>
-                  {item.type === "quote" && item.quote.staffVacantCount ? (
-                    <span className="mt-0.5 block text-[11px] font-medium text-amber-700 dark:text-amber-300">
-                      {quoteStaffHint(item.quote)}
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium text-[var(--ink)]">
+                      {item.label}
                     </span>
-                  ) : null}
-                </span>
-              </button>
-            </li>
-          ))}
+                    {gray ? (
+                      <span className="mt-0.5 line-clamp-2 text-[11px] text-[var(--muted)]">
+                        {gray}
+                      </span>
+                    ) : null}
+                    {item.type === "quote" && item.quote.staffVacantCount ? (
+                      <span className="mt-0.5 block text-[11px] font-medium text-amber-700 dark:text-amber-300">
+                        {quoteStaffHint(item.quote)}
+                      </span>
+                    ) : null}
+                  </span>
+                </button>
+              </li>
+            );
+          })}
         </ul>
       )}
+    </div>
+  );
+}
+
+function DayAgenda({
+  date,
+  items,
+  allItems,
+  canCreate,
+  onOpen,
+  onAdd,
+  onClose,
+  onShiftDay,
+  headingId,
+}: {
+  date: Date;
+  items: CalItem[];
+  /** Все события окна — для соседних дней в карусели свайпа. */
+  allItems?: CalItem[];
+  canCreate: boolean;
+  onOpen: (item: CalItem) => void;
+  onAdd?: (e: MouseEvent<HTMLButtonElement>) => void;
+  onClose?: () => void;
+  /** Свайп влево/вправо — соседний день (мобильный шит), как у месяцев. */
+  onShiftDay?: (delta: -1 | 1) => void;
+  headingId?: string;
+}) {
+  const swipeRef = useRef<HTMLDivElement>(null);
+  const swipeTxRef = useRef(0);
+  const [swipeTx, setSwipeTx] = useState(0);
+  const [swipeSettle, setSwipeSettle] = useState(false);
+  const shiftRef = useRef(onShiftDay);
+  shiftRef.current = onShiftDay;
+
+  const pages = useMemo(() => {
+    const pool = allItems ?? items;
+    return [-1, 0, 1].map((offset) => {
+      const d = addDays(date, offset);
+      return {
+        key: formatDateKey(d),
+        date: d,
+        items: offset === 0 ? items : itemsOnDay(pool, d),
+      };
+    });
+  }, [date, items, allItems]);
+
+  useEffect(() => {
+    const el = swipeRef.current;
+    if (!el || !shiftRef.current) return;
+    const pane: HTMLDivElement = el;
+
+    const start = { x: 0, y: 0, t: 0, id: 0 };
+    let axis: "x" | "y" | null = null;
+    let dragging = false;
+    let pending = 0;
+    let ignoreClick = false;
+
+    function setTx(next: number) {
+      swipeTxRef.current = next;
+      setSwipeTx(next);
+    }
+
+    function onDown(e: PointerEvent) {
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+      if (pending) return;
+      start.x = e.clientX;
+      start.y = e.clientY;
+      start.t = e.timeStamp;
+      start.id = e.pointerId;
+      axis = null;
+      dragging = true;
+      ignoreClick = false;
+      releaseHorizontal();
+      setSwipeSettle(false);
+    }
+
+    function claimHorizontal() {
+      pane.dataset.swipeAxis = "x";
+      pane.classList.add("is-h-swipe");
+      const drawer = pane.closest(".side-drawer");
+      if (drawer instanceof HTMLElement) {
+        drawer.dataset.swipeAxis = "x";
+        drawer.classList.add("is-h-swipe");
+      }
+    }
+
+    function releaseHorizontal() {
+      delete pane.dataset.swipeAxis;
+      pane.classList.remove("is-h-swipe");
+      const drawer = pane.closest(".side-drawer");
+      if (drawer instanceof HTMLElement) {
+        delete drawer.dataset.swipeAxis;
+        drawer.classList.remove("is-h-swipe");
+      }
+    }
+
+    function onMove(e: PointerEvent) {
+      if (!dragging || e.pointerId !== start.id) return;
+      // Sheet already claimed this pointer for vertical dismiss.
+      if (axis !== "x" && pane.closest(".is-sheet-drag")) {
+        axis = "y";
+        releaseHorizontal();
+        return;
+      }
+      const dx = e.clientX - start.x;
+      const dy = e.clientY - start.y;
+      if (!axis) {
+        axis = lockSwipeAxis(dx, dy);
+        if (!axis) return;
+        if (axis === "x") {
+          ignoreClick = true;
+          claimHorizontal();
+          try {
+            pane!.setPointerCapture(e.pointerId);
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+      if (axis !== "x") return;
+      e.preventDefault();
+      e.stopPropagation();
+      setTx(dx);
+    }
+
+    function finish(e: PointerEvent) {
+      if (!dragging || e.pointerId !== start.id) return;
+      dragging = false;
+      releaseHorizontal();
+      if (pane.hasPointerCapture(e.pointerId)) {
+        try {
+          pane.releasePointerCapture(e.pointerId);
+        } catch {
+          /* ignore */
+        }
+      }
+      if (axis !== "x") {
+        axis = null;
+        return;
+      }
+      const dx = e.clientX - start.x;
+      const dt = Math.max(1, e.timeStamp - start.t);
+      const width = pane!.clientWidth || 1;
+      const delta = swipeMonthDelta(dx, width, dx / dt);
+      axis = null;
+      if (delta === 0) {
+        setSwipeSettle(true);
+        setTx(0);
+        return;
+      }
+      pending = delta;
+      setSwipeSettle(true);
+      setTx(-delta * width);
+    }
+
+    function onEnd(e: PointerEvent) {
+      finish(e);
+    }
+
+    function onTransitionEnd(e: TransitionEvent) {
+      if (e.propertyName !== "transform") return;
+      if (!pending) {
+        setSwipeSettle(false);
+        return;
+      }
+      const dir = pending as -1 | 1;
+      pending = 0;
+      setSwipeSettle(false);
+      setTx(0);
+      shiftRef.current?.(dir);
+    }
+
+    function onClick(e: Event) {
+      if (!ignoreClick) return;
+      ignoreClick = false;
+      e.preventDefault();
+      e.stopPropagation();
+    }
+
+    pane.addEventListener("pointerdown", onDown);
+    pane.addEventListener("pointermove", onMove, { passive: false });
+    pane.addEventListener("pointerup", onEnd);
+    pane.addEventListener("pointercancel", onEnd);
+    pane.addEventListener("transitionend", onTransitionEnd);
+    pane.addEventListener("click", onClick, true);
+    return () => {
+      releaseHorizontal();
+      pane.removeEventListener("pointerdown", onDown);
+      pane.removeEventListener("pointermove", onMove);
+      pane.removeEventListener("pointerup", onEnd);
+      pane.removeEventListener("pointercancel", onEnd);
+      pane.removeEventListener("transitionend", onTransitionEnd);
+      pane.removeEventListener("click", onClick, true);
+    };
+  }, []);
+
+  if (!onShiftDay) {
+    return (
+      <DayAgendaPage
+        date={date}
+        items={items}
+        canCreate={canCreate}
+        onOpen={onOpen}
+        onAdd={onAdd}
+        onClose={onClose}
+        headingId={headingId}
+      />
+    );
+  }
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div ref={swipeRef} className="cal-tt-swipe">
+        <div
+          className={cn("cal-tt-swipe-track", swipeSettle && "is-settle")}
+          style={{
+            transform: `translate3d(calc(-33.333333% + ${swipeTx}px), 0, 0)`,
+          }}
+        >
+          {pages.map((page, i) => (
+            <div key={page.key} className="cal-tt-swipe-page">
+              <DayAgendaPage
+                date={page.date}
+                items={page.items}
+                canCreate={canCreate}
+                onOpen={onOpen}
+                onAdd={onAdd}
+                onClose={onClose}
+                headingId={i === 1 ? headingId : undefined}
+              />
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -711,11 +973,17 @@ function MonthWeeks({
       {layouts.map(({ week, segs }, weekIdx) => {
         const visibleSegs = segs.filter((s) => s.lane < density.maxLanes);
         const { shown } = weekLaneStats(density, segs);
+        const weekNo = isoWeekNumber(week[0]!);
         return (
-          <div
-            key={weekIdx}
-            className="cal-tt-week is-fill relative grid grid-cols-7"
-          >
+          <div key={weekIdx} className="cal-tt-week is-fill relative flex">
+            <div
+              className="cal-tt-weeknum"
+              aria-label={`Неделя ${weekNo}`}
+              title={`Неделя ${weekNo}`}
+            >
+              {weekNo}
+            </div>
+            <div className="cal-tt-week-grid relative min-h-0 min-w-0 flex-1 grid grid-cols-7">
             {week.map((day, col) => {
               const key = formatDateKey(day);
               const isToday = key === todayKey;
@@ -802,11 +1070,16 @@ function MonthWeeks({
                   seg.item.type === "quote"
                     ? quoteStaffHint(seg.item.quote)
                     : "";
+                const barKind = calendarItemBarKind(seg.item);
                 const startOutside = week[seg.startCol]!.getMonth() !== month;
                 const endOutside =
                   week[seg.startCol + seg.span - 1]!.getMonth() !== month;
                 const segKey = `${seg.item.type}-${seg.item.id}-${weekIdx}-${seg.startCol}`;
-                const segClass = `absolute truncate px-1.5 text-left font-medium text-white${vacant ? " cal-event-vacant" : ""}`;
+                const segClass = cn(
+                  "cal-bar absolute truncate px-1.5 text-left font-medium",
+                  barKind || "text-white",
+                  vacant && "cal-event-vacant",
+                );
                 const segStyle = {
                   left,
                   width,
@@ -814,7 +1087,7 @@ function MonthWeeks({
                   height: density.laneHeight,
                   lineHeight: `${density.laneHeight}px`,
                   fontSize: barFont,
-                  background: seg.item.color,
+                  background: barKind ? undefined : seg.item.color,
                   borderRadius: `${radiusLeft} ${radiusRight} ${radiusRight} ${radiusLeft}`,
                   opacity: startOutside && endOutside ? 0.45 : 1,
                 };
@@ -848,6 +1121,7 @@ function MonthWeeks({
                 );
               })}
             </div>
+            </div>
           </div>
         );
       })}
@@ -860,7 +1134,8 @@ export function CalendarView() {
   const searchParams = useSearchParams();
   const { data: session } = useSession();
   const role = session?.user?.role;
-  const canCreate = canOpenCalendarCreateMenu(role);
+  const { overrides } = usePermissions();
+  const canCreate = canOpenCalendarCreateMenu(role, overrides);
   const { showingDesktop } = useLayoutDensity();
   const weeksRef = useRef<HTMLDivElement>(null);
   const swipeRef = useRef<HTMLDivElement>(null);
@@ -1074,10 +1349,8 @@ export function CalendarView() {
         start,
         end,
         label: quoteLabel(q),
-        color: lifecycleColor(status),
-        subtitle: [LIFECYCLE_LABELS[status], quoteStaffHint(q)]
-          .filter(Boolean)
-          .join(" · "),
+        color: calendarStatusColor(status),
+        subtitle: quoteBriefPreview(q.brief),
       });
     }
     for (const e of entries) {
@@ -1145,6 +1418,17 @@ export function CalendarView() {
   }
   const shiftMonthRef = useRef(shiftMonth);
   shiftMonthRef.current = shiftMonth;
+
+  function shiftSelectedDay(delta: -1 | 1) {
+    const next = addDays(selectedDay, delta);
+    setSelectedDay(next);
+    if (
+      next.getFullYear() !== cursor.getFullYear() ||
+      next.getMonth() !== cursor.getMonth()
+    ) {
+      setCursor(new Date(next.getFullYear(), next.getMonth(), 1));
+    }
+  }
 
   function goToday() {
     const t = startOfDay(new Date());
@@ -1401,31 +1685,35 @@ export function CalendarView() {
   const weekdayLabels = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
   const desktopPeekOpen =
     showingDesktop && (dayPanelOpen || !!openQuoteId || !!openEntryId);
-  const dashVisible = dashOpen && !desktopPeekOpen;
+  const dashVisible = dashOpen;
 
   const monthNav = (
     <div className="flex shrink-0 items-center gap-1.5">
       <Button type="button" variant="ghost" size="sm" onClick={goToday}>
         Сегодня
       </Button>
-      <Button
-        variant="outline"
-        size="sm"
-        className="size-8 rounded-full !px-0"
-        onClick={() => shiftMonth(-1)}
-        aria-label="Предыдущий месяц"
-      >
-        ←
-      </Button>
-      <Button
-        variant="outline"
-        size="sm"
-        className="size-8 rounded-full !px-0"
-        onClick={() => shiftMonth(1)}
-        aria-label="Следующий месяц"
-      >
-        →
-      </Button>
+      {showingDesktop ? (
+        <>
+          <Button
+            variant="outline"
+            size="sm"
+            className="size-8 rounded-full !px-0"
+            onClick={() => shiftMonth(-1)}
+            aria-label="Предыдущий месяц"
+          >
+            ←
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="size-8 rounded-full !px-0"
+            onClick={() => shiftMonth(1)}
+            aria-label="Следующий месяц"
+          >
+            →
+          </Button>
+        </>
+      ) : null}
     </div>
   );
 
@@ -1498,10 +1786,11 @@ export function CalendarView() {
           <FilterChip
             key={status}
             label={LIFECYCLE_LABELS[status]}
-            color={lifecycleColor(status)}
+            color={calendarStatusColor(status)}
             active={filters.lifecycles[status]}
             onToggle={() => toggleLifecycle(status)}
             showLabel={showingDesktop}
+            outlined={status === "CALCULATED"}
           />
         ))}
         {KIND_FILTERS.map((kind) => (
@@ -1548,31 +1837,32 @@ export function CalendarView() {
                   onAlertsChange={setDashAlerts}
                 />
               </aside>
-              {!desktopPeekOpen ? (
-                <div className="cal-dash-fab-float">
-                  <CalendarDashToggle
-                    collapsed={!dashOpen}
-                    hasAlerts={dashAlerts}
-                    onClick={toggleDash}
-                  />
-                </div>
-              ) : null}
+              <div className="cal-dash-fab-float">
+                <CalendarDashToggle
+                  collapsed={!dashOpen}
+                  hasAlerts={dashAlerts}
+                  onClick={toggleDash}
+                />
+              </div>
             </div>
           </div>
         ) : null}
-        <div className="cal-tt-weekdays grid grid-cols-7">
-          {weekdayLabels.map((d, i) => (
-            <div
-              key={d}
-              className={cn(
-                showingDesktop ? "py-1.5" : "py-0.5",
-                "text-center text-caption font-medium uppercase tracking-wider",
-                i >= 5 ? "text-rose-400" : "text-[var(--muted)]",
-              )}
-            >
-              {d}
-            </div>
-          ))}
+        <div className="cal-tt-weekdays flex">
+          <div className="cal-tt-weeknum" aria-hidden />
+          <div className="grid min-w-0 flex-1 grid-cols-7">
+            {weekdayLabels.map((d, i) => (
+              <div
+                key={d}
+                className={cn(
+                  showingDesktop ? "py-1.5" : "py-0.5",
+                  "text-center text-caption font-medium uppercase tracking-wider",
+                  i >= 5 ? "text-rose-400" : "text-[var(--muted)]",
+                )}
+              >
+                {d}
+              </div>
+            ))}
+          </div>
         </div>
 
         <div
@@ -1620,17 +1910,21 @@ export function CalendarView() {
 
       {!showingDesktop ? (
         <SideDrawer
-          open={dayPanelOpen && !openQuoteId && !openEntryId}
+          open={dayPanelOpen}
           onClose={closePeek}
+          closeOnEscape={!openQuoteId && !openEntryId}
           labelledBy="cal-day-title"
+          className="calendar-sheet"
         >
           <DayAgenda
             date={selectedDay}
             items={selectedItems}
+            allItems={items}
             canCreate={canCreate}
             onOpen={(item) => openItem(item, true)}
             onAdd={openCreate}
             onClose={closePeek}
+            onShiftDay={shiftSelectedDay}
             headingId="cal-day-title"
           />
         </SideDrawer>

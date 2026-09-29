@@ -90,7 +90,7 @@ export async function GET(req: NextRequest) {
     const q = req.nextUrl.searchParams.get("q")?.trim();
     const suggest = req.nextUrl.searchParams.get("suggest") === "1";
     const activeOnly = req.nextUrl.searchParams.get("active") !== "0";
-    const showPay = canSeeAssignmentPay(session.user.role);
+    const showPay = canSeeAssignmentPay(session.user.role, session.permissions);
 
     if (!q && !suggest) {
       await backfillFromAssignments();

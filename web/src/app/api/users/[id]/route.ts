@@ -56,7 +56,7 @@ export async function GET(
   try {
     const session = await requireSession();
     const { id } = await params;
-    const dbAccess = canAccessDatabase(session.user.role);
+    const dbAccess = canAccessDatabase(session.user.role, session.permissions);
     if (!dbAccess && session.user.id !== id) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
@@ -184,7 +184,7 @@ export async function PATCH(
   try {
     const session = await requireSession();
     const { id } = await params;
-    const dbAccess = canAccessDatabase(session.user.role);
+    const dbAccess = canAccessDatabase(session.user.role, session.permissions);
     const isSelf = session.user.id === id;
     if (!dbAccess && !isSelf) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -221,8 +221,8 @@ export async function PATCH(
 
     if (body.role !== undefined) {
       if (
-        !canEditUserRole(session.user.role, existing.role) ||
-        !canAssignRole(session.user.role, body.role)
+        !canEditUserRole(session.user.role, existing.role, session.permissions) ||
+        !canAssignRole(session.user.role, body.role, session.permissions)
       ) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }

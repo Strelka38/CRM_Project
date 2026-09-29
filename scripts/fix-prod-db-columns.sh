@@ -4,20 +4,15 @@
 #   bash scripts/fix-prod-db-columns.sh
 
 set -euo pipefail
-cd "$(dirname "$0")/.."
 
-if [[ -f .env ]]; then
-  set -a
-  # shellcheck disable=SC1091
-  source .env
-  set +a
-fi
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck disable=SC1091
+source "$ROOT/scripts/lib.sh"
+cd "$ROOT"
+load_env
 
-DB_USER="${POSTGRES_USER:-crm}"
-DB_NAME="${POSTGRES_DB:-crm_event}"
-
-echo "==> Applying columns via postgres (user=$DB_USER db=$DB_NAME)..."
-docker compose exec -T db psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 <<'SQL'
+echo "==> Applying columns via postgres ($(db_user) @ $(db_host)/$(db_name))..."
+psql_c <<'SQL'
 ALTER TABLE "Quote" ADD COLUMN IF NOT EXISTS "mountDate" TEXT NOT NULL DEFAULT '';
 ALTER TABLE "Quote" ADD COLUMN IF NOT EXISTS "mountDurationDays" INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE "Quote" ADD COLUMN IF NOT EXISTS "demountDate" TEXT NOT NULL DEFAULT '';

@@ -57,6 +57,7 @@ export async function GET(req: NextRequest) {
             gte: padFrom,
             lte: padTo,
           },
+          lifecycle: { in: [...ROSTER_LIFECYCLES] },
         },
         select: {
           id: true,
@@ -70,6 +71,7 @@ export async function GET(req: NextRequest) {
           mountDurationDays: true,
           demountDate: true,
           demountDurationDays: true,
+          lifecycle: true,
           owner: { select: { owners: true } },
           zones: {
             select: { id: true, name: true, sortOrder: true, workingDayIndexes: true },

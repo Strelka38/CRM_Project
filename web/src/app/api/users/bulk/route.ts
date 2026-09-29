@@ -83,7 +83,7 @@ export async function POST(req: NextRequest) {
           { status: 400 },
         );
       }
-      if (!canAssignRole(session.user.role, body.role)) {
+      if (!canAssignRole(session.user.role, body.role, session.permissions)) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
       const adminCount = await prisma.user.count({

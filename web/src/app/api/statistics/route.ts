@@ -28,7 +28,7 @@ import {
 export async function GET(req: NextRequest) {
   try {
     const session = await requireWorkloadStats();
-    const hidePay = !canSeeAssignmentPay(session.user.role);
+    const hidePay = !canSeeAssignmentPay(session.user.role, session.permissions);
 
     const period = parseStatsPeriod(req.nextUrl.searchParams.get("period"));
     const userId = req.nextUrl.searchParams.get("userId") || "";

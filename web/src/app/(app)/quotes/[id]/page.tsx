@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { QuoteEditor } from "@/components/QuoteEditor";
 import { auth } from "@/lib/auth";
+import { getRolePermissionOverrides } from "@/lib/role-permissions";
 import {
   canEditBrief,
   canEditQuoteSchedule,
@@ -21,8 +22,13 @@ export default async function QuotePage({
   const { zone, tab, imported } = await searchParams;
   const session = await auth();
   const role = session?.user?.role;
+  const overrides = await getRolePermissionOverrides();
   const manager = isManager(role);
-  if (!canEditSpec(role) && !canEditBrief(role) && !canEditQuoteSchedule(role)) {
+  if (
+    !canEditSpec(role, overrides) &&
+    !canEditBrief(role, overrides) &&
+    !canEditQuoteSchedule(role, overrides)
+  ) {
     redirect(`/quotes/${id}/spec`);
   }
   const importedUnmatched = Number(imported);
@@ -30,11 +36,11 @@ export default async function QuotePage({
     <QuoteEditor
       quoteId={id}
       isManager={manager}
-      canEditSpec={canEditSpec(role)}
-      canEditBrief={canEditBrief(role)}
-      canEditSchedule={canEditQuoteSchedule(role)}
-      canViewQuote={canViewQuote(role)}
-      canManageAttachments={canManageEventAttachments(role)}
+      canEditSpec={canEditSpec(role, overrides)}
+      canEditBrief={canEditBrief(role, overrides)}
+      canEditSchedule={canEditQuoteSchedule(role, overrides)}
+      canViewQuote={canViewQuote(role, overrides)}
+      canManageAttachments={canManageEventAttachments(role, overrides)}
       initialZone={zone || null}
       initialPane={tab || null}
       importUnmatched={

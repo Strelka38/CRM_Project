@@ -8,10 +8,20 @@ const dockerCpus = Math.max(
   Number(process.env.DOCKER_BUILD_CPUS || 1) || 1,
 );
 
+const allowedDevOrigins = [
+  "localhost",
+  "127.0.0.1",
+  ...(process.env.ALLOWED_DEV_ORIGINS ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean),
+];
+
 const nextConfig: NextConfig = {
   output: "standalone",
   // LAN phone testing: Next 16 blocks unknown Host in dev (login POST / HMR).
-  allowedDevOrigins: ["192.168.0.102"],
+  // Add current Wi‑Fi IP via ALLOWED_DEV_ORIGINS=192.168.0.101 in web/.env
+  allowedDevOrigins,
   // Silence Next 16 Turbopack vs webpack-config conflict in `next dev`
   turbopack: {},
   typescript: {

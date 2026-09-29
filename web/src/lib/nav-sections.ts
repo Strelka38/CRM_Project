@@ -19,7 +19,7 @@ export type NavAccess =
   | "admin"
   | "payments";
 
-export type NavGroup = "root" | "accounting" | "warehouse" | "database";
+export type NavGroup = "root" | "accounting" | "warehouse" | "database" | "settings";
 
 export type NavSection = {
   href: string;
@@ -114,6 +114,12 @@ export const NAV_SECTIONS: NavSection[] = [
     access: "admin",
     inMobileMenu: false,
   },
+  {
+    href: "/settings/access",
+    label: "Права и доступы",
+    group: "settings",
+    access: "admin",
+  },
 ];
 
 export function pathMatchesHref(pathname: string, href: string): boolean {
@@ -131,19 +137,30 @@ export function isNavItemActive(
 
 function visibleInGroup(
   s: NavSection,
-  flags: { showBackup?: boolean; showPayouts?: boolean; mobile?: boolean },
+  flags: {
+    showBackup?: boolean;
+    showPayouts?: boolean;
+    mobile?: boolean;
+    allowedHrefs?: readonly string[];
+  },
   forMenu: boolean,
 ): boolean {
   if (forMenu && s.inMenu === false) return false;
   if (forMenu && flags.mobile && s.inMobileMenu === false) return false;
   if (s.access === "admin" && !flags.showBackup) return false;
   if (s.access === "payments" && !flags.showPayouts) return false;
+  if (flags.allowedHrefs && !flags.allowedHrefs.includes(s.href)) return false;
   return true;
 }
 
 export function navMenuItems(
   group: NavGroup,
-  flags: { showBackup?: boolean; showPayouts?: boolean; mobile?: boolean } = {},
+  flags: {
+    showBackup?: boolean;
+    showPayouts?: boolean;
+    mobile?: boolean;
+    allowedHrefs?: readonly string[];
+  } = {},
 ): NavSection[] {
   return NAV_SECTIONS.filter(
     (s) => s.group === group && visibleInGroup(s, flags, true),
@@ -154,7 +171,11 @@ export function navMenuItems(
 export function navGroupIsActive(
   pathname: string,
   group: NavGroup,
-  flags: { showBackup?: boolean; showPayouts?: boolean } = {},
+  flags: {
+    showBackup?: boolean;
+    showPayouts?: boolean;
+    allowedHrefs?: readonly string[];
+  } = {},
 ): boolean {
   return NAV_SECTIONS.some(
     (s) =>

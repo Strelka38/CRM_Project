@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   FILE_ACCEPT,
   IconAttachPlus,
@@ -23,7 +23,11 @@ import {
 } from "@/lib/dates";
 import { applyAutoMountDemount } from "@/lib/quote-schedule";
 import { isQuoteOwnerRole, roleLabelRu } from "@/lib/roles";
-import { whoWorksView, type WhoWorksLine } from "@/lib/quote-assignment-days";
+import {
+  toWhoWorksLine,
+  whoWorksView,
+  type WhoWorksLine,
+} from "@/lib/quote-assignment-days";
 
 type Assignment = {
   id: string;
@@ -112,10 +116,48 @@ function projectManagerName(p: Project) {
   return p.managerName?.trim() || "";
 }
 
-function WhoWorksLines({ lines }: { lines: WhoWorksLine[] }) {
+function EyeIcon({ crossed }: { crossed?: boolean }) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" />
+      <circle cx="12" cy="12" r="3" />
+      {crossed ? <path d="M4 4l16 16" /> : null}
+    </svg>
+  );
+}
+
+function WhoWorksLines({
+  lines,
+  hideVacant,
+}: {
+  lines: WhoWorksLine[];
+  hideVacant: boolean;
+}) {
+  const visible = hideVacant ? lines.filter((line) => !line.vacant) : lines;
+
+  if (visible.length === 0) {
+    return (
+      <p className="text-sm text-[var(--muted)]">
+        {hideVacant && lines.some((l) => l.vacant)
+          ? "Неназначенные скрыты"
+          : "Никто не назначен"}
+      </p>
+    );
+  }
+
   return (
     <ul className="space-y-1.5 text-sm">
-      {lines.map((line) => (
+      {visible.map((line) => (
         <li
           key={line.id}
           className="flex items-baseline justify-between gap-2 border-b border-[var(--line)]/60 py-1"
@@ -134,6 +176,82 @@ function WhoWorksLines({ lines }: { lines: WhoWorksLine[] }) {
         </li>
       ))}
     </ul>
+  );
+}
+
+const HIDE_VACANT_PREFIX = "project.hideVacant.";
+
+function readHideVacant(slot: string): boolean {
+  try {
+    return localStorage.getItem(HIDE_VACANT_PREFIX + slot) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function persistHideVacant(slot: string, value: boolean) {
+  try {
+    localStorage.setItem(HIDE_VACANT_PREFIX + slot, value ? "1" : "0");
+  } catch {
+    /* ignore */
+  }
+}
+
+function WhoWorksBlock({
+  title,
+  lines,
+  persistKey,
+  emptyText = "Никто не назначен",
+}: {
+  title: string;
+  lines: WhoWorksLine[];
+  persistKey: string;
+  emptyText?: string;
+}) {
+  const [hideVacant, setHideVacant] = useState(false);
+  const hasVacant = lines.some((line) => line.vacant);
+
+  useLayoutEffect(() => {
+    setHideVacant(readHideVacant(persistKey));
+  }, [persistKey]);
+
+  function toggleHideVacant() {
+    setHideVacant((v) => {
+      const next = !v;
+      persistHideVacant(persistKey, next);
+      return next;
+    });
+  }
+
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <h3 className="text-xs font-medium uppercase tracking-wider text-[var(--muted)]">
+          {title}
+        </h3>
+        {hasVacant ? (
+          <button
+            type="button"
+            className="tap-target -mr-1 shrink-0 rounded-md p-1.5 text-[var(--muted)] hover:bg-[var(--header-hover)] hover:text-[var(--ink)]"
+            aria-pressed={hideVacant}
+            aria-label={
+              hideVacant
+                ? "Показать неназначенных"
+                : "Скрыть неназначенных"
+            }
+            title={hideVacant ? "Показать неназначенных" : "Скрыть неназначенных"}
+            onClick={toggleHideVacant}
+          >
+            <EyeIcon crossed={hideVacant} />
+          </button>
+        ) : null}
+      </div>
+      {lines.length === 0 ? (
+        <p className="text-sm text-[var(--muted)]">{emptyText}</p>
+      ) : (
+        <WhoWorksLines lines={lines} hideVacant={hideVacant} />
+      )}
+    </div>
   );
 }
 
@@ -509,9 +627,13 @@ export function ProjectModal({
   const canEditBriefNow = editing && Boolean(project?.canEditBrief);
   const showFinanceLinks = editing && Boolean(project?.isManager);
   const showEventMenu = Boolean(
-    project && (project.canEditBrief || project.isManager),
+    project &&
+      (project.canEditBrief ||
+        project.canEditSchedule ||
+        project.isManager),
   );
-  const canEditSchedule = Boolean(project?.canEditSchedule);
+  const canEditScheduleNow =
+    editing && Boolean(project?.canEditSchedule);
 
   async function saveSchedule(patch: {
     date?: string;
@@ -521,7 +643,7 @@ export function ProjectModal({
     demountDate?: string;
     demountDurationDays?: number;
   }) {
-    if (!quoteId || !project) return;
+    if (!quoteId || !project || !editing) return;
     const prev = project;
     setScheduleError("");
     setProject({ ...project, ...patch });
@@ -617,9 +739,11 @@ export function ProjectModal({
         open={open}
         onClose={onClose}
         wide={!embedded}
+        from={embedded ? "auto" : "right"}
         labelledBy="project-title"
-        zIndex={55}
+        zIndex={70}
         embedded={embedded}
+        className="calendar-sheet"
       >
         <div className="flex h-full min-h-0 flex-col overflow-hidden">
           <PeekHeader
@@ -632,7 +756,7 @@ export function ProjectModal({
                     {
                       id: "edit",
                       label: "Edit",
-                      hidden: !project?.canEditBrief,
+                      hidden: !project?.canEditBrief && !project?.canEditSchedule,
                       disabled: editing,
                       onSelect: () => setEditing(true),
                     },
@@ -671,7 +795,7 @@ export function ProjectModal({
                   {lifecycleLabel(project.lifecycle)}
                 </p>
                 <div className="mt-1.5 space-y-0.5 text-sm">
-                  {canEditSchedule ? (
+                  {canEditScheduleNow ? (
                     <>
                       <DateRangePicker
                         bare
@@ -769,7 +893,7 @@ export function ProjectModal({
 
           {project && (
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-              <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+              <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-2 py-3">
                 <section>
                   <div className="mb-1 flex items-center justify-between">
                     <h3 className="text-xs font-medium uppercase tracking-wider text-[var(--muted)]">
@@ -927,81 +1051,33 @@ export function ProjectModal({
                 ) : null}
 
                 <section className="space-y-4">
-                      <div>
-                        <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-[var(--muted)]">
-                          {project.canManageAssignments && !project.isManager
+                      <WhoWorksBlock
+                        persistKey="staff"
+                        title={
+                          project.canManageAssignments && !project.isManager
                             ? "Кто требуется / назначен"
-                            : "Кто работает"}
-                        </h3>
-                        {(() => {
-                          const who = whoWorksView(
+                            : "Кто работает"
+                        }
+                        lines={
+                          whoWorksView(
                             project.assignments,
                             project.durationDays,
                             project.date,
-                          );
-                          if (who.lines.length === 0) {
-                            return (
-                              <p className="text-sm text-[var(--muted)]">
-                                Никто не назначен
-                              </p>
-                            );
-                          }
-                          return <WhoWorksLines lines={who.lines} />;
-                        })()}
-                      </div>
-                      <div>
-                        <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-[var(--muted)]">
-                          Монтажники
-                          {project.recommendedMountSlots
-                            ? ` · смета ${project.recommendedMountSlots}`
-                            : ""}
-                        </h3>
-                        {project.assignments.filter(
-                          (a) => a.kind === "MOUNT",
-                        ).length === 0 ? (
-                          <p className="text-sm text-[var(--muted)]">
-                            Монтажники не назначены
-                          </p>
-                        ) : (
-                          <ul className="space-y-1.5 text-sm">
-                            {project.assignments
-                              .filter((a) => a.kind === "MOUNT")
-                              .map((a) => {
-                                const vacant = !a.userId && !a.isFreelancer;
-                                const fl = Boolean(a.isFreelancer);
-                                const name = vacant
-                                  ? "не назначен"
-                                  : fl
-                                    ? (a.freelancerName || "").trim() ||
-                                      "Фрилансер"
-                                    : a.user
-                                      ? personName(a.user)
-                                      : "не назначен";
-                                return (
-                                  <li
-                                    key={a.id}
-                                    className="flex items-baseline justify-between gap-2 border-b border-[var(--line)]/60 py-1"
-                                  >
-                                    <span
-                                      className={
-                                        vacant
-                                          ? "text-[var(--muted)]"
-                                          : undefined
-                                      }
-                                    >
-                                      {name}
-                                      {fl && (
-                                        <span className="ml-1 text-caption text-[var(--muted)]">
-                                          фр.
-                                        </span>
-                                      )}
-                                    </span>
-                                  </li>
-                                );
-                              })}
-                          </ul>
-                        )}
-                      </div>
+                          ).lines
+                        }
+                      />
+                      <WhoWorksBlock
+                        persistKey="mount"
+                        title={
+                          project.recommendedMountSlots
+                            ? `Монтажники · смета ${project.recommendedMountSlots}`
+                            : "Монтажники"
+                        }
+                        emptyText="Монтажники не назначены"
+                        lines={project.assignments
+                          .filter((a) => a.kind === "MOUNT")
+                          .map(toWhoWorksLine)}
+                      />
                 </section>
 
                 <div className="flex flex-wrap gap-2 pt-1">
@@ -1032,7 +1108,7 @@ export function ProjectModal({
 
               <div
                 className={cn(
-                  "shrink-0 border-t bg-[var(--panel)] px-4 py-3 transition-colors",
+                  "shrink-0 border-t px-2 py-3 transition-colors",
                   chatDragOver
                     ? "border-[var(--accent)] bg-[var(--accent)]/10"
                     : "border-[var(--line)]",

@@ -254,6 +254,27 @@ export function EquipmentItemPage({
     }
   }
 
+  async function importPhotoUrl(url: string) {
+    setBusy(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/catalog/items/${itemId}/photo`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error || "Не удалось скачать фото");
+        return false;
+      }
+      await reload();
+      return true;
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function removePhoto() {
     if (!confirm("Убрать фото?")) return;
     setBusy(true);
@@ -503,6 +524,7 @@ export function EquipmentItemPage({
       editable
       busy={busy}
       onUploadPhoto={uploadPhoto}
+      onImportPhotoUrl={importPhotoUrl}
       onRemovePhoto={removePhoto}
       onUploadDoc={uploadDoc}
       onDeleteDoc={deleteDoc}

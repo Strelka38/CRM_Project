@@ -33,14 +33,27 @@ export const authConfig = {
       return session;
     },
     redirect({ url, baseUrl }) {
-      const publicBase = (process.env.AUTH_URL || baseUrl).replace(/\/$/, "");
+      // Prefer the Host the browser actually used (AUTH_TRUST_HOST).
+      // Stale AUTH_URL (old LAN IP) used to force every callback onto a dead host.
+      const requestBase = baseUrl.replace(/\/$/, "");
+      const authUrl = process.env.AUTH_URL?.replace(/\/$/, "") || "";
+      let publicBase = requestBase;
+      try {
+        const host = new URL(requestBase).hostname;
+        if ((host === "0.0.0.0" || host === "") && authUrl) {
+          publicBase = authUrl;
+        }
+      } catch {
+        if (authUrl) publicBase = authUrl;
+      }
       if (url.startsWith("/")) return `${publicBase}${url}`;
       try {
         const next = new URL(url);
-        if (next.hostname === "0.0.0.0" || next.hostname === "localhost") {
+        if (next.hostname === "0.0.0.0") {
           return `${publicBase}${next.pathname}${next.search}`;
         }
-        if (next.origin === publicBase || next.origin === baseUrl) return url;
+        if (next.origin === publicBase || next.origin === requestBase) return url;
+        if (authUrl && next.origin === authUrl) return url;
       } catch {
         /* ignore malformed */
       }

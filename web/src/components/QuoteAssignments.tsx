@@ -7,6 +7,7 @@ import {
   type CatalogOwnerValue,
 } from "@/lib/catalog-owner";
 import { formatMoney } from "@/lib/format";
+import { usePermissions } from "@/components/PermissionProvider";
 import { canSeeAssignmentPay } from "@/lib/roles";
 import { Button, Modal } from "@/components/ui";
 import { DateRangePicker } from "@/components/DateRangePicker";
@@ -201,8 +202,9 @@ export function QuoteAssignments({
   onChanged?: () => void;
 }) {
   const { data: session } = useSession();
+  const { overrides } = usePermissions();
   const noPay =
-    hidePay || !canSeeAssignmentPay(session?.user?.role);
+    hidePay || !canSeeAssignmentPay(session?.user?.role, overrides);
 
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [users, setUsers] = useState<UserOption[]>([]);

@@ -9,6 +9,7 @@ import {
   canCreateCalendarTask,
   canEditCalendarEntry,
   isManager,
+  type RolePermissionOverrides,
 } from "@/lib/roles";
 
 export const CALENDAR_ENTRY_INCLUDE = {
@@ -43,14 +44,15 @@ export const CALENDAR_ENTRY_INCLUDE = {
 export function canCreateEntryKind(
   role: string | null | undefined,
   kind: CalendarEntryKind,
+  overrides?: RolePermissionOverrides,
 ): boolean {
   switch (kind) {
     case "RENTAL":
-      return canCreateCalendarRental(role);
+      return canCreateCalendarRental(role, overrides);
     case "TASK":
-      return canCreateCalendarTask(role);
+      return canCreateCalendarTask(role, overrides);
     case "DAY_OFF":
-      return canCreateCalendarDayOff(role);
+      return canCreateCalendarDayOff(role, overrides);
     default:
       return false;
   }
@@ -138,7 +140,7 @@ export const ENTRY_KIND_LABELS: Record<CalendarEntryKind, string> = {
 };
 
 export const ENTRY_KIND_COLORS: Record<CalendarEntryKind, string> = {
-  RENTAL: "#615348",
+  RENTAL: "var(--cal-rental)",
   TASK: "#c4881c",
   DAY_OFF: "#b2222e",
 };

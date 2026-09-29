@@ -24,17 +24,22 @@ UPLOADS_DIR="${UPLOADS_DIR:-$ROOT/data/uploads}"
 
 mkdir -p "$DEST_DIR" "$UPLOADS_DIR"
 
-if ! compose ps -q db >/dev/null 2>&1 || [[ -z "$(compose ps -q db 2>/dev/null)" ]]; then
-  echo "Контейнер db не запущен. Сначала: docker compose up -d db" >&2
-  exit 1
+if using_local_db; then
+  if ! db_container_running; then
+    echo "Контейнер db не запущен. Сначала: docker compose up -d db" >&2
+    exit 1
+  fi
+else
+  echo "==> удалённый Postgres $(db_host):$(db_port)"
+  wait_for_db || exit 1
 fi
 
 WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/crm-backup.XXXXXX")"
 cleanup() { rm -rf "$WORKDIR"; }
 trap cleanup EXIT
 
-echo "==> pg_dump -Fc ($DB_NAME)"
-compose exec -T db pg_dump -U "$DB_USER" -Fc "$DB_NAME" >"$WORKDIR/postgres.dump"
+echo "==> pg_dump -Fc ($DB_NAME @ $(db_host))"
+pg_tool pg_dump -U "$DB_USER" -Fc "$DB_NAME" >"$WORKDIR/postgres.dump"
 
 echo "==> uploads"
 mkdir -p "$WORKDIR/uploads"
@@ -42,7 +47,7 @@ if [[ -d "$UPLOADS_DIR" ]]; then
   cp -a "$UPLOADS_DIR"/. "$WORKDIR/uploads/" 2>/dev/null || true
 fi
 
-PG_VER="$(compose exec -T db postgres --version 2>/dev/null | tr -d '\r"\\' || echo "PostgreSQL 16")"
+PG_VER="$(pg_tool psql -U "$DB_USER" -d "$DB_NAME" -At -c 'SHOW server_version;' 2>/dev/null | tr -d '\r' || echo "16")"
 CREATED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 cat >"$WORKDIR/manifest.json" <<EOF

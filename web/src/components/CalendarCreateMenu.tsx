@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
+import { usePermissions } from "@/components/PermissionProvider";
 import {
   canCreateCalendarDayOff,
   canCreateCalendarProject,
@@ -26,7 +28,7 @@ type Props = {
 const ITEMS: Array<{
   action: CalendarCreateAction;
   label: string;
-  allowed: (role: string | null | undefined) => boolean;
+  allowed: typeof canCreateCalendarProject;
 }> = [
   {
     action: "project",
@@ -59,7 +61,8 @@ export function CalendarCreateMenu({
   onSelect,
 }: Props) {
   const ref = useRef<HTMLDivElement>(null);
-  const items = ITEMS.filter((i) => i.allowed(role));
+  const { overrides } = usePermissions();
+  const items = ITEMS.filter((i) => i.allowed(role, overrides));
 
   useEffect(() => {
     if (!open) return;
@@ -77,15 +80,15 @@ export function CalendarCreateMenu({
     };
   }, [open, onClose]);
 
-  if (!open || items.length === 0) return null;
+  if (!open || items.length === 0 || typeof document === "undefined") return null;
 
-  const left = Math.min(x, typeof window !== "undefined" ? window.innerWidth - 220 : x);
-  const top = Math.min(y, typeof window !== "undefined" ? window.innerHeight - 200 : y);
+  const left = Math.min(x, window.innerWidth - 220);
+  const top = Math.min(y, window.innerHeight - 200);
 
-  return (
+  return createPortal(
     <div
       ref={ref}
-      className="fixed z-[60] min-w-[11.5rem] overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--panel)] py-1 shadow-xl"
+      className="fixed z-[80] min-w-[11.5rem] overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--panel)] py-1 shadow-xl"
       style={{ left, top }}
       role="menu"
     >
@@ -103,6 +106,7 @@ export function CalendarCreateMenu({
           {item.label}
         </button>
       ))}
-    </div>
+    </div>,
+    document.body,
   );
 }

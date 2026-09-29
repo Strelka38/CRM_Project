@@ -125,7 +125,7 @@ function InlineQtyAdd({
   }
 
   return (
-    <div className="flex items-center gap-1 py-0.5">
+    <div className="flex items-center gap-1">
       <button
         type="button"
         tabIndex={-1}
@@ -243,64 +243,66 @@ function CatalogItemRow({
         <span className="mt-1 shrink-0 text-caption text-[var(--muted)]" aria-hidden>
           ▱
         </span>
-        <div className="min-w-0 flex-1">
-          <div className="grid min-w-0 grid-cols-[1.5rem_1.5rem_2.75rem_minmax(0,1fr)_1.1rem] items-center gap-0.5">
-            <span
-              className={cn(
-                "text-right text-xs font-bold tabular-nums",
-                low ? "text-amber-400" : "text-sky-400",
-              )}
-              title={
-                item.available != null
-                  ? `На складе ${item.stockQty} · свободно ${available}`
-                  : `На складе ${item.stockQty}`
-              }
-            >
-              {item.stockQty}
-            </span>
-            <span
-              className="text-right text-xs font-semibold tabular-nums text-[var(--muted)]"
-              title={currentQtyLabel}
-            >
-              {currentQty}
-            </span>
-            <span
-              className="text-right text-xs font-bold tabular-nums text-emerald-500 dark:text-emerald-400"
-              title="Цена за штуку"
-            >
-              {Math.round(item.basePrice)}
-            </span>
-            <button
-              type="button"
-              tabIndex={-1}
-              className="min-w-0 truncate text-left text-xs font-medium text-[var(--ink)] hover:text-[var(--accent)] hover:underline"
-              title={item.name}
-              onClick={() => onOpenDrawer(item)}
-            >
-              {item.name}
-            </button>
-            <button
-              type="button"
-              tabIndex={-1}
-              data-no-drag
-              className="flex size-5 items-center justify-center rounded-full border border-[var(--line)] text-caption text-[var(--muted)] hover:text-[var(--ink)]"
-              title="Карточка"
-              aria-label={`Карточка ${item.name}`}
-              onClick={() => onOpenDrawer(item)}
-            >
-              i
-            </button>
+        <div className="grid min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)_1.25rem] items-start gap-x-1">
+          <div>
+            <div className="grid grid-cols-[1.35rem_1.25rem_2.4rem] items-center gap-px">
+              <span
+                className={cn(
+                  "text-right text-caption font-bold tabular-nums leading-tight",
+                  low ? "text-amber-400" : "text-sky-400",
+                )}
+                title={
+                  item.available != null
+                    ? `На складе ${item.stockQty} · свободно ${available}`
+                    : `На складе ${item.stockQty}`
+                }
+              >
+                {item.stockQty}
+              </span>
+              <span
+                className="text-right text-caption font-semibold tabular-nums leading-tight text-[var(--muted)]"
+                title={currentQtyLabel}
+              >
+                {currentQty}
+              </span>
+              <span
+                className="text-right text-caption font-bold tabular-nums leading-tight text-emerald-500 dark:text-emerald-400"
+                title="Цена за штуку"
+              >
+                {Math.round(item.basePrice)}
+              </span>
+            </div>
+            <div className="mt-0.5" data-no-drag>
+              <InlineQtyAdd
+                qty={qty}
+                onQtyChange={setQty}
+                addTargetLabel={addTargetLabel}
+                onAdd={(n) => {
+                  onPickItem(item, n);
+                }}
+              />
+            </div>
           </div>
-          <div className="mt-0.5" data-no-drag>
-            <InlineQtyAdd
-              qty={qty}
-              onQtyChange={setQty}
-              addTargetLabel={addTargetLabel}
-              onAdd={(n) => {
-                onPickItem(item, n);
-              }}
-            />
-          </div>
+          <button
+            type="button"
+            tabIndex={-1}
+            className="line-clamp-4 min-w-0 break-words text-left text-caption font-normal leading-snug text-[var(--ink)] hover:text-[var(--accent)] hover:underline"
+            title={item.name}
+            onClick={() => onOpenDrawer(item)}
+          >
+            {item.name}
+          </button>
+          <button
+            type="button"
+            tabIndex={-1}
+            data-no-drag
+            className="flex size-5 items-center justify-center rounded-full border border-[var(--line)] text-caption text-[var(--muted)] hover:text-[var(--ink)]"
+            title="Карточка"
+            aria-label={`Карточка ${item.name}`}
+            onClick={() => onOpenDrawer(item)}
+          >
+            i
+          </button>
         </div>
       </div>
     </div>
@@ -337,43 +339,45 @@ function CatalogKitRow({
         <span className="mt-1 shrink-0 text-caption text-[var(--muted)]" aria-hidden>
           ▣
         </span>
-        <div className="min-w-0 flex-1">
-          <div className="grid min-w-0 grid-cols-[1.5rem_1.5rem_2.75rem_minmax(0,1fr)] items-center gap-0.5">
-            <span
-              className="text-right text-xs font-bold tabular-nums text-sky-400"
-              title={`Позиций в комплекте: ${componentCount}`}
-            >
-              {componentCount}
-            </span>
-            <span
-              className="text-right text-xs font-semibold tabular-nums text-[var(--muted)]"
-              title={currentQtyLabel}
-            >
-              {currentQty}
-            </span>
-            <span
-              className="text-right text-xs font-bold tabular-nums text-emerald-500 dark:text-emerald-400"
-              title="Цена комплекта"
-            >
-              {Math.round(kit.computedPrice)}
-            </span>
-            <span
-              className="min-w-0 truncate text-left text-xs font-medium text-[var(--ink)]"
-              title={`${kit.name} (комплект)`}
-            >
-              {kit.name}
-            </span>
+        <div className="grid min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)] items-start gap-x-1">
+          <div>
+            <div className="grid grid-cols-[1.35rem_1.25rem_2.4rem] items-center gap-px">
+              <span
+                className="text-right text-caption font-bold tabular-nums leading-tight text-sky-400"
+                title={`Позиций в комплекте: ${componentCount}`}
+              >
+                {componentCount}
+              </span>
+              <span
+                className="text-right text-caption font-semibold tabular-nums leading-tight text-[var(--muted)]"
+                title={currentQtyLabel}
+              >
+                {currentQty}
+              </span>
+              <span
+                className="text-right text-caption font-bold tabular-nums leading-tight text-emerald-500 dark:text-emerald-400"
+                title="Цена комплекта"
+              >
+                {Math.round(kit.computedPrice)}
+              </span>
+            </div>
+            <div className="mt-0.5">
+              <InlineQtyAdd
+                qty={qty}
+                onQtyChange={setQty}
+                addTargetLabel={addTargetLabel}
+                onAdd={(n) => {
+                  onPickKit(kit, n);
+                }}
+              />
+            </div>
           </div>
-          <div className="mt-0.5">
-            <InlineQtyAdd
-              qty={qty}
-              onQtyChange={setQty}
-              addTargetLabel={addTargetLabel}
-              onAdd={(n) => {
-                onPickKit(kit, n);
-              }}
-            />
-          </div>
+          <span
+            className="line-clamp-4 min-w-0 break-words text-left text-caption font-normal leading-snug text-[var(--ink)]"
+            title={`${kit.name} (комплект)`}
+          >
+            {kit.name}
+          </span>
         </div>
       </div>
     </div>

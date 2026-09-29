@@ -20,7 +20,7 @@ export async function POST(
 ) {
   try {
     const session = await requireSession();
-    if (!canSendEquipmentToRepair(session.user.role)) {
+    if (!canSendEquipmentToRepair(session.user.role, session.permissions)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 

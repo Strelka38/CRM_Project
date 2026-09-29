@@ -141,12 +141,19 @@ export function ItemDrawer({
   const [draft, setDraft] = useState<Draft | null>(null);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [linkOpen, setLinkOpen] = useState(false);
+  const [linkValue, setLinkValue] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (item) setDraft(toDraft(item));
     else setDraft(null);
   }, [item]);
+
+  useEffect(() => {
+    setLinkOpen(false);
+    setLinkValue("");
+  }, [item?.id]);
 
   if (!item || !draft) return null;
 
@@ -208,6 +215,30 @@ export function ItemDrawer({
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = "";
+    }
+  }
+
+  async function importPhotoUrl(url: string) {
+    if (!item) return false;
+    setUploading(true);
+    try {
+      const res = await fetch(`/api/catalog/items/${item.id}/photo`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        alert(
+          typeof data.error === "string" ? data.error : "Не удалось скачать фото",
+        );
+        return false;
+      }
+      const updated = (await res.json()) as DrawerItem;
+      onPhotoChange?.(updated);
+      return true;
+    } finally {
+      setUploading(false);
     }
   }
 
@@ -295,6 +326,51 @@ export function ItemDrawer({
                       ? "Заменить фото"
                       : "Загрузить фото"}
                 </button>
+                <button
+                  type="button"
+                  disabled={uploading}
+                  className="rounded-md border border-[var(--line)] px-3 py-1.5 text-sm hover:bg-[var(--panel-muted)] disabled:opacity-50"
+                  onClick={() => setLinkOpen((open) => !open)}
+                >
+                  По ссылке
+                </button>
+                {linkOpen ? (
+                  <form
+                    className="flex min-w-[16rem] flex-1 basis-full gap-2"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      const url = linkValue.trim();
+                      if (!url) return;
+                      void (async () => {
+                        const ok = await importPhotoUrl(url);
+                        if (ok) {
+                          setLinkValue("");
+                          setLinkOpen(false);
+                        }
+                      })();
+                    }}
+                  >
+                    <input
+                      type="url"
+                      inputMode="url"
+                      required
+                      autoFocus
+                      disabled={uploading}
+                      placeholder="https://…"
+                      value={linkValue}
+                      onChange={(e) => setLinkValue(e.target.value)}
+                      className="field min-w-0 flex-1 px-2 py-1.5 text-sm"
+                      aria-label="Ссылка на фото"
+                    />
+                    <button
+                      type="submit"
+                      disabled={uploading || !linkValue.trim()}
+                      className="rounded-md border border-[var(--line)] px-3 py-1.5 text-sm hover:bg-[var(--panel-muted)] disabled:opacity-50"
+                    >
+                      {uploading ? "Скачивание…" : "Скачать"}
+                    </button>
+                  </form>
+                ) : null}
                 {imgSrc && (
                   <button
                     type="button"

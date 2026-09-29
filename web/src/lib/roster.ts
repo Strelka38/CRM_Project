@@ -18,6 +18,10 @@ import {
   type ZoneWorkingDays,
 } from "@/lib/quote-assignment-days";
 import { CATALOG_OWNERS, type CatalogOwnerValue } from "@/lib/catalog-owner";
+import {
+  type LifecycleStatus,
+  parseLifecycleStatus,
+} from "@/lib/lifecycle";
 import { staffRoleLabel } from "@/lib/staff-slots";
 
 export type RosterKind = "EVENT" | "RENTAL" | "TASK";
@@ -87,6 +91,8 @@ export type RosterItem = {
   slotOrdinal: number;
   /** Фирмы менеджера, который завёл смету / запись. */
   firmOwners: CatalogOwnerValue[];
+  /** Статус сметы; null у calendar entry. */
+  lifecycle: LifecycleStatus | null;
   mountStart: string | null;
   mountEnd: string | null;
   demountStart: string | null;
@@ -129,6 +135,7 @@ export type RosterQuoteInput = {
   assignments: RosterQuoteAssignmentInput[];
   /** Фирмы менеджера-владельца сметы (ШМ / ДК / NE). */
   firmOwners?: CatalogOwnerValue[] | null;
+  lifecycle?: string | null;
 };
 
 export type RosterEntryInput = {
@@ -230,6 +237,7 @@ function atomicItem(
     | "zoneId"
     | "zoneName"
     | "zoneSortOrder"
+    | "lifecycle"
   > & {
     slotOrdinal?: number;
     firmOwners?: CatalogOwnerValue[];
@@ -241,6 +249,7 @@ function atomicItem(
     zoneId?: string | null;
     zoneName?: string | null;
     zoneSortOrder?: number;
+    lifecycle?: LifecycleStatus | null;
   },
 ): RosterItem {
   return {
@@ -253,6 +262,7 @@ function atomicItem(
     zoneSortOrder: partial.zoneSortOrder ?? 9999,
     slotOrdinal: partial.slotOrdinal ?? 0,
     firmOwners: partial.firmOwners ?? [],
+    lifecycle: partial.lifecycle ?? null,
     mountStart: partial.mountStart ?? null,
     mountEnd: partial.mountEnd ?? null,
     demountStart: partial.demountStart ?? null,
@@ -365,6 +375,7 @@ export function buildQuoteRosterItems(q: RosterQuoteInput): RosterItem[] {
   const eventDays = workingDayCount(q.durationDays);
   const eventStartKey = formatDateKey(eventStart);
   const firmOwners = [...(q.firmOwners || [])];
+  const lifecycle = parseLifecycleStatus(q.lifecycle || "CALCULATED");
   const zoneById = new Map((q.zones || []).map((z) => [z.id, z]));
   const dutyWindows = quoteDutyWindows(q, eventStart, eventDays);
   const mountKeys = rangeKeys(dutyWindows.mount.start, dutyWindows.mount.end);
@@ -466,6 +477,7 @@ export function buildQuoteRosterItems(q: RosterQuoteInput): RosterItem[] {
           resizable: !vacant && kind === "EVENT",
           specialtyId: a.specialtyId || a.specialty?.id || null,
           firmOwners,
+          lifecycle,
           ...dutyDates,
         }),
       );
@@ -499,6 +511,7 @@ export function buildQuoteRosterItems(q: RosterQuoteInput): RosterItem[] {
         resizable: false,
         specialtyId: null,
         firmOwners,
+        lifecycle,
         ...dutyDates,
       }),
     );
@@ -550,6 +563,7 @@ export function buildQuoteRosterItems(q: RosterQuoteInput): RosterItem[] {
           resizable: false,
           specialtyId: null,
           firmOwners,
+          lifecycle,
           ...dutyDates,
         }),
       );
@@ -1321,6 +1335,13 @@ export function isRosterFringeItem(
 ): boolean {
   if (item.zoneMark) return false;
   return item.mountDuty != null;
+}
+
+/** Посчитано, но не подтверждено — слоты персов неактивны, смета открывается. */
+export function isRosterPersonSlotLocked(
+  item: Pick<RosterItem, "source" | "lifecycle">,
+): boolean {
+  return item.source === "quote" && item.lifecycle === "CALCULATED";
 }
 
 export function collectBusyDates(

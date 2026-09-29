@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { formatUnitId } from "@/lib/equipment-id";
 import { downloadQrPng } from "@/lib/download-qr";
 import {
@@ -62,6 +63,7 @@ type Props = {
   editable?: boolean;
   busy?: boolean;
   onUploadPhoto?: (file: File) => void | Promise<void>;
+  onImportPhotoUrl?: (url: string) => void | Promise<boolean | void>;
   onRemovePhoto?: () => void | Promise<void>;
   onUploadDoc?: (file: File) => void | Promise<void>;
   onDeleteDoc?: (docId: string) => void | Promise<void>;
@@ -124,6 +126,7 @@ export function EquipmentCard({
   editable = false,
   busy = false,
   onUploadPhoto,
+  onImportPhotoUrl,
   onRemovePhoto,
   onUploadDoc,
   onDeleteDoc,
@@ -140,6 +143,13 @@ export function EquipmentCard({
     .filter((v) => v != null)
     .join(" × ");
   const unitWarehouseSummary = warehouseSummary(units);
+  const [linkOpen, setLinkOpen] = useState(false);
+  const [linkValue, setLinkValue] = useState("");
+
+  useEffect(() => {
+    setLinkOpen(false);
+    setLinkValue("");
+  }, [item.id]);
 
   const titleMeta = [
     item.model || item.manufacturer || null,
@@ -198,7 +208,7 @@ export function EquipmentCard({
             Нет фото
           </div>
         )}
-        {editable && (onUploadPhoto || onRemovePhoto) ? (
+        {editable && (onUploadPhoto || onImportPhotoUrl || onRemovePhoto) ? (
           <div className="flex flex-wrap gap-2">
             {onUploadPhoto ? (
               <label className="cursor-pointer rounded-md border border-[var(--line)] px-3 py-1.5 text-sm hover:bg-[var(--panel-muted)]">
@@ -219,6 +229,53 @@ export function EquipmentCard({
                   }}
                 />
               </label>
+            ) : null}
+            {onImportPhotoUrl ? (
+              <button
+                type="button"
+                disabled={busy}
+                className="rounded-md border border-[var(--line)] px-3 py-1.5 text-sm hover:bg-[var(--panel-muted)] disabled:opacity-50"
+                onClick={() => setLinkOpen((open) => !open)}
+              >
+                По ссылке
+              </button>
+            ) : null}
+            {linkOpen && onImportPhotoUrl ? (
+              <form
+                className="flex min-w-[16rem] flex-1 basis-full gap-2"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const url = linkValue.trim();
+                  if (!url || !onImportPhotoUrl) return;
+                  void (async () => {
+                    const ok = await onImportPhotoUrl(url);
+                    if (ok !== false) {
+                      setLinkValue("");
+                      setLinkOpen(false);
+                    }
+                  })();
+                }}
+              >
+                <input
+                  type="url"
+                  inputMode="url"
+                  required
+                  autoFocus
+                  disabled={busy}
+                  placeholder="https://…"
+                  value={linkValue}
+                  onChange={(e) => setLinkValue(e.target.value)}
+                  className="field min-w-0 flex-1 px-2 py-1.5 text-sm"
+                  aria-label="Ссылка на фото"
+                />
+                <button
+                  type="submit"
+                  disabled={busy || !linkValue.trim()}
+                  className="rounded-md border border-[var(--line)] px-3 py-1.5 text-sm hover:bg-[var(--panel-muted)] disabled:opacity-50"
+                >
+                  {busy ? "Скачивание…" : "Скачать"}
+                </button>
+              </form>
             ) : null}
             {item.photoUrl && onRemovePhoto ? (
               <button

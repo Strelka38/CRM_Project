@@ -32,18 +32,23 @@ mkdir -p "$STAGE"
 echo "==> Копирую файлы деплоя в $STAGE"
 cp -a \
   docker-compose.yml \
+  docker-compose.remote-db.yml \
   Dockerfile \
   install.sh \
   "$STAGE/"
 
 mkdir -p "$STAGE/docker" "$STAGE/scripts"
-cp -a docker/Caddyfile docker/entrypoint.sh "$STAGE/docker/"
+cp -a docker/Caddyfile docker/entrypoint.sh docker/db-only-compose.yml "$STAGE/docker/"
 cp -a \
   scripts/lib.sh \
   scripts/backup.sh \
   scripts/backup-cron.sh \
   scripts/restore.sh \
   scripts/migrate-volumes-to-data.sh \
+  scripts/migrate-server.sh \
+  scripts/migrate-db.sh \
+  scripts/install-cli.sh \
+  scripts/crm \
   scripts/fix-prod-db-columns.sh \
   scripts/rescue-named-volumes.sh \
   "$STAGE/scripts/"
@@ -189,6 +194,12 @@ echo
 echo "==> Запускаю контейнеры (без пересборки)..."
 "${COMPOSE[@]}" up -d
 
+if [[ -x "$ROOT/scripts/install-cli.sh" ]]; then
+  echo
+  echo "==> Админ-CLI"
+  "$ROOT/scripts/install-cli.sh" || true
+fi
+
 echo
 echo "=========================================="
 echo "  Готово"
@@ -198,7 +209,14 @@ echo "Логин:    ${ADMIN_EMAIL}"
 echo
 echo "Сертификат выпускает Caddy (Let's Encrypt)."
 echo "Данные:   ./data/postgres  ./data/uploads"
-echo "Снимки:   ./backups        (./scripts/backup.sh)"
+echo "Снимки:   ./backups        (команда crm snapshot)"
+echo
+echo "Админка в терминале:"
+echo "  crm                 меню"
+echo "  crm snapshot        полный снимок"
+echo "  crm migrate         переезд CRM на другой VPS"
+echo "  crm migrate-db      вынести Postgres на другой VPS"
+echo "  crm admin           почта и пароль суперадмина"
 echo
 echo "Управление:"
 echo "  ${COMPOSE[*]} ps"
@@ -314,9 +332,12 @@ if [[ "$PACK" != "$INSTALL" ]]; then
   echo "==> Копирую Caddy и скрипты (compose НЕ трогаю — иначе слетят тома pgdata)"
   mkdir -p "$INSTALL/docker" "$INSTALL/scripts"
   [[ -f "$PACK/docker/Caddyfile" ]] && cp -a "$PACK/docker/Caddyfile" "$INSTALL/docker/"
+  [[ -f "$PACK/docker/entrypoint.sh" ]] && cp -a "$PACK/docker/entrypoint.sh" "$INSTALL/docker/"
+  [[ -f "$PACK/docker/db-only-compose.yml" ]] && cp -a "$PACK/docker/db-only-compose.yml" "$INSTALL/docker/"
+  [[ -f "$PACK/docker-compose.remote-db.yml" ]] && cp -a "$PACK/docker-compose.remote-db.yml" "$INSTALL/docker-compose.remote-db.yml"
   cp -a "$PACK/scripts/." "$INSTALL/scripts/"
   cp -a "$PACK/update.sh" "$INSTALL/update.sh"
-  chmod +x "$INSTALL/update.sh" "$INSTALL/scripts/"*.sh 2>/dev/null || true
+  chmod +x "$INSTALL/update.sh" "$INSTALL/scripts/"*.sh "$INSTALL/scripts/crm" 2>/dev/null || true
 fi
 
 echo "==> Загружаю Docker-образ crm-app:latest..."
@@ -328,6 +349,12 @@ cd "$INSTALL"
 "${COMPOSE[@]}" up -d --no-build --force-recreate app
 "${COMPOSE[@]}" up -d --no-build
 
+if [[ -x "$INSTALL/scripts/install-cli.sh" ]]; then
+  echo
+  echo "==> Админ-CLI"
+  "$INSTALL/scripts/install-cli.sh" || true
+fi
+
 echo
 echo "==> Статус:"
 "${COMPOSE[@]}" ps
@@ -337,11 +364,12 @@ echo "=========================================="
 echo "  Обновление применено"
 echo "=========================================="
 echo "Миграции Prisma выполняются при старте контейнера app."
-echo "Логи:  ${COMPOSE[*]} logs -f app"
+echo "Админка:  crm   (снимок / переезд / суперадмин)"
+echo "Логи:     ${COMPOSE[*]} logs -f app"
 echo
 EOF
 
-chmod +x "$STAGE/deploy.sh" "$STAGE/update.sh" "$STAGE/install.sh" "$STAGE/scripts/"*.sh
+chmod +x "$STAGE/deploy.sh" "$STAGE/update.sh" "$STAGE/install.sh" "$STAGE/scripts/"*.sh "$STAGE/scripts/crm"
 
 cat > "$STAGE/КАК_РАЗВЕРНУТЬ.txt" <<EOF
 BaikalStage CRM — архив для VPS (образ linux/amd64)
@@ -397,6 +425,15 @@ BaikalStage CRM — архив для VPS (образ linux/amd64)
    если .env уже есть.
 
 Снимки: ./scripts/backup.sh / ./scripts/restore.sh
+        или команда crm snapshot / crm restore
+
+Админка в терминале (после deploy/update):
+
+   crm                 меню
+   crm snapshot        полный снимок БД + файлы
+   crm migrate         переезд на другой VPS (IP + root)
+   crm migrate-db      вынести Postgres на другой VPS
+   crm admin           почта и пароль суперадмина
 EOF
 
 echo "==> Упаковываю $ARCHIVE"

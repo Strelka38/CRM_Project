@@ -103,7 +103,7 @@ export async function GET(
       ]),
     );
 
-    const showPay = canSeeAssignmentPay(session.user.role);
+    const showPay = canSeeAssignmentPay(session.user.role, session.permissions);
     return NextResponse.json(
       assignments.map((a) => {
         const rates =
@@ -165,7 +165,7 @@ export async function POST(
     }
 
     const body = createSchema.parse(await req.json());
-    const showPay = canSeeAssignmentPay(session.user.role);
+    const showPay = canSeeAssignmentPay(session.user.role, session.permissions);
     const kind = body.kind ?? "EVENT";
     const specialtyId =
       kind === "MOUNT"

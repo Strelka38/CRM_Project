@@ -34,7 +34,7 @@ export async function GET(
   try {
     const session = await requireDatabaseAccess();
     const { id } = await params;
-    const showPay = canSeeAssignmentPay(session.user.role);
+    const showPay = canSeeAssignmentPay(session.user.role, session.permissions);
 
     const freelancer = await prisma.freelancer.findUnique({
       where: { id },

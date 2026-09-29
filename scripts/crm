@@ -1,0 +1,440 @@
+#!/usr/bin/env bash
+# Admin CLI for a deployed Event Rental CRM (snapshots, migrate, superadmin).
+#
+#   crm                 interactive menu
+#   crm snapshot        create a full snapshot
+#   crm snapshots       list snapshots
+#   crm restore [file]  restore a snapshot
+#   crm migrate         move the instance to another VPS
+#   crm migrate-db      move only Postgres to another VPS
+#   crm admin           change superadmin email / password
+#   crm status          docker compose ps
+#   crm help
+set -euo pipefail
+
+resolve_script_dir() {
+  local src="${BASH_SOURCE[0]}"
+  local dir target
+  while [[ -L "$src" ]]; do
+    dir="$(cd "$(dirname "$src")" && pwd)"
+    target="$(readlink "$src")"
+    if [[ "$target" == /* ]]; then
+      src="$target"
+    else
+      src="$dir/$target"
+    fi
+  done
+  cd "$(dirname "$src")" && pwd
+}
+
+SCRIPT_DIR="$(resolve_script_dir)"
+
+detect_root() {
+  local candidate
+  if [[ -n "${CRM_ROOT:-}" ]]; then
+    printf '%s' "$CRM_ROOT"
+    return
+  fi
+  if [[ -f "$SCRIPT_DIR/../docker-compose.yml" ]]; then
+    cd "$SCRIPT_DIR/.." && pwd
+    return
+  fi
+  for candidate in /var/www/bsg-crm /opt/bsg-crm /opt/crm; do
+    if [[ -f "$candidate/docker-compose.yml" ]]; then
+      printf '%s' "$candidate"
+      return
+    fi
+  done
+  echo "Не найден каталог CRM (docker-compose.yml)." >&2
+  echo "Задайте CRM_ROOT=/path/to/install или запускайте из каталога установки." >&2
+  exit 1
+}
+
+ROOT="$(detect_root)"
+# shellcheck disable=SC1091
+source "$ROOT/scripts/lib.sh"
+cd "$ROOT"
+load_env
+
+die() {
+  echo "$*" >&2
+  exit 1
+}
+
+need_db() {
+  if ! db_running; then
+    die "Контейнер db не запущен. Сначала: cd $ROOT && docker compose up -d"
+  fi
+}
+
+pause_if_menu() {
+  if [[ "${CRM_MENU:-0}" -eq 1 && -t 0 ]]; then
+    echo
+    read -r -p "Enter — меню... " _
+  fi
+}
+
+human_size() {
+  local bytes="$1"
+  if command -v numfmt >/dev/null 2>&1; then
+    numfmt --to=iec --suffix=B "$bytes" 2>/dev/null && return
+  fi
+  echo "${bytes} B"
+}
+
+header() {
+  echo
+  echo "=========================================="
+  echo "  Event Rental CRM — админка"
+  echo "=========================================="
+  echo "Каталог:  $ROOT"
+  echo "Домен:    ${DOMAIN:-не задан}"
+  echo "Postgres: $(db_host):$(db_port)"
+  echo
+}
+
+usage() {
+  cat <<EOF
+Админ-CLI CRM на этом сервере.
+
+Использование:
+  crm                      интерактивное меню
+  crm snapshot             создать полный снимок (БД + файлы)
+  crm snapshots            список снимков
+  crm restore [файл|номер] восстановить снимок
+  crm cron                 строка crontab / поставить ежедневный снимок
+  crm migrate              переезд на другой VPS (IP + root)
+  crm migrate-db           вынести Postgres на другой VPS
+  crm migrate-db --revert  вернуть Postgres на этот сервер
+  crm admin                почта и пароль суперадмина
+  crm status               статус контейнеров
+  crm install              прописать команду crm в PATH
+  crm help                 эта справка
+
+Снимки: $(backup_dir)/crm-full-YYYYMMDD-HHMM.tar.gz
+Переменные: CRM_ROOT, BACKUP_KEEP, BACKUP_DIR
+EOF
+}
+
+snapshot_files() {
+  local dir
+  dir="$(backup_dir)"
+  mkdir -p "$dir"
+  ls -1t "$dir"/crm-full-*.tar.gz 2>/dev/null || true
+}
+
+cmd_snapshot() {
+  echo "==> Создаю снимок"
+  "$ROOT/scripts/backup.sh"
+}
+
+print_snapshots() {
+  local i=0 f bytes
+  local dir
+  dir="$(backup_dir)"
+  echo "Снимки в $dir"
+  echo
+  while IFS= read -r f; do
+    [[ -z "$f" ]] && continue
+    i=$((i + 1))
+    bytes="$(wc -c <"$f" | tr -d ' ')"
+    printf "  %2d) %s  (%s)\n" "$i" "$(basename "$f")" "$(human_size "$bytes")"
+  done < <(snapshot_files)
+  if [[ "$i" -eq 0 ]]; then
+    echo "  (пусто — сделайте crm snapshot)"
+    return 1
+  fi
+  return 0
+}
+
+cmd_snapshots() {
+  print_snapshots || true
+}
+
+resolve_archive() {
+  local arg="${1:-}"
+  local f i=0
+  if [[ -z "$arg" ]]; then
+    return 1
+  fi
+  if [[ -f "$arg" ]]; then
+    printf '%s' "$arg"
+    return 0
+  fi
+  if [[ -f "$(backup_dir)/$arg" ]]; then
+    printf '%s' "$(backup_dir)/$arg"
+    return 0
+  fi
+  if [[ "$arg" =~ ^[0-9]+$ ]]; then
+    while IFS= read -r f; do
+      [[ -z "$f" ]] && continue
+      i=$((i + 1))
+      if [[ "$i" -eq "$arg" ]]; then
+        printf '%s' "$f"
+        return 0
+      fi
+    done < <(snapshot_files)
+  fi
+  return 1
+}
+
+cmd_restore() {
+  local archive="${1:-}"
+  if [[ -z "$archive" ]]; then
+    print_snapshots || die "Нет снимков."
+    echo
+    read -r -p "Номер или файл снимка: " archive
+  fi
+  archive="$(resolve_archive "$archive")" || die "Снимок не найден: ${1:-}"
+  echo
+  "$ROOT/scripts/restore.sh" "$archive"
+}
+
+cmd_cron() {
+  "$ROOT/scripts/backup-cron.sh"
+  if [[ -t 0 ]]; then
+    echo
+    read -r -p "Поставить эту строку в crontab сейчас? [y/N] " ans
+    if [[ "$ans" == "y" || "$ans" == "Y" || "$ans" == "д" || "$ans" == "Д" ]]; then
+      local line
+      line="0 3 * * * ${ROOT}/scripts/backup.sh >> ${ROOT}/backups/cron.log 2>&1"
+      local tmp
+      tmp="$(mktemp)"
+      crontab -l 2>/dev/null | grep -Fv "$ROOT/scripts/backup.sh" >"$tmp" || true
+      echo "$line" >>"$tmp"
+      crontab "$tmp"
+      rm -f "$tmp"
+      echo "Готово. Проверка: crontab -l"
+    fi
+  fi
+}
+
+cmd_status() {
+  echo "Postgres: $(db_host):$(db_port)"
+  if using_local_db; then
+    echo "          локальный контейнер db"
+  else
+    echo "          удалённый сервер (приложение на этой машине)"
+  fi
+  echo
+  compose ps
+}
+
+cmd_install() {
+  "$ROOT/scripts/install-cli.sh"
+}
+
+cmd_migrate() {
+  "$ROOT/scripts/migrate-server.sh" "$@"
+}
+
+cmd_migrate_db() {
+  "$ROOT/scripts/migrate-db.sh" "$@"
+  load_env
+}
+
+hash_password() {
+  local pw="$1"
+  local js='const fs=require("fs");const b=require("bcryptjs");process.stdout.write(b.hashSync(fs.readFileSync(0,"utf8"),10));'
+  local out=""
+  if [[ -n "$(compose ps -q app 2>/dev/null || true)" ]]; then
+    out="$(printf '%s' "$pw" | compose exec -T app node -e "$js" 2>/dev/null || true)"
+  fi
+  if [[ -z "$out" ]]; then
+    if ! docker image inspect crm-app:latest >/dev/null 2>&1; then
+      die "Нет образа crm-app:latest и контейнер app не запущен — нечем посчитать хэш пароля."
+    fi
+    out="$(printf '%s' "$pw" | docker run --rm -i --entrypoint node crm-app:latest -e "$js")"
+  fi
+  printf '%s' "$out" | tr -d '\r\n'
+}
+
+list_admins() {
+  psql_c -At -F $'\t' -c \
+    'SELECT id, email, name, active FROM "User" WHERE role = '"'"'ADMIN'"'"' ORDER BY "createdAt" ASC' \
+    | tr -d '\r'
+}
+
+pick_admin() {
+  local rows n=0 line id email name active
+  local bootstrap="${BOOTSTRAP_MANAGER_EMAIL:-}"
+  rows="$(list_admins || true)"
+  if [[ -z "${rows//$'\n'/}" ]]; then
+    die "В базе нет пользователя с ролью ADMIN."
+  fi
+  echo "Админы:"
+  echo
+  local ids=() emails=()
+  while IFS=$'\t' read -r id email name active; do
+    [[ -z "${id:-}" ]] && continue
+    n=$((n + 1))
+    ids+=("$id")
+    emails+=("$email")
+    local mark=""
+    if [[ -n "$bootstrap" && "$email" == "$bootstrap" ]]; then
+      mark="  ← из установки"
+    fi
+    printf "  %2d) %s  (%s, active=%s)%s\n" "$n" "$email" "$name" "$active" "$mark"
+  done <<<"$rows"
+  echo
+  local choice=1
+  if [[ "$n" -gt 1 ]]; then
+    read -r -p "Номер суперадмина [1]: " choice
+    choice="${choice:-1}"
+  fi
+  if ! [[ "$choice" =~ ^[0-9]+$ ]] || [[ "$choice" -lt 1 || "$choice" -gt "$n" ]]; then
+    die "Некорректный номер."
+  fi
+  ADMIN_ID="${ids[$((choice - 1))]}"
+  ADMIN_EMAIL="${emails[$((choice - 1))]}"
+}
+
+cmd_admin() {
+  need_db
+  pick_admin
+  echo
+  echo "Текущая почта: $ADMIN_EMAIL"
+  echo "Пустое поле — оставить как есть."
+  echo
+  local new_email new_password new_password2
+  read -r -p "Новая почта: " new_email
+  new_email="$(echo "${new_email:-}" | tr '[:upper:]' '[:lower:]' | xargs)"
+  while true; do
+    read -r -s -p "Новый пароль: " new_password
+    echo
+    if [[ -z "$new_password" ]]; then
+      break
+    fi
+    if [[ ${#new_password} -lt 8 ]]; then
+      echo "Пароль должен быть не короче 8 символов."
+      continue
+    fi
+    read -r -s -p "Повторите пароль: " new_password2
+    echo
+    if [[ "$new_password" != "$new_password2" ]]; then
+      echo "Пароли не совпадают."
+      continue
+    fi
+    break
+  done
+  if [[ -z "$new_email" && -z "$new_password" ]]; then
+    echo "Ничего не меняю."
+    return 0
+  fi
+  if [[ -n "$new_email" ]]; then
+    if [[ "$new_email" != *"@"* ]]; then
+      die "Некорректный email."
+    fi
+    local taken
+    taken="$(psql_c -At -c "SELECT id FROM \"User\" WHERE email = $(sql_lit "$new_email") AND id <> $(sql_lit "$ADMIN_ID");" | tr -d '\r')"
+    if [[ -n "$taken" ]]; then
+      die "Почта уже занята другим пользователем."
+    fi
+  else
+    new_email="$ADMIN_EMAIL"
+  fi
+
+  local set_sql="email = $(sql_lit "$new_email"), active = true, role = 'ADMIN', \"updatedAt\" = NOW()"
+  if [[ -n "$new_password" ]]; then
+    echo "==> Считаю хэш пароля"
+    local hash
+    hash="$(hash_password "$new_password")"
+    [[ -n "$hash" ]] || die "Не удалось получить bcrypt-хэш."
+    set_sql="${set_sql}, \"passwordHash\" = $(sql_lit "$hash")"
+  fi
+
+  echo "==> Пишу в Postgres"
+  psql_c -c "UPDATE \"User\" SET ${set_sql} WHERE id = $(sql_lit "$ADMIN_ID");" >/dev/null
+
+  if [[ -f "$ROOT/.env" ]]; then
+    set_env_key BOOTSTRAP_MANAGER_EMAIL "$new_email"
+    if [[ -n "$new_password" ]]; then
+      set_env_key BOOTSTRAP_MANAGER_PASSWORD "$new_password"
+    fi
+  fi
+
+  echo
+  echo "Готово. Логин: ${new_email}"
+  echo "Войдите на сайт с новой почтой/паролем."
+}
+
+snapshots_menu() {
+  while true; do
+    echo
+    echo "Снимки"
+    echo "  1) Создать снимок"
+    echo "  2) Список"
+    echo "  3) Восстановить"
+    echo "  4) Ежедневный cron"
+    echo "  0) Назад"
+    echo
+    local c
+    read -r -p "Выберите пункт: " c
+    case "$c" in
+      1) cmd_snapshot ;;
+      2) cmd_snapshots ;;
+      3) cmd_restore ;;
+      4) cmd_cron ;;
+      0 | "") return 0 ;;
+      *) echo "Нет такого пункта." ;;
+    esac
+  done
+}
+
+cmd_menu() {
+  CRM_MENU=1
+  while true; do
+    header
+    echo "  1) Снимки (бэкап / список / восстановление)"
+    echo "  2) Переезд CRM на другой сервер"
+    echo "  3) Вынести Postgres на другой VPS"
+    echo "  4) Почта и пароль суперадмина"
+    echo "  5) Статус контейнеров"
+    echo "  0) Выход"
+    echo
+    local c
+    read -r -p "Выберите пункт: " c
+    case "$c" in
+      1) snapshots_menu ;;
+      2) cmd_migrate; pause_if_menu ;;
+      3) cmd_migrate_db; pause_if_menu ;;
+      4) cmd_admin; pause_if_menu ;;
+      5) cmd_status; pause_if_menu ;;
+      0 | q | "") echo "Выход."; return 0 ;;
+      *) echo "Нет такого пункта." ;;
+    esac
+  done
+}
+
+main() {
+  local cmd="${1:-}"
+  if [[ -z "$cmd" ]]; then
+    if [[ -t 0 ]]; then
+      cmd_menu
+      return
+    fi
+    usage
+    return 1
+  fi
+  shift || true
+  case "$cmd" in
+    help | -h | --help) usage ;;
+    snapshot | backup | snap) cmd_snapshot "$@" ;;
+    snapshots | list) cmd_snapshots ;;
+    restore) cmd_restore "$@" ;;
+    cron) cmd_cron ;;
+    migrate | move) cmd_migrate "$@" ;;
+    migrate-db | db-migrate | move-db) cmd_migrate_db "$@" ;;
+    admin | superadmin) cmd_admin "$@" ;;
+    status | ps) cmd_status ;;
+    install | install-cli) cmd_install ;;
+    menu) cmd_menu ;;
+    *)
+      echo "Неизвестная команда: $cmd" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+}
+
+main "$@"

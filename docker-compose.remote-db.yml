@@ -1,0 +1,18 @@
+# Подключается через COMPOSE_FILE, когда Postgres вынесен (crm migrate-db).
+# Локальный сервис db не стартует; приложение ходит на POSTGRES_HOST.
+# extra_hosts: старый entrypoint образа ждёт хост `db` — резолвим его в IP базы.
+services:
+  db:
+    profiles:
+      - disabled
+  app:
+    extra_hosts:
+      - "db:${POSTGRES_HOST_IP}"
+    environment:
+      POSTGRES_HOST: ${POSTGRES_HOST}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-crm}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-crm_event}?schema=public
+    depends_on:
+      db:
+        condition: service_healthy
+        required: false

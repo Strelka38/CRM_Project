@@ -13,17 +13,23 @@ import {
 export function DatabaseMenu({
   showBackup = false,
   variant = "sidebar",
+  allowedHrefs,
 }: {
   showBackup?: boolean;
   variant?: "sidebar" | "top";
+  allowedHrefs?: readonly string[];
 }) {
   const pathname = usePathname();
   const items = navMenuItems("database", {
     showBackup,
     mobile: variant === "sidebar",
+    allowedHrefs,
   });
 
-  const active = navGroupIsActive(pathname, "database", { showBackup });
+  const active = navGroupIsActive(pathname, "database", {
+    showBackup,
+    allowedHrefs,
+  });
   const [open, setOpen] = useState(variant === "sidebar" ? active : false);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -40,6 +46,8 @@ export function DatabaseMenu({
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
   }, [open, variant]);
+
+  if (items.length === 0) return null;
 
   const links = items.map((item) => {
     const isActive = isNavItemActive(pathname, item.href, item.exactActive);

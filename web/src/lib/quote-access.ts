@@ -1,10 +1,11 @@
 import { prisma } from "@/lib/db";
-import { canSeeAllEvents } from "@/lib/roles";
+import { canSeeAllEvents, type RolePermissionOverrides } from "@/lib/roles";
 
 export async function getAccessibleQuote(
   id: string,
   userId: string,
   role: string,
+  overrides?: RolePermissionOverrides,
 ) {
   const quote = await prisma.quote.findUnique({
     where: { id },
@@ -32,7 +33,7 @@ export async function getAccessibleQuote(
     },
   });
   if (!quote) return null;
-  if (canSeeAllEvents(role)) return quote;
+  if (canSeeAllEvents(role, overrides)) return quote;
   // Полные данные сметы — только если сотрудник назначен на мероприятие
   const assigned = await prisma.quoteAssignment.findFirst({
     where: { quoteId: id, userId },

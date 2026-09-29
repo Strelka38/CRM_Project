@@ -30,6 +30,7 @@ import {
   isOpenMountDropSlot,
   isRosterDutyMark,
   isRosterZoneMark,
+  isRosterPersonSlotLocked,
   collapseRosterDutyMarks,
   dateInRosterResizeWindow,
   ROSTER_MOUNT_COLOR,
@@ -137,6 +138,8 @@ assert.equal(allDays.start, "2026-08-10");
 assert.equal(allDays.end, "2026-08-11");
 assert.equal(allDays.vacant, false);
 assert.equal(allDays.resizable, true);
+assert.equal(allDays.lifecycle, "CALCULATED");
+assert.equal(isRosterPersonSlotLocked(allDays), true);
 
 const zoneDated = buildQuoteRosterItems({
   ...quote,

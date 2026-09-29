@@ -162,6 +162,12 @@ echo
 echo "==> Собираю и запускаю контейнеры..."
 "${COMPOSE[@]}" up -d --build
 
+if [[ -x "$ROOT/scripts/install-cli.sh" ]]; then
+  echo
+  echo "==> Админ-CLI"
+  "$ROOT/scripts/install-cli.sh" || true
+fi
+
 echo
 echo "=========================================="
 echo "  Готово"
@@ -174,7 +180,14 @@ echo "Если HTTPS ещё не открывается — подождите �
 echo "и проверьте, что домен указывает на этот сервер."
 echo
 echo "Данные:   ./data/postgres  ./data/uploads"
-echo "Снимки:   ./backups        (./scripts/backup.sh)"
+echo "Снимки:   ./backups        (команда crm snapshot)"
+echo
+echo "Админка в терминале:"
+echo "  crm                 меню"
+echo "  crm snapshot        полный снимок"
+echo "  crm migrate         переезд CRM на другой VPS"
+echo "  crm migrate-db      вынести Postgres на другой VPS"
+echo "  crm admin           почта и пароль суперадмина"
 echo
 echo "Управление:"
 echo "  ${COMPOSE[*]} ps"

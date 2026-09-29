@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { AccountingMenu } from "@/components/AccountingMenu";
 import { BrandLogo } from "@/components/BrandLogo";
 import { DatabaseMenu } from "@/components/DatabaseMenu";
+import { SettingsMenu } from "@/components/SettingsMenu";
 import { WarehouseMenu } from "@/components/WarehouseMenu";
 import { LayoutDensityToggle } from "@/components/LayoutDensityToggle";
 import {
@@ -21,10 +22,9 @@ export type AppChromeProps = {
   userName: string | null;
   roleLabel: string;
   manager: boolean;
-  database: boolean;
-  workloadStats: boolean;
   showBackup: boolean;
   payoutsAccess: boolean;
+  allowedHrefs: string[];
   logoutAction: () => Promise<void>;
 };
 
@@ -48,20 +48,19 @@ function SidebarBrand() {
 
 function AppNav({
   manager,
-  database,
-  workloadStats,
   showBackup,
   payoutsAccess,
+  allowedHrefs,
   variant = "sidebar",
 }: {
   manager: boolean;
-  database: boolean;
-  workloadStats: boolean;
   showBackup: boolean;
   payoutsAccess: boolean;
+  allowedHrefs: string[];
   variant?: "sidebar" | "top";
 }) {
   const horizontal = variant === "top";
+  const has = (href: string) => allowedHrefs.includes(href);
   return (
     <nav
       className={
@@ -70,45 +69,69 @@ function AppNav({
           : "flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto text-sm"
       }
     >
-      <NavLink href="/calendar" className={horizontal ? "whitespace-nowrap" : undefined}>
-        Календарь
-      </NavLink>
+      {has("/calendar") ? (
+        <NavLink href="/calendar" className={horizontal ? "whitespace-nowrap" : undefined}>
+          Календарь
+        </NavLink>
+      ) : null}
       {manager ? (
-        <AccountingMenu variant={variant} showPayouts={payoutsAccess} />
+        <AccountingMenu
+          variant={variant}
+          showPayouts={payoutsAccess}
+          allowedHrefs={allowedHrefs}
+        />
       ) : (
         <>
-          <NavLink href="/quotes" className={horizontal ? "whitespace-nowrap" : undefined}>
-            Мероприятия
-          </NavLink>
-          <NavLink href="/payroll" className={horizontal ? "whitespace-nowrap" : undefined}>
-            Моя ЗП
-          </NavLink>
-          {payoutsAccess && (
+          {has("/quotes") ? (
+            <NavLink href="/quotes" className={horizontal ? "whitespace-nowrap" : undefined}>
+              Мероприятия
+            </NavLink>
+          ) : null}
+          {has("/payroll") ? (
+            <NavLink href="/payroll" className={horizontal ? "whitespace-nowrap" : undefined}>
+              Моя ЗП
+            </NavLink>
+          ) : null}
+          {has("/payouts") ? (
             <NavLink href="/payouts" className={horizontal ? "whitespace-nowrap" : undefined}>
               Оплаты
             </NavLink>
-          )}
-          {workloadStats && variant === "top" && (
+          ) : null}
+          {has("/roster") && variant === "top" ? (
             <NavLink href="/roster" className={horizontal ? "whitespace-nowrap" : undefined}>
               Срост
             </NavLink>
-          )}
-          {workloadStats && (
+          ) : null}
+          {has("/statistics") ? (
             <NavLink
               href="/statistics"
               className={horizontal ? "whitespace-nowrap" : undefined}
             >
               Статистика
             </NavLink>
-          )}
+          ) : null}
+          {has("/unpaid") ? (
+            <NavLink href="/unpaid" className={horizontal ? "whitespace-nowrap" : undefined}>
+              Неоплаченные
+            </NavLink>
+          ) : null}
+          {has("/calculations") && variant === "top" ? (
+            <NavLink
+              href="/calculations"
+              className={horizontal ? "whitespace-nowrap" : undefined}
+            >
+              Калькуляции
+            </NavLink>
+          ) : null}
         </>
       )}
-      {database && (
-        <>
-          <WarehouseMenu variant={variant} />
-          <DatabaseMenu showBackup={showBackup} variant={variant} />
-        </>
-      )}
+      <WarehouseMenu variant={variant} allowedHrefs={allowedHrefs} />
+      <DatabaseMenu
+        showBackup={showBackup}
+        variant={variant}
+        allowedHrefs={allowedHrefs}
+      />
+      <SettingsMenu variant={variant} allowedHrefs={allowedHrefs} />
     </nav>
   );
 }
@@ -265,10 +288,9 @@ export function AppChrome({
   userName,
   roleLabel,
   manager,
-  database,
-  workloadStats,
   showBackup,
   payoutsAccess,
+  allowedHrefs,
   logoutAction,
 }: AppChromeProps) {
   const pathname = usePathname();
@@ -293,7 +315,12 @@ export function AppChrome({
     };
   }, [drawerOpen]);
 
-  const navProps = { manager, database, workloadStats, showBackup, payoutsAccess };
+  const navProps = {
+    manager,
+    showBackup,
+    payoutsAccess,
+    allowedHrefs,
+  };
   const isPrintSheet = pathname.startsWith("/catalog/print-qr");
 
   if (isPrintSheet) {

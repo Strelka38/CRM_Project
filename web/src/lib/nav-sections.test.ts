@@ -17,6 +17,7 @@ assert.equal(navGateForPath("/equipment/x"), "database");
 assert.equal(navGateForPath("/statistics"), "stats");
 assert.equal(navGateForPath("/roster"), "roster");
 assert.equal(navGateForPath("/unpaid"), "manager");
+assert.equal(navGateForPath("/settings/access"), "admin");
 assert.equal(navGateForPath("/login"), null);
 assert.equal(navGateForPath("/api/payouts"), null);
 
@@ -91,5 +92,16 @@ assert.equal(allowsNavGate("database", "BRIGADIER"), true);
 assert.equal(navGroupIsActive("/equipment/x", "warehouse"), true);
 assert.equal(navGroupIsActive("/quotes/abc", "accounting"), false);
 assert.equal(navGroupIsActive("/quotes", "accounting"), true);
+assert.deepEqual(
+  navMenuItems("settings", { showBackup: true }).map((s) => s.href),
+  ["/settings/access"],
+);
+assert.equal(
+  navMenuItems("settings", {
+    showBackup: true,
+    allowedHrefs: ["/backup"],
+  }).length,
+  0,
+);
 
 console.log("nav-sections.test.ts ok");

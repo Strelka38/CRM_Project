@@ -13,7 +13,7 @@ import {
   isManager,
   requireSession,
 } from "@/lib/session";
-import { OPEN_LIFECYCLES } from "@/lib/lifecycle";
+import { STATS_LIFECYCLES } from "@/lib/lifecycle";
 import {
   formatVacantRoles,
   vacantStaffLabels,
@@ -44,8 +44,8 @@ export async function GET() {
 
     const role = session.user.role;
     const manager = isManager(role);
-    const assigner = canManageAssignments(role);
-    const employee = !canSeeAllEvents(role);
+    const assigner = canManageAssignments(role, session.permissions);
+    const employee = !canSeeAllEvents(role, session.permissions);
     const showTasks = role === "BRIGADIER" || employee;
 
     const today = startOfDay(new Date());
@@ -72,7 +72,7 @@ export async function GET() {
           where: {
             invoiceRequired: true,
             paid: false,
-            lifecycle: { not: "CANCELLED" },
+            lifecycle: { in: [...STATS_LIFECYCLES] },
           },
           orderBy: [{ eventDate: "asc" }, { updatedAt: "desc" }],
           take: 12,
@@ -89,7 +89,7 @@ export async function GET() {
     const vacantRows = assigner
       ? await prisma.quote.findMany({
           where: {
-            lifecycle: { in: [...OPEN_LIFECYCLES] },
+            lifecycle: { in: [...STATS_LIFECYCLES] },
             assignments: {
               some: {
                 userId: null,
@@ -199,7 +199,7 @@ export async function GET() {
       ? (
           await prisma.quote.findMany({
             where: {
-              lifecycle: { not: "CANCELLED" },
+              lifecycle: { in: [...STATS_LIFECYCLES] },
               assignments: { some: { userId: session.user.id } },
               OR: [{ eventDate: { gte: recent } }, { eventDate: null }],
             },

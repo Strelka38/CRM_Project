@@ -24,6 +24,7 @@ import {
 import {
   canSeeAllEvents,
   requireManager,
+  requireSection,
   requireSession,
 } from "@/lib/session";
 import { notifyManagersOfNewEvent } from "@/lib/notifications";
@@ -76,9 +77,9 @@ export async function GET(req: NextRequest) {
   try {
     const session = await requireSession();
     const unpaid = req.nextUrl.searchParams.get("unpaid") === "1";
-    if (unpaid) await requireManager();
+    if (unpaid) await requireSection("section.unpaid");
     const employeeScope =
-      !canSeeAllEvents(session.user.role)
+      !canSeeAllEvents(session.user.role, session.permissions)
         ? { assignments: { some: { userId: session.user.id } } }
         : {};
     const quotes = await prisma.quote.findMany({

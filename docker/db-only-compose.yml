@@ -1,0 +1,24 @@
+# Postgres-only stack for a dedicated DB VPS (crm migrate-db).
+name: crm-db
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    ports:
+      - "${POSTGRES_BIND:-0.0.0.0}:${POSTGRES_PORT:-5432}:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-crm}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-crm_event}
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-crm} -d ${POSTGRES_DB:-crm_event}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20

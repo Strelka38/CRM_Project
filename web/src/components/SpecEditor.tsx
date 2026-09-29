@@ -31,6 +31,7 @@ import { CollapsibleNotice } from "@/components/ui/CollapsibleNotice";
 import { cn } from "@/lib/cn";
 import { CATALOG_OWNERS, ownerShorts } from "@/lib/catalog-owner";
 import { omitEmptyDerivedSections } from "@/lib/spec-build";
+import { createEditorUndo, isUndoHotkey } from "@/lib/editor-undo";
 import { appendOccupancyParams } from "@/lib/quote-schedule";
 import { reorderBlocksByDrop } from "@/lib/quote-block-groups";
 import {
@@ -188,12 +189,14 @@ export function SpecEditor({
   isManager = false,
   returnZone = null,
   embedded = false,
+  hotkeys = true,
   flushRef,
 }: {
   quoteId: string;
   isManager?: boolean;
   returnZone?: string | null;
   embedded?: boolean;
+  hotkeys?: boolean;
   flushRef?: MutableRefObject<(() => Promise<boolean>) | null>;
 }) {
   const router = useRouter();
@@ -251,6 +254,14 @@ export function SpecEditor({
   const dirtyRef = useRef(false);
   const lineOrderRef = useRef<string[]>([]);
   const tableRef = useRef<HTMLDivElement>(null);
+  const specUndoRef = useRef(
+    createEditorUndo<{
+      derived: SpecLine[];
+      extras: EditableExtra[];
+      overrides: Override[];
+      lineOrder: string[];
+    }>(),
+  );
   lineOrderRef.current = lineOrder;
 
   const applyPayload = useCallback((data: Record<string, unknown>) => {
@@ -470,6 +481,7 @@ export function SpecEditor({
         );
         return;
       }
+      rememberSpec();
       setImportOpen(false);
       setImportPreview(null);
       await load({ silent: true });
@@ -629,11 +641,38 @@ export function SpecEditor({
     return () => clearTimeout(t);
   }, [meta, catalogIdsKey, quoteId, canEdit]);
 
+  function rememberSpec(gesture?: string) {
+    if (!canEdit) return;
+    specUndoRef.current.capture({ derived, extras, overrides, lineOrder }, gesture);
+  }
+
+  function undoSpec() {
+    const prev = specUndoRef.current.undo();
+    if (!prev) return false;
+    setDerived(prev.derived);
+    setExtras(prev.extras);
+    setOverrides(prev.overrides);
+    setLineOrder(prev.lineOrder);
+    dirtyRef.current = true;
+    return true;
+  }
+
+  useEffect(() => {
+    if (!hotkeys || !canEdit) return;
+    function onKey(e: KeyboardEvent) {
+      if (importOpen || !isUndoHotkey(e)) return;
+      if (undoSpec()) e.preventDefault();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [hotkeys, canEdit, importOpen, derived, extras, overrides, lineOrder]);
+
   function markDirty() {
     dirtyRef.current = true;
   }
 
   function updateLineOrder(next: string[]) {
+    rememberSpec();
     markDirty();
     setLineOrder(next);
   }
@@ -647,6 +686,7 @@ export function SpecEditor({
       catalogItemId?: string | null;
     },
   ) {
+    rememberSpec(`ov:${deriveKey}:${action}`);
     markDirty();
     setOverrides((prev) => {
       const rest = prev.filter(
@@ -686,6 +726,7 @@ export function SpecEditor({
   }
 
   function clearOverride(deriveKey: string, action: Override["action"]) {
+    rememberSpec();
     markDirty();
     setOverrides((prev) =>
       prev.filter((o) => !(o.deriveKey === deriveKey && o.action === action)),
@@ -784,6 +825,7 @@ export function SpecEditor({
 
   function updateDerivedOwner(line: SpecLine, ownerLabel: string) {
     if (line.type !== "ITEM") return;
+    rememberSpec(`owner:${line.key}`);
     markDirty();
     setDerived((prev) =>
       prev.map((l) => (l.key === line.key ? { ...l, ownerLabel } : l)),
@@ -791,6 +833,8 @@ export function SpecEditor({
   }
 
   function updateExtra(key: string, patch: Partial<EditableExtra>) {
+    const fields = Object.keys(patch).sort().join(",");
+    rememberSpec(`extra:${key}:${fields}`);
     markDirty();
     setExtras((prev) =>
       prev.map((e) => (e.key === key ? { ...e, ...patch } : e)),
@@ -798,6 +842,7 @@ export function SpecEditor({
   }
 
   function removeExtra(key: string) {
+    rememberSpec();
     markDirty();
     setExtras((prev) => prev.filter((e) => e.key !== key));
     updateLineOrder(lineOrderRef.current.filter((k) => k !== key));
@@ -813,6 +858,7 @@ export function SpecEditor({
       key,
       sortOrder: index,
     };
+    rememberSpec();
     markDirty();
     setExtras((prev) => [...prev, row]);
     const visibleKeys = displayRows.map((r) => r.key);
@@ -833,6 +879,7 @@ export function SpecEditor({
 
   function appendExtra(extra: Omit<EditableExtra, "key" | "sortOrder"> & { id: string }) {
     const key = extraKey(extra.id);
+    rememberSpec();
     markDirty();
     setExtras((prev) => [
       ...prev,
