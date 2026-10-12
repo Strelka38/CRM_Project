@@ -16,6 +16,11 @@ const clientSelect = {
   active: true,
   createdAt: true,
   updatedAt: true,
+  legalEntities: {
+    orderBy: { sortOrder: "asc" as const },
+    take: 4,
+    select: { name: true, inn: true },
+  },
   _count: { select: { quotes: true } },
 } as const;
 
@@ -36,6 +41,8 @@ export async function GET(req: NextRequest) {
                 { phone: { contains: q, mode: "insensitive" } },
                 { email: { contains: q, mode: "insensitive" } },
                 { inn: { contains: q, mode: "insensitive" } },
+                { legalEntities: { some: { name: { contains: q, mode: "insensitive" } } } },
+                { legalEntities: { some: { inn: { contains: q, mode: "insensitive" } } } },
               ],
             }
           : {}),

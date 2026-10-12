@@ -62,7 +62,8 @@ export type PermissionId =
   | "section.rates"
   | "section.backup"
   | "group.settings"
-  | "section.settingsAccess";
+  | "section.settingsAccess"
+  | "section.settingsBrand";
 
 export type PermissionNode = {
   id: PermissionId;
@@ -382,13 +383,6 @@ export const PERMISSION_TREE: PermissionNode[] = [
         href: "/rates",
         defaultRoles: OPS,
       },
-      {
-        id: "section.backup",
-        label: "Экспорт / импорт",
-        kind: "section",
-        href: "/backup",
-        defaultRoles: ["ADMIN"],
-      },
     ],
   },
   {
@@ -405,6 +399,22 @@ export const PERMISSION_TREE: PermissionNode[] = [
         href: "/settings/access",
         defaultRoles: ["ADMIN"],
         grantable: false,
+      },
+      {
+        id: "section.settingsBrand",
+        label: "Логотип и название",
+        hint: "Знак и имя в шапке CRM и на коммерческом предложении.",
+        kind: "section",
+        href: "/settings/brand",
+        defaultRoles: ["ADMIN"],
+        grantable: false,
+      },
+      {
+        id: "section.backup",
+        label: "Экспорт / импорт",
+        kind: "section",
+        href: "/backup",
+        defaultRoles: ["ADMIN"],
       },
     ],
   },

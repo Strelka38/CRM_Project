@@ -6,6 +6,14 @@ import { useRouter } from "next/navigation";
 import { type PickedCatalogItem, type PickedKit } from "@/components/CatalogPicker";
 import { CatalogReplaceDropTarget } from "@/components/CatalogReplaceDropTarget";
 import { QuoteCatalogSidebar } from "@/components/QuoteCatalogSidebar";
+import {
+  QUOTE_CATALOG_WIDTH_DEFAULT,
+  QUOTE_CATALOG_WIDTH_KEY,
+  QuoteCatalogSplit,
+  clampQuoteCatalogWidth,
+  quoteCatalogWidthStyle,
+  readQuoteCatalogWidth,
+} from "@/components/QuoteCatalogSplit";
 import { ClientQuickSearch } from "@/components/ClientQuickSearch";
 import { VenueQuickSearch } from "@/components/VenueQuickSearch";
 import { DateRangePicker } from "@/components/DateRangePicker";
@@ -27,6 +35,16 @@ import {
   SaveTemplateModal,
 } from "@/components/QuoteTemplateActions";
 import { QuoteZoneTabs, type ZoneTab } from "@/components/QuoteZoneTabs";
+import { quoteSheetShowsIdentity } from "@/lib/quote-sheet-chrome";
+import { QuoteSheetParams } from "@/components/QuoteSheetParams";
+import { OwnerTagsPicker } from "@/components/OwnerTagsPicker";
+import {
+  isCatalogOwnerValue,
+  normalizeOwners,
+  ownerShorts,
+  type CatalogOwnerValue,
+} from "@/lib/catalog-owner";
+import { QuoteCopySheetModal } from "@/components/QuoteCopySheetModal";
 import {
   StockHeaderCells,
   StockMarks,
@@ -35,6 +53,7 @@ import {
 import { formatMoney, formatNumber } from "@/lib/format";
 import { PriceInput } from "@/components/ui/PriceInput";
 import { collapseKitBlocks } from "@/lib/kit-blocks";
+import { parseTemplatePayload } from "@/lib/quote-structure";
 import {
   isPersonnelOrServiceKind,
   SERVICES_SECTION_TITLE,
@@ -62,6 +81,7 @@ import {
   CollapsibleNotice,
   LIFECYCLE_LABELS,
   LIFECYCLE_STATUSES,
+  AutoTextarea,
   PaymentFlags,
   SideDrawer,
   type LifecycleStatus,
@@ -73,6 +93,12 @@ import {
   isQuoteOwnerRole,
 } from "@/lib/roles";
 import { DEFAULT_CASHLESS_PERCENT } from "@/lib/pricing";
+import {
+  defaultZonePricing,
+  parseZonePricing,
+  pricingHint,
+  type ZonePricing,
+} from "@/lib/zone-pricing";
 import { isStatsLifecycle } from "@/lib/lifecycle";
 import { formatIsoRuDate, parseEventDate } from "@/lib/dates";
 import {
@@ -92,7 +118,12 @@ import {
 
 type Lifecycle = LifecycleStatus;
 
-type ManagerOption = { id: string; name: string; phone: string };
+type ManagerOption = {
+  id: string;
+  name: string;
+  phone: string;
+  owners: CatalogOwnerValue[];
+};
 
 type QuoteMeta = {
   id: string;
@@ -111,6 +142,7 @@ type QuoteMeta = {
   requestContact: string;
   managerName: string;
   ownerId: string;
+  calendarOwners: CatalogOwnerValue[];
   cashless: boolean;
   cashlessPercent: number;
   durationDays: number;
@@ -136,6 +168,17 @@ type QuoteUndoSnap = {
 
 function uid() {
   return `tmp-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function asZone(z: ZoneTab): ZoneTab {
+  return {
+    id: z.id,
+    name: z.name,
+    sortOrder: z.sortOrder,
+    active: z.active !== false,
+    workingDayIndexes: Array.isArray(z.workingDayIndexes) ? z.workingDayIndexes : [],
+    pricing: parseZonePricing(z.pricing),
+  };
 }
 
 function newId() {
@@ -253,11 +296,41 @@ export function QuoteEditor({
   const isMobile = useIsMobile();
   const catalogInSheet = isMobile;
   const [catalogSheetOpen, setCatalogSheetOpen] = useState(false);
+  const [catalogWidth, setCatalogWidth] = useState(QUOTE_CATALOG_WIDTH_DEFAULT);
   const [actionsSheetOpen, setActionsSheetOpen] = useState(false);
   const tableRef = useRef<HTMLDivElement>(null);
+  const quoteSplitRef = useRef<HTMLDivElement>(null);
+  const catalogWidthReady = useRef(false);
+
+  useEffect(() => {
+    if (loading || editorPane !== "quote") return;
+    const parent = quoteSplitRef.current;
+    if (!parent) return;
+    setCatalogWidth((current) => {
+      const base = catalogWidthReady.current ? current : readQuoteCatalogWidth();
+      catalogWidthReady.current = true;
+      return clampQuoteCatalogWidth(base, parent.getBoundingClientRect().width);
+    });
+    function onResize() {
+      const node = quoteSplitRef.current;
+      if (!node) return;
+      setCatalogWidth((current) =>
+        clampQuoteCatalogWidth(current, node.getBoundingClientRect().width),
+      );
+    }
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [loading, editorPane]);
+
+  function setCatalogWidthPersisted(next: number) {
+    catalogWidthReady.current = true;
+    setCatalogWidth(next);
+    localStorage.setItem(QUOTE_CATALOG_WIDTH_KEY, String(next));
+  }
   const quoteUndoRef = useRef(createEditorUndo<QuoteUndoSnap>());
   const quoteSnapRef = useRef<QuoteUndoSnap | null>(null);
   const undoQuoteRef = useRef<() => boolean>(() => false);
+  const exportAnchorRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState("");
   const [stockIssues, setStockIssues] = useState<
     Array<{
@@ -272,6 +345,13 @@ export function QuoteEditor({
     {},
   );
   const [lineNotice, setLineNotice] = useState("");
+  const [paramsZoneId, setParamsZoneId] = useState<string | null>(null);
+  const [copyZoneId, setCopyZoneId] = useState<string | null>(null);
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(() => new Set());
+  const [kitsOpen, setKitsOpen] = useState(false);
+  const [kitParts, setKitParts] = useState<
+    Record<string, { name: string; qty: number }[]>
+  >({});
   const specFlushRef = useRef<(() => Promise<boolean>) | null>(null);
   const showHistory = isManager || canEditSpec;
 
@@ -302,6 +382,11 @@ export function QuoteEditor({
           typeof data.requestContact === "string" ? data.requestContact : "",
         managerName: data.managerName,
         ownerId: data.ownerId || data.owner?.id || "",
+        calendarOwners: normalizeOwners(
+          Array.isArray(data.calendarOwners)
+            ? data.calendarOwners.filter(isCatalogOwnerValue)
+            : [],
+        ),
         cashless: data.cashless,
         cashlessPercent:
           data.cashlessPercent == null
@@ -318,16 +403,8 @@ export function QuoteEditor({
         brief: typeof data.brief === "string" ? data.brief : "",
         createdAt: data.createdAt || "",
       });
-      const loadedZones: ZoneTab[] = (data.zones || []).map(
-        (z: ZoneTab) => ({
-          id: z.id,
-          name: z.name,
-          sortOrder: z.sortOrder,
-          active: z.active !== false,
-          workingDayIndexes: Array.isArray(z.workingDayIndexes)
-            ? z.workingDayIndexes
-            : [],
-        }),
+      const loadedZones: ZoneTab[] = (data.zones || []).map((z: ZoneTab) =>
+        asZone(z),
       );
       setZones(loadedZones);
       const fallbackZone = loadedZones[0]?.id || "";
@@ -358,10 +435,12 @@ export function QuoteEditor({
       );
       setBlocks(collapseKitBlocks(mapped));
       if (reloadKey === 0) {
-        if (initialZone === "summary") {
+        const named = quoteSheetShowsIdentity(loadedZones.length);
+        if (initialZone === "summary" && named) {
           setActiveTab("summary");
         } else if (
           initialZone &&
+          initialZone !== "summary" &&
           loadedZones.some((z) => z.id === initialZone)
         ) {
           setActiveTab(initialZone);
@@ -372,6 +451,13 @@ export function QuoteEditor({
       setLoading(false);
     })();
   }, [quoteId, reloadKey, initialZone]);
+
+  useEffect(() => {
+    if (quoteSheetShowsIdentity(zones.length)) return;
+    if (activeTab !== "summary") return;
+    const next = zones[0]?.id;
+    if (next) setActiveTab(next);
+  }, [zones, activeTab]);
 
   useEffect(() => {
     if (!isManager) return;
@@ -385,6 +471,7 @@ export function QuoteEditor({
             role: string;
             active: boolean;
             phone?: string;
+            owners?: unknown;
           }>,
         ) => {
           if (!Array.isArray(list)) return;
@@ -395,6 +482,11 @@ export function QuoteEditor({
                 id: u.id,
                 name: u.name,
                 phone: typeof u.phone === "string" ? u.phone : "",
+                owners: normalizeOwners(
+                  Array.isArray(u.owners)
+                    ? u.owners.filter(isCatalogOwnerValue)
+                    : [],
+                ),
               })),
           );
         },
@@ -503,11 +595,13 @@ export function QuoteEditor({
         totalCashless: 0,
       };
     }
+    const sheet = zones.find((z) => z.id === activeZoneId);
     return calcDocument(
       zoneBlocks,
       meta.cashless,
       zoneDurationDays(activeZoneId, meta.durationDays, zones),
       meta.cashlessPercent,
+      sheet?.pricing,
     );
   }, [zoneBlocks, meta, activeZoneId, zones]);
 
@@ -519,6 +613,7 @@ export function QuoteEditor({
         itemCount: zoneSummary.itemCount,
         subtotal: zoneSummary.subtotal,
         discount: zoneSummary.discount,
+        tax: zoneSummary.tax,
       };
     }
     const z = zoneSummary.zones.find((row) => row.zoneId === activeTab);
@@ -528,6 +623,7 @@ export function QuoteEditor({
       itemCount: z?.itemCount ?? 0,
       subtotal: z?.subtotal ?? 0,
       discount: z?.discount ?? 0,
+      tax: z?.tax ?? 0,
     };
   }, [activeTab, zoneSummary, zones]);
 
@@ -630,6 +726,7 @@ export function QuoteEditor({
             requestContact: nextMeta.requestContact,
             managerName: nextMeta.managerName,
             ownerId: nextMeta.ownerId || undefined,
+            calendarOwners: nextMeta.calendarOwners,
             cashless: nextMeta.cashless,
             cashlessPercent: nextMeta.cashlessPercent,
             durationDays: nextMeta.durationDays,
@@ -648,6 +745,7 @@ export function QuoteEditor({
               workingDayIndexes: Array.isArray(z.workingDayIndexes)
                 ? z.workingDayIndexes
                 : [],
+              pricing: parseZonePricing(z.pricing),
             })),
             blocks: nextBlocks.map((b, i) => ({
               type: b.type,
@@ -770,6 +868,7 @@ export function QuoteEditor({
       sortOrder: z.sortOrder ?? i,
       active: true,
       workingDayIndexes: [],
+      pricing: defaultZonePricing(),
     }));
     if (nextZones.length === 0) {
       throw new Error("В шаблоне нет зон");
@@ -806,7 +905,9 @@ export function QuoteEditor({
     setMeta(nextMeta);
     setZones(nextZones);
     setBlocks(collapsed);
-    setActiveTab("summary");
+    setActiveTab(
+      quoteSheetShowsIdentity(nextZones.length) ? "summary" : nextZones[0].id,
+    );
     goToPane("quote");
     await persist(nextMeta, nextZones, collapsed);
   }
@@ -1172,7 +1273,14 @@ export function QuoteEditor({
     rememberQuote();
     setZones((prev) => [
       ...prev,
-      { id, name: name.trim(), sortOrder: prev.length, active: true, workingDayIndexes: [] },
+      {
+        id,
+        name: name.trim(),
+        sortOrder: prev.length,
+        active: true,
+        workingDayIndexes: [],
+        pricing: defaultZonePricing(),
+      },
     ]);
     setActiveTab(id);
   }
@@ -1212,16 +1320,261 @@ export function QuoteEditor({
   function deleteZone(id: string) {
     if (zones.length <= 1) return;
     const count = blocks.filter((b) => b.zoneId === id).length;
-    if (count > 0) {
-      alert("Сначала очистите или перенесите позиции из этой зоны");
-      return;
-    }
-    if (!confirm("Удалить пустую зону?")) return;
+    const name = zones.find((z) => z.id === id)?.name || "лист";
+    const ok = confirm(
+      count > 0
+        ? `Удалить лист «${name}» вместе с позициями (${count})?`
+        : `Удалить лист «${name}»?`,
+    );
+    if (!ok) return;
     rememberQuote();
+    setBlocks((prev) => prev.filter((b) => b.zoneId !== id));
     setZones((prev) => prev.filter((z) => z.id !== id));
+    setSelectedKeys(new Set());
     if (activeTab === id) {
       setActiveTab(zones.find((z) => z.id !== id)?.id || "summary");
     }
+  }
+
+  function copyZone(id: string) {
+    const zone = zones.find((z) => z.id === id);
+    if (!zone) return;
+    const nextId = newId();
+    rememberQuote();
+    setZones((prev) => {
+      const index = prev.findIndex((z) => z.id === id);
+      const copy: ZoneTab = {
+        ...zone,
+        id: nextId,
+        name: `${zone.name} копия`,
+        pricing: parseZonePricing(zone.pricing),
+      };
+      const next = [...prev];
+      next.splice(Math.max(0, index) + 1, 0, copy);
+      return next.map((z, i) => ({ ...z, sortOrder: i }));
+    });
+    setBlocks((prev) => {
+      const clones = prev
+        .filter((b) => b.zoneId === id)
+        .map((b) => {
+          const nid = newId();
+          return { ...b, key: nid, id: nid, zoneId: nextId };
+        });
+      return [...prev, ...clones].map((b, i) => ({ ...b, sortOrder: i }));
+    });
+    setActiveTab(nextId);
+  }
+
+  function reorderZone(id: string, dir: -1 | 1) {
+    rememberQuote();
+    setZones((prev) => {
+      const index = prev.findIndex((z) => z.id === id);
+      const target = index + dir;
+      if (index < 0 || target < 0 || target >= prev.length) return prev;
+      const next = [...prev];
+      const [row] = next.splice(index, 1);
+      next.splice(target, 0, row);
+      return next.map((z, i) => ({ ...z, sortOrder: i }));
+    });
+  }
+
+  function saveZonePricing(id: string, pricing: ZonePricing) {
+    rememberQuote(`zone:${id}:pricing`);
+    setZones((prev) => prev.map((z) => (z.id === id ? { ...z, pricing } : z)));
+    setParamsZoneId(null);
+  }
+
+  function toggleSelected(key: string) {
+    setSelectedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  function copySelected(zoneId: string, targetZoneId: string) {
+    if (selectedKeys.size === 0) return;
+    rememberQuote();
+    setBlocks((prev) => {
+      const clones = prev
+        .filter((b) => b.zoneId === zoneId && selectedKeys.has(b.key))
+        .map((b) => {
+          const nid = newId();
+          return { ...b, key: nid, id: nid, zoneId: targetZoneId };
+        });
+      return [...prev, ...clones].map((b, i) => ({ ...b, sortOrder: i }));
+    });
+    setLineNotice("Выделенные строки скопированы");
+  }
+
+  function moveSelected(zoneId: string, targetZoneId: string) {
+    if (selectedKeys.size === 0 || zoneId === targetZoneId) return;
+    rememberQuote();
+    setBlocks((prev) =>
+      prev.map((b) =>
+        b.zoneId === zoneId && selectedKeys.has(b.key)
+          ? { ...b, zoneId: targetZoneId }
+          : b,
+      ),
+    );
+    setSelectedKeys(new Set());
+    setLineNotice("Выделенные строки перенесены");
+  }
+
+  function deleteSelected(zoneId: string) {
+    if (selectedKeys.size === 0) return;
+    rememberQuote();
+    setBlocks((prev) =>
+      prev.filter((b) => !(b.zoneId === zoneId && selectedKeys.has(b.key))),
+    );
+    setSelectedKeys(new Set());
+  }
+
+  async function refreshZonePrices(zoneId: string, only?: Set<string>) {
+    const targets = blocks.filter(
+      (b) =>
+        b.zoneId === zoneId &&
+        b.type === "ITEM" &&
+        (!only || only.has(b.key)),
+    );
+    const itemIds = [
+      ...new Set(
+        targets
+          .map((b) => b.catalogItemId)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+    const kitIds = [
+      ...new Set(
+        targets
+          .filter((b) => b.kitId && !b.catalogItemId)
+          .map((b) => b.kitId as string),
+      ),
+    ];
+    if (itemIds.length === 0 && kitIds.length === 0) {
+      setLineNotice("В листе нет позиций из каталога");
+      return;
+    }
+    const [itemsRes, kits] = await Promise.all([
+      itemIds.length
+        ? fetch(
+            `/api/catalog/items?ids=${encodeURIComponent(itemIds.join(","))}`,
+          ).then((res) => res.json())
+        : Promise.resolve([]),
+      Promise.all(
+        kitIds.map(async (id) => {
+          const res = await fetch(`/api/kits/${id}`);
+          if (!res.ok) return null;
+          const kit = (await res.json()) as {
+            components?: Array<{
+              qty?: number;
+              catalogItem?: { basePrice?: number };
+            }>;
+          };
+          const price = Array.isArray(kit.components)
+            ? kit.components.reduce(
+                (sum, component) =>
+                  sum +
+                  (Number(component.qty) || 0) *
+                    (Number(component.catalogItem?.basePrice) || 0),
+                0,
+              )
+            : null;
+          return { id, price };
+        }),
+      ),
+    ]);
+    const itemMap = new Map<
+      string,
+      { basePrice: number; cashlessOverride: number | null; itemKind?: string }
+    >();
+    if (Array.isArray(itemsRes)) {
+      for (const item of itemsRes as Array<{
+        id: string;
+        basePrice: number;
+        cashlessOverride: number | null;
+        itemKind?: string;
+      }>) {
+        itemMap.set(item.id, item);
+      }
+    }
+    const kitMap = new Map(
+      kits
+        .filter((kit): kit is { id: string; price: number } => kit?.price != null)
+        .map((kit) => [kit.id, kit.price]),
+    );
+    let updated = 0;
+    const next = blocks.map((b) => {
+      if (b.zoneId !== zoneId || b.type !== "ITEM") return b;
+      if (only && !only.has(b.key)) return b;
+      if (b.catalogItemId && itemMap.has(b.catalogItemId)) {
+        const item = itemMap.get(b.catalogItemId)!;
+        updated += 1;
+        return {
+          ...b,
+          unitPrice: Number(item.basePrice) || 0,
+          cashlessOverride: item.cashlessOverride ?? null,
+          itemKind: item.itemKind ?? b.itemKind,
+        };
+      }
+      if (b.kitId && !b.catalogItemId && kitMap.has(b.kitId)) {
+        updated += 1;
+        return { ...b, unitPrice: kitMap.get(b.kitId) || 0 };
+      }
+      return b;
+    });
+    if (updated === 0) {
+      setLineNotice("В каталоге нет новых цен для этих позиций");
+      return;
+    }
+    rememberQuote();
+    setBlocks(next);
+    setLineNotice(
+      updated === 1 ? "Цена обновлена: 1 позиция" : `Цены обновлены: ${updated}`,
+    );
+  }
+
+  async function setKitContents(zoneId: string, open: boolean) {
+    if (!open) {
+      setKitsOpen(false);
+      return;
+    }
+    const ids = [
+      ...new Set(
+        blocks
+          .filter((b) => b.zoneId === zoneId && b.kitId && !b.catalogItemId)
+          .map((b) => b.kitId as string),
+      ),
+    ];
+    if (ids.length === 0) {
+      setLineNotice("В листе нет комплектов");
+      setKitsOpen(false);
+      return;
+    }
+    const entries = await Promise.all(
+      ids.map(async (id) => {
+        if (kitParts[id]) return [id, kitParts[id]] as const;
+        const res = await fetch(`/api/kits/${id}`);
+        if (!res.ok) return [id, []] as const;
+        const kit = (await res.json()) as {
+          components?: Array<{ qty?: number; catalogItem?: { name?: string } }>;
+        };
+        const parts = Array.isArray(kit.components)
+          ? kit.components.map((component) => ({
+              name: component.catalogItem?.name || "Позиция",
+              qty: Number(component.qty) || 0,
+            }))
+          : [];
+        return [id, parts] as const;
+      }),
+    );
+    setKitParts((prev) => {
+      const next = { ...prev };
+      for (const [id, parts] of entries) next[id] = [...parts];
+      return next;
+    });
+    setKitsOpen(true);
   }
 
   if (loading) {
@@ -1240,6 +1593,9 @@ export function QuoteEditor({
     );
   }
 
+  const managerCalendarOwners =
+    managers.find((m) => m.id === meta.ownerId)?.owners ?? [];
+
   const quoteEventStart = parseEventDate(meta.date);
   const activeZone = zones.find((z) => z.id === activeTab);
   const activeZoneRange = quoteEventStart
@@ -1251,7 +1607,7 @@ export function QuoteEditor({
     : null;
 
   return (
-    <div className="mx-auto flex w-full max-w-[1920px] flex-col gap-2 px-2 py-2 md:gap-3 md:px-3 md:py-3">
+    <div className="flex w-full min-w-0 flex-col gap-2 px-2 py-2 md:min-h-[calc(100dvh-var(--app-topbar-height))] md:gap-3 md:px-3 md:py-3">
       <header className="flex flex-col gap-1">
         <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
           <button
@@ -1342,14 +1698,50 @@ export function QuoteEditor({
           <div className="relative z-10 flex shrink-0 items-center gap-1 pb-1 md:gap-1.5 md:pb-1.5">
             {isManager && (
               <>
+                <div className="relative" ref={exportAnchorRef}>
                 <button
                   type="button"
                   disabled={zoneSummary.itemCount === 0}
-                  onClick={() => setExportOpen(true)}
+                  aria-expanded={exportOpen}
+                  aria-haspopup="dialog"
+                  onClick={() => setExportOpen((open) => !open)}
                   className="h-8 shrink-0 rounded-md bg-[var(--solid)] px-2.5 text-xs whitespace-nowrap text-[var(--on-solid)] disabled:opacity-40 sm:text-sm"
                 >
-                  Excel
+                  Экспорт
                 </button>
+                <ExportQuoteModal
+                  open={exportOpen}
+                  onClose={() => setExportOpen(false)}
+                  anchorRef={exportAnchorRef}
+                  quoteId={quoteId}
+                  lifecycle={meta.lifecycle}
+                  meta={{
+                    proposalNumber: meta.proposalNumber,
+                    eventName: meta.eventName,
+                    date: meta.date,
+                    time: meta.time,
+                    place: meta.place,
+                    client: meta.client,
+                    clientId: meta.clientId,
+                    venueId: meta.venueId,
+                    ownerId: meta.ownerId,
+                    requestContact: meta.requestContact,
+                    managerName: meta.managerName,
+                    managerPhone:
+                      managers.find((m) => m.id === meta.ownerId)?.phone || "",
+                    cashless: meta.cashless,
+                    cashlessPercent: meta.cashlessPercent,
+                    durationDays: meta.durationDays,
+                    discountPercent: meta.discountPercent,
+                    notes: meta.notes,
+                    comment:
+                      meta.paymentComment.trim() ||
+                      meta.notes.map((note) => note.trim()).filter(Boolean).join("\n"),
+                  }}
+                  zones={zones}
+                  blocks={blocks}
+                />
+                </div>
                 {/* На мобильном шесть иконок без подписей нечитаемы — прячем
                     их в шит, где у каждого действия есть название. */}
                 <Button
@@ -1704,6 +2096,27 @@ export function QuoteEditor({
                     />
                   )}
                 </label>
+                <div className="col-span-2 text-caption text-[var(--muted)] sm:col-span-1">
+                  Календарь
+                  <div className="mt-0.5">
+                    <OwnerTagsPicker
+                      label=""
+                      colored
+                      disabled={!isManager}
+                      value={meta.calendarOwners}
+                      onChange={(calendarOwners) =>
+                        updateMeta("calendarOwners", calendarOwners)
+                      }
+                    />
+                  </div>
+                  {meta.calendarOwners.length === 0 ? (
+                    <p className="mt-1 text-caption text-[var(--muted)]">
+                      {managerCalendarOwners.length > 0
+                        ? `Как у менеджера: ${ownerShorts(managerCalendarOwners)}`
+                        : "Без тега событие видно при любом фильтре конторы"}
+                    </p>
+                  ) : null}
+                </div>
                 <label className="col-span-2 text-caption text-[var(--muted)] sm:col-span-1">
                   Заказчик
                   <ClientQuickSearch
@@ -1779,10 +2192,10 @@ export function QuoteEditor({
               />
             </div>
 
-            <label className="flex min-h-0 min-w-0 flex-col text-caption text-[var(--muted)] xl:self-stretch">
+            <label className="flex min-w-0 flex-col text-caption text-[var(--muted)]">
               ТЗ от заказчика
-              <textarea
-                className="field mt-0.5 min-h-[12rem] flex-1 resize-y text-sm"
+              <AutoTextarea
+                className="field mt-0.5 text-sm"
                 placeholder="Техническое задание. Позже подставится из анкеты администратора."
                 disabled={!editBrief}
                 value={meta.brief}
@@ -1820,7 +2233,11 @@ export function QuoteEditor({
       ) : null}
 
       {editorPane === "quote" ? (
-        <div className="flex min-h-0 flex-col gap-2 lg:flex-row lg:items-start">
+        <div
+          ref={quoteSplitRef}
+          className="flex min-h-0 flex-1 flex-col gap-2 lg:flex-row lg:items-stretch"
+          style={quoteCatalogWidthStyle(catalogWidth)}
+        >
           {isManager ? (
             // На узком экране каталог колонкой съедает половину первого экрана,
             // и смета уходит под сгиб. Поэтому там он живёт в шите по кнопке.
@@ -1861,7 +2278,9 @@ export function QuoteEditor({
                 </div>
               </SideDrawer>
             ) : (
+              <>
               <QuoteCatalogSidebar
+                resizable
                 onPickItem={addFromCatalog}
                 onPickKit={addFromKit}
                 eventDate={insertZoneSchedule.date || meta.date}
@@ -1870,9 +2289,15 @@ export function QuoteEditor({
                 currentQtyByItem={neededByItem}
                 currentQtyByKit={neededByKit}
               />
+              <QuoteCatalogSplit
+                containerRef={quoteSplitRef}
+                width={catalogWidth}
+                onWidth={setCatalogWidthPersisted}
+              />
+              </>
             )
           ) : null}
-          <div className="flex min-w-0 flex-1 flex-col gap-2">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-2">
       <QuoteZoneTabs
         zones={zones}
         activeId={activeTab}
@@ -1881,10 +2306,29 @@ export function QuoteEditor({
         onRename={renameZone}
         onDelete={deleteZone}
         onToggleActive={toggleZoneActive}
+        onCopy={copyZone}
+        onCopyTo={setCopyZoneId}
+        onOpenParams={setParamsZoneId}
+        onReorder={reorderZone}
+        onRefreshPrices={(id) => void refreshZonePrices(id)}
+        onCopySelected={copySelected}
+        onDeleteSelected={deleteSelected}
+        onMoveSelected={moveSelected}
+        onRefreshSelected={(id) => void refreshZonePrices(id, selectedKeys)}
+        onShowKitContents={(zoneId, open) => void setKitContents(zoneId, open)}
+        kitContentsOpen={kitsOpen}
+        selectedCount={selectedKeys.size}
         canEdit={isManager}
+        showSummary={quoteSheetShowsIdentity(zones.length)}
+        showNames={quoteSheetShowsIdentity(zones.length)}
         eventDate={meta.date}
         durationDays={meta.durationDays}
       />
+      {activeTab !== "summary" && pricingHint(zones.find((z) => z.id === activeTab)?.pricing) ? (
+        <p className="text-caption text-[var(--muted)]">
+          {pricingHint(zones.find((z) => z.id === activeTab)?.pricing)}
+        </p>
+      ) : null}
 
       {activeTab !== "summary" &&
       isManager &&
@@ -1941,7 +2385,7 @@ export function QuoteEditor({
           ) : null}
           <fieldset
             disabled={!isManager}
-            className="min-w-0 border-0 p-0 disabled:opacity-90"
+            className="flex min-h-0 min-w-0 flex-1 flex-col border-0 p-0 disabled:opacity-90"
           >
           {/* Смета карточками. Ветку выбирает CSS, а не JS: после SSR первый
               кадр должен быть правильным, иначе на телефоне мелькает таблица. */}
@@ -1976,7 +2420,7 @@ export function QuoteEditor({
           <div
             ref={tableRef}
             className={cn(
-              "data-table-shell quote-estimate-table-wrap hidden md:block",
+              "data-table-shell quote-estimate-table-wrap hidden min-h-0 md:block md:flex-1",
               catalogOver && "ring-2 ring-inset ring-[var(--accent)]",
             )}
             onDragOver={canEditQuote ? onCatalogTableDragOver : undefined}
@@ -2082,6 +2526,15 @@ export function QuoteEditor({
                             )}
                           >
                             {canEditQuote ? (
+                            <input
+                              type="checkbox"
+                              className="shrink-0"
+                              checked={selectedKeys.has(block.key)}
+                              aria-label="Выделить строку"
+                              onChange={() => toggleSelected(block.key)}
+                            />
+                            ) : null}
+                            {canEditQuote ? (
                             <DragHandle
                               label={
                                 isGroupHeader(block.type)
@@ -2161,6 +2614,15 @@ export function QuoteEditor({
                       <td className="py-1 pl-3 pr-1.5">
                         <div className="flex items-start gap-2">
                           {canEditQuote ? (
+                          <input
+                            type="checkbox"
+                            className="mt-1 shrink-0"
+                            checked={selectedKeys.has(block.key)}
+                            aria-label="Выделить строку"
+                            onChange={() => toggleSelected(block.key)}
+                          />
+                          ) : null}
+                          {canEditQuote ? (
                           <DragHandle
                             label="Перетащить позицию"
                             onDragStart={(e) => {
@@ -2195,6 +2657,16 @@ export function QuoteEditor({
                               не хватает {shortfall}
                             </span>
                           )}
+                          {kitsOpen && isKit && block.kitId && kitParts[block.kitId]?.length ? (
+                            <ul className="mt-0.5 space-y-0.5 pl-1 text-caption text-[var(--muted)]">
+                              {kitParts[block.kitId].map((part, partIndex) => (
+                                <li key={`${block.kitId}-${partIndex}`}>
+                                  {part.qty ? `${part.qty} × ` : ""}
+                                  {part.name}
+                                </li>
+                              ))}
+                            </ul>
+                          ) : null}
                           </div>
                         </div>
                       </td>
@@ -2362,8 +2834,10 @@ export function QuoteEditor({
             {formatMoney(blockTotals.payable)}
           </p>
           <p className="text-[10px] text-[var(--muted)] md:text-xs">
-            {blockTotals.name} · позиций: {blockTotals.itemCount} · без скидки{" "}
+            {quoteSheetShowsIdentity(zones.length) ? `${blockTotals.name} · ` : ""}
+            позиций: {blockTotals.itemCount} · без скидки{" "}
             {formatMoney(blockTotals.subtotal)}
+            {blockTotals.tax > 0 ? ` · налоги ${formatMoney(blockTotals.tax)}` : ""}
           </p>
         </div>
         <div className="sm:text-right">
@@ -2376,7 +2850,9 @@ export function QuoteEditor({
           <p className="text-[10px] text-[var(--muted)] md:text-xs">
             Позиций: {zoneSummary.itemCount} · без скидки{" "}
             {formatMoney(zoneSummary.subtotal)} · скидка{" "}
-            {formatMoney(zoneSummary.discount)} ·{" "}
+            {formatMoney(zoneSummary.discount)}
+            {zoneSummary.tax > 0 ? ` · налоги ${formatMoney(zoneSummary.tax)}` : ""}
+            {" · "}
             {LIFE_OPTS.find((x) => x.value === meta.lifecycle)?.label}
           </p>
         </div>
@@ -2501,31 +2977,41 @@ export function QuoteEditor({
         />
       ) : null}
 
-      <ExportQuoteModal
-        open={exportOpen}
-        onClose={() => setExportOpen(false)}
-        meta={{
-          proposalNumber: meta.proposalNumber,
-          eventName: meta.eventName,
-          date: meta.date,
-          time: meta.time,
-          place: meta.place,
-          client: meta.client,
-          clientId: meta.clientId,
-          ownerId: meta.ownerId,
-          requestContact: meta.requestContact,
-          managerName: meta.managerName,
-          managerPhone:
-            managers.find((m) => m.id === meta.ownerId)?.phone || "",
-          cashless: meta.cashless,
-          cashlessPercent: meta.cashlessPercent,
-          durationDays: meta.durationDays,
-          discountPercent: meta.discountPercent,
-          notes: meta.notes,
-        }}
-        zones={zones}
-        blocks={blocks}
-      />
+      {paramsZoneId ? (
+        <QuoteSheetParams
+          open
+          zoneName={zones.find((z) => z.id === paramsZoneId)?.name || "Лист"}
+          value={parseZonePricing(zones.find((z) => z.id === paramsZoneId)?.pricing)}
+          onClose={() => setParamsZoneId(null)}
+          onSave={(pricing) => saveZonePricing(paramsZoneId, pricing)}
+        />
+      ) : null}
+      {copyZoneId ? (
+        <QuoteCopySheetModal
+          open
+          quoteId={quoteId}
+          zoneName={zones.find((z) => z.id === copyZoneId)?.name || "Лист"}
+          active={zones.find((z) => z.id === copyZoneId)?.active !== false}
+          pricing={parseZonePricing(zones.find((z) => z.id === copyZoneId)?.pricing)}
+          blocks={blocks
+            .filter((b) => b.zoneId === copyZoneId)
+            .map((b, index) => ({
+              type: b.type,
+              sortOrder: index,
+              title: b.title,
+              name: b.name,
+              qty: b.qty,
+              unitPrice: b.unitPrice,
+              cashlessOverride: b.cashlessOverride,
+              dayMode: b.dayMode ? String(b.dayMode) : null,
+              dayCoefOverride: b.dayCoefOverride,
+              catalogItemId: b.catalogItemId,
+              kitId: b.kitId,
+            }))}
+          onClose={() => setCopyZoneId(null)}
+          onCopied={(message) => setLineNotice(message)}
+        />
+      ) : null}
 
       {isManager && (
         <>

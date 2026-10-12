@@ -9,7 +9,7 @@ import {
   type DrawerItem,
   type DrawerItemPatch,
 } from "./ItemDrawer";
-import { Button, Modal, SideDrawer } from "@/components/ui";
+import { Button, Modal, SideDrawer, AutoTextarea } from "@/components/ui";
 import type { CatalogOwnerValue } from "@/lib/catalog-owner";
 import { isAdmin } from "@/lib/roles";
 
@@ -477,8 +477,8 @@ export function EquipmentItemPage({
         {writeOffReason !== "CREATED_BY_MISTAKE" ? (
           <label className="mt-3 block text-sm">
             <span className="text-[var(--muted)]">Комментарий</span>
-            <textarea
-              className="field mt-1 min-h-24"
+            <AutoTextarea
+              className="field mt-1"
               placeholder="Что случилось, где, когда…"
               value={writeOffComment}
               onChange={(e) => setWriteOffComment(e.target.value)}

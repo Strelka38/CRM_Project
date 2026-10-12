@@ -11,6 +11,7 @@ import {
   defaultMountDate,
 } from "@/lib/quote-schedule";
 import { ensureQuoteSchemaColumns } from "@/lib/ensure-schema";
+import { isCatalogOwnerValue } from "@/lib/catalog-owner";
 import type { CloneBlock, QuoteStructurePayload } from "@/lib/quote-structure";
 
 export type {
@@ -40,6 +41,7 @@ export type CreateQuoteFromStructureInput = {
   cashlessPercent?: number;
   discountPercent?: number;
   notes?: string[];
+  calendarOwners?: string[];
   structure: QuoteStructurePayload;
 };
 
@@ -134,6 +136,11 @@ export async function createQuoteFromStructure(
       durationDays,
       discountPercent: input.discountPercent ?? 0,
       notes: input.notes?.length ? input.notes : [...DEFAULT_QUOTE_NOTES],
+      ...(input.calendarOwners
+        ? {
+            calendarOwners: input.calendarOwners.filter(isCatalogOwnerValue),
+          }
+        : {}),
       lifecycle: "CALCULATED",
       zones: {
         create: zones.map((z, i) => ({

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { AutoTextarea } from "@/components/ui";
 import {
   cardPreviewToClientPatch,
   type LegalCardPreview,
@@ -74,8 +75,8 @@ export function LegalCardImport({ onConfirm, confirmLabel = "Подтверди�
           Вставьте текст или загрузите .txt / .rtf / .doc / .docx. В базу ничего не
           пишется, пока не нажмёте «{confirmLabel}».
         </p>
-        <textarea
-          className="field min-h-[120px] text-sm"
+        <AutoTextarea
+          className="field text-sm"
           placeholder="Карточка предприятия…"
           value={text}
           onChange={(e) => setText(e.target.value)}

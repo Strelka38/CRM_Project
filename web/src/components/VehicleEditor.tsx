@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { AutoTextarea } from "@/components/ui";
 
 type VehicleDetail = {
   id: string;
@@ -162,8 +163,8 @@ export function VehicleEditor({ vehicleId }: { vehicleId: string }) {
         </label>
         <label className="block text-sm md:col-span-2">
           <span className="text-[var(--muted)]">Правила эксплуатации</span>
-          <textarea
-            className="field mt-1 min-h-[80px]"
+          <AutoTextarea
+            className="field mt-1"
             value={vehicle.operatingRules}
             onChange={(e) =>
               setVehicle({ ...vehicle, operatingRules: e.target.value })
@@ -172,8 +173,8 @@ export function VehicleEditor({ vehicleId }: { vehicleId: string }) {
         </label>
         <label className="block text-sm md:col-span-2">
           <span className="text-[var(--muted)]">Комментарий</span>
-          <textarea
-            className="field mt-1 min-h-[80px]"
+          <AutoTextarea
+            className="field mt-1"
             value={vehicle.comment}
             onChange={(e) =>
               setVehicle({ ...vehicle, comment: e.target.value })

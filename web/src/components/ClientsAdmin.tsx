@@ -26,8 +26,15 @@ type ClientRow = {
   email: string;
   inn: string;
   active: boolean;
+  legalEntities?: Array<{ name: string; inn: string }>;
   _count?: { quotes: number };
 };
+
+function legalHint(c: ClientRow) {
+  const names = (c.legalEntities || []).map((e) => e.name.trim()).filter(Boolean);
+  if (names.length) return names.join(" · ");
+  return c.inn ? `ИНН ${c.inn}` : "";
+}
 
 function clientSortValue(c: ClientRow, key: string) {
   switch (key) {
@@ -254,7 +261,7 @@ export function ClientsAdmin() {
           <input
             type="search"
             className="field max-w-md py-1.5 text-sm"
-            placeholder="Поиск по компании, контакту, телефону, ИНН…"
+            placeholder="Поиск по компании, юрлицу, контакту, телефону, ИНН…"
             value={q}
             onChange={(e) => setQ(e.target.value)}
           />
@@ -363,6 +370,19 @@ export function ClientsAdmin() {
                       : "Не удалось создать клиента",
                   );
                 }
+                const created = await res.json();
+                if (created?.id) {
+                  await fetch(`/api/clients/${created.id}/legal-entities`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      name: patch.companyName,
+                      inn: patch.inn || "",
+                      legalAddress: patch.legalAddress || "",
+                      legalDetails: patch.legalDetails || "",
+                    }),
+                  });
+                }
                 setShowCardImport(false);
                 void load(q);
               }}
@@ -375,7 +395,7 @@ export function ClientsAdmin() {
             items={sorted.map((c) => ({
               id: c.id,
               title: c.companyName,
-              subtitle: c.inn ? `ИНН ${c.inn}` : undefined,
+              subtitle: legalHint(c) || undefined,
               href: `/clients/${c.id}`,
               // Пустые поля не показываем: на 390px строка «Контакт —» стоит
               // столько же места, сколько заполненная, а смысла не несёт.
@@ -500,9 +520,9 @@ export function ClientsAdmin() {
                   </td>
                   <td className="px-3 py-2 text-left">
                     {c.companyName}
-                    {c.inn ? (
+                    {legalHint(c) ? (
                       <span className="mt-0.5 block text-xs text-[var(--muted)]">
-                        ИНН {c.inn}
+                        {legalHint(c)}
                       </span>
                     ) : null}
                   </td>

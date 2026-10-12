@@ -9,16 +9,29 @@ import {
   normalizeItemName,
   parseArtemWorkbook,
   parseExcelDateRange,
+  personnelServiceLine,
 } from "./quote-excel-import";
 
 async function parseBuilt(
   build: (wb: ExcelJS.Workbook) => void,
   fileName?: string,
+  opts?: { source?: "excel" | "golova"; cashless?: boolean },
 ) {
   const wb = new ExcelJS.Workbook();
   build(wb);
   const buf = Buffer.from(await wb.xlsx.writeBuffer());
-  return parseArtemWorkbook(buf, { fileName });
+  return parseArtemWorkbook(buf, { fileName, ...opts });
+}
+
+function shownCashless(item: {
+  unitPrice?: number | null;
+  cashlessOverride?: number | null;
+}) {
+  return cashlessUnitPrice(
+    Number(item.unitPrice) || 0,
+    true,
+    item.cashlessOverride,
+  );
 }
 
 function compactHeader(ws: ExcelJS.Worksheet) {
@@ -108,6 +121,16 @@ async function main() {
     "a",
   );
   assert.equal(matchCatalogItem("Совсем другая позиция", catalog), null);
+  assert.deepEqual(
+    personnelServiceLine("Услуги технического персонала (Звукооператор)"),
+    { name: "Звукооператор", isService: true },
+  );
+  assert.deepEqual(
+    personnelServiceLine("Услуги технического персонала", "Светооператор"),
+    { name: "Светооператор", isService: true },
+  );
+  assert.equal(personnelServiceLine("Услуги технического персонала"), null);
+  assert.equal(personnelServiceLine("Ноутбук (контент)"), null);
 }
 
 assert.equal(
@@ -170,11 +193,64 @@ assert.equal(
   assert.equal(parsed.structure.zones.length, 1);
   assert.equal(parsed.structure.zones[0]?.name, "Зона 1");
   assert.ok(items.every((b) => b.zoneIndex === 0));
-  assert.ok(
-    parsed.structure.blocks.some(
-      (b) => b.type === "SECTION" && b.title === "Видео оборудование",
-    ),
+  assert.deepEqual(
+    parsed.structure.blocks
+      .filter((b) => b.type === "SECTION")
+      .map((b) => b.title),
+    ["Звук", "Видео"],
   );
+  assert.notEqual(shownCashless(items[0]!), items[0]?.unitPrice);
+}
+
+{
+  const parsed = await parseBuilt((wb) => {
+    const ws = wb.addWorksheet("КП");
+    compactHeader(ws);
+    ws.getCell("H12").value = "Комментарий";
+    ws.getCell("A13").value = "Звуковое оборудование";
+    ws.getCell("B13").value = "Звуковое оборудование";
+    ws.getCell("A14").value = 1;
+    ws.getCell("B14").value = "Микшер";
+    ws.getCell("C14").value = 1;
+    ws.getCell("D14").value = 5000;
+    ws.getCell("E14").value = 1;
+    ws.getCell("A15").value = 2;
+    ws.getCell("B15").value = "Услуги технического персонала (Звукооператор)";
+    ws.getCell("C15").value = 2;
+    ws.getCell("D15").value = 11120;
+    ws.getCell("E15").value = 1;
+    ws.getCell("A16").value = 3;
+    ws.getCell("B16").value = "Услуги технического персонала";
+    ws.getCell("C16").value = 1;
+    ws.getCell("D16").value = 8000;
+    ws.getCell("E16").value = 1;
+    ws.getCell("H16").value = "Светооператор";
+    ws.getCell("A17").value = 4;
+    ws.getCell("B17").value = "Колонка";
+    ws.getCell("C17").value = 1;
+    ws.getCell("D17").value = 3000;
+    ws.getCell("E17").value = 1;
+  });
+  const items = parsed.structure.blocks.filter((b) => b.type === "ITEM");
+  assert.deepEqual(
+    items.map((b) => b.name),
+    ["Микшер", "Звукооператор", "Светооператор", "Колонка"],
+  );
+  assert.deepEqual(
+    parsed.structure.blocks
+      .filter((b) => b.type === "SECTION")
+      .map((b) => b.title),
+    ["Звук", "Услуги", "Звук"],
+  );
+  const { structure } = applyCatalogMatches(parsed.structure, [
+    { id: "snd", name: "Звукооператор" },
+    { id: "light", name: "Светооператор" },
+  ]);
+  const matched = structure.blocks.filter((b) => b.type === "ITEM");
+  assert.equal(matched[0]?.catalogItemId, null);
+  assert.equal(matched[1]?.catalogItemId, "snd");
+  assert.equal(matched[2]?.catalogItemId, "light");
+  assert.equal(matched[3]?.catalogItemId, null);
 }
 
 {
@@ -374,19 +450,21 @@ assert.equal(
   assert.equal(items.length, 3);
   assert.equal(items[0]?.name, "RCF HDL10A");
   assert.equal(items[0]?.qty, 12);
-  assert.equal(items[0]?.unitPrice, 3000);
+  assert.equal(shownCashless(items[0]!), 3000);
+  assert.notEqual(items[0]?.unitPrice, 3000);
   assert.equal(items[0]?.dayCoefOverride, 1);
   assert.equal(parsed.structure.zones.length, 1);
   assert.equal(parsed.structure.zones[0]?.name, "Зона 1");
   assert.ok(items.every((b) => b.zoneIndex === 0));
   assert.equal(items[1]?.name, "Подиум типа евростол (Подиум 12х7 м)");
-  assert.equal(items[1]?.unitPrice, 2000);
+  assert.equal(shownCashless(items[1]!), 2000);
   assert.equal(items[2]?.name, "Звукооператор");
-  assert.equal(items[2]?.unitPrice, 15000);
-  assert.ok(
-    parsed.structure.blocks.some(
-      (b) => b.type === "SECTION" && b.title === "Услуги",
-    ),
+  assert.equal(shownCashless(items[2]!), 15000);
+  assert.deepEqual(
+    parsed.structure.blocks
+      .filter((b) => b.type === "SECTION")
+      .map((b) => b.title),
+    ["Звук", "Разное", "Услуги"],
   );
 }
 
@@ -426,11 +504,84 @@ assert.equal(
     ["Звук", "Свет", "Сцена", "Разное"],
   );
   const items = parsed.structure.blocks.filter((b) => b.type === "ITEM");
-  assert.equal(items[0]?.unitPrice, 8750);
+  assert.equal(shownCashless(items[0]!), 8750);
+  assert.notEqual(items[0]?.unitPrice, 8750);
   assert.equal(items[0]?.dayCoefOverride, 1);
   assert.equal(items[1]?.name, "ASM Lighting BSW-470B");
+  assert.equal(shownCashless(items[1]!), 6250);
   assert.equal(items[2]?.zoneIndex, 2);
-  assert.equal(items[3]?.unitPrice, 25000);
+  assert.equal(shownCashless(items[3]!), 25000);
+  assert.ok(
+    parsed.structure.blocks
+      .filter((b) => b.type === "SECTION")
+      .every((b) =>
+        ["Звук", "Свет", "Видео", "Трансляция", "Разное", "Услуги"].includes(
+          b.title || "",
+        ),
+      ),
+  );
+}
+
+{
+  const parsed = await parseBuilt((wb) => {
+    const ws = wb.addWorksheet("КП");
+    templateHeader(ws);
+    ws.getCell("A13").value = "Звук";
+    ws.getCell("B14").value = "Кабель XLR";
+    ws.getCell("C14").value = 2;
+    ws.getCell("D14").value = 3000;
+    ws.getCell("E14").value = 3000;
+    ws.getCell("F14").value = 1;
+    ws.getCell("A15").value = "Смета 1";
+    ws.getCell("A16").value = "Примечание для заказчика";
+    ws.getCell("B17").value = "Цена";
+  });
+  const items = parsed.structure.blocks.filter((b) => b.type === "ITEM");
+  assert.equal(items.length, 1);
+  assert.equal(shownCashless(items[0]!), 3000);
+  assert.notEqual(items[0]?.unitPrice, 3000);
+  assert.equal(items[0]?.cashlessOverride, null);
+  assert.deepEqual(
+    parsed.structure.blocks
+      .filter((b) => b.type === "SECTION")
+      .map((b) => b.title),
+    ["Звук"],
+  );
+}
+
+{
+  const parsed = await parseBuilt(
+    (wb) => {
+      const info = wb.addWorksheet("Общая информация");
+      info.getCell("A1").value = "Проект:";
+      info.getCell("C1").value = "Нал тест";
+      const ws = wb.addWorksheet("1. Звук 1");
+      ws.getCell("A1").value = "Смета 1";
+      ws.getCell("A2").value = "Звук";
+      ws.getCell("A3").value = "№";
+      ws.getCell("B3").value = "Оборудование";
+      ws.getCell("F3").value = "Кол-во";
+      ws.getCell("G3").value = "Цена";
+      ws.getCell("A4").value = 1;
+      ws.getCell("B4").value = "Микрофон";
+      ws.getCell("F4").value = 2;
+      ws.getCell("G4").value = 4000;
+      ws.getCell("A5").value = "К оплате:";
+    },
+    "нал.xlsx",
+    { source: "golova", cashless: false },
+  );
+  assert.equal(parsed.meta.cashless, false);
+  const items = parsed.structure.blocks.filter((b) => b.type === "ITEM");
+  assert.equal(items[0]?.unitPrice, 4000);
+  assert.equal(items[0]?.cashlessOverride, null);
+  assert.notEqual(shownCashless(items[0]!), 4000);
+  assert.deepEqual(
+    parsed.structure.blocks
+      .filter((b) => b.type === "SECTION")
+      .map((b) => b.title),
+    ["Звук"],
+  );
 }
 
 console.log("quote-excel-import.test.ts: ok");

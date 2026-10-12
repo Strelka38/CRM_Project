@@ -6,11 +6,20 @@ import {
   type CatalogOwnerValue,
 } from "@/lib/catalog-owner";
 
+const CALENDAR_TAG_COLOR: Record<CatalogOwnerValue, string> = {
+  SHOW_MASTER: "var(--cal-shm)",
+  DIAKOM: "var(--cal-dk)",
+  NE_EVENT: "var(--cal-ne)",
+};
+
 type Props = {
   value: CatalogOwnerValue[];
   onChange: (owners: CatalogOwnerValue[]) => void;
   compact?: boolean;
   label?: string;
+  disabled?: boolean;
+  /** Цвета как у фильтров календаря. */
+  colored?: boolean;
 };
 
 export function OwnerTagsPicker({
@@ -18,6 +27,8 @@ export function OwnerTagsPicker({
   onChange,
   compact = false,
   label = "Чья?",
+  disabled = false,
+  colored = false,
 }: Props) {
   const selected = normalizeOwners(value);
 
@@ -42,17 +53,30 @@ export function OwnerTagsPicker({
       >
         {CATALOG_OWNERS.map((o) => {
           const active = selected.includes(o.value);
+          const tinted = active && colored;
           return (
             <button
               key={o.value}
               type="button"
               title={o.label}
+              aria-pressed={active}
+              disabled={disabled}
               onClick={() => toggle(o.value)}
-              className={`rounded border px-1.5 py-0.5 text-caption font-medium uppercase tracking-wide transition-colors ${
-                active
-                  ? "border-[var(--solid)] bg-[var(--solid)] text-[var(--on-solid)]"
-                  : "border-[var(--line)] bg-[var(--panel)] text-[var(--ink)] hover:bg-white/10"
+              className={`rounded border px-1.5 py-0.5 text-caption font-medium uppercase tracking-wide transition-colors disabled:cursor-default disabled:opacity-60 ${
+                tinted
+                  ? "text-white"
+                  : active
+                    ? "border-[var(--solid)] bg-[var(--solid)] text-[var(--on-solid)]"
+                    : "border-[var(--line)] bg-[var(--panel)] text-[var(--ink)] hover:bg-white/10"
               }`}
+              style={
+                tinted
+                  ? {
+                      background: CALENDAR_TAG_COLOR[o.value],
+                      borderColor: CALENDAR_TAG_COLOR[o.value],
+                    }
+                  : undefined
+              }
             >
               {o.short}
             </button>

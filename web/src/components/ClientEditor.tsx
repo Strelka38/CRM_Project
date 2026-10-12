@@ -4,8 +4,9 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatMoney } from "@/lib/format";
+import { ClientLegalEntities, type ClientLegalEntityRow } from "@/components/ClientLegalEntities";
 import { LegalCardImport } from "@/components/LegalCardImport";
-import { lifecycleLabel, SortableTh, useTableSort } from "@/components/ui";
+import { lifecycleLabel, SortableTh, useTableSort, AutoTextarea } from "@/components/ui";
 import { dateSortValue } from "@/lib/table-sort";
 
 type ProjectRow = {
@@ -28,10 +29,8 @@ type ClientDetail = {
   phone: string;
   email: string;
   comment: string;
-  inn: string;
-  legalAddress: string;
-  legalDetails: string;
   active: boolean;
+  legalEntities: ClientLegalEntityRow[];
   stats: {
     projectCount: number;
     totalProjects: number;
@@ -100,9 +99,6 @@ export function ClientEditor({ clientId }: { clientId: string }) {
         phone: client.phone,
         email: client.email,
         comment: client.comment,
-        inn: client.inn,
-        legalAddress: client.legalAddress,
-        legalDetails: client.legalDetails,
         active: client.active,
       }),
     });
@@ -170,6 +166,10 @@ export function ClientEditor({ clientId }: { clientId: string }) {
                   setClient({ ...client, companyName: e.target.value })
                 }
               />
+              <span className="mt-1 block text-xs text-[var(--muted)]">
+                Как вы называете компанию, не юридическое имя. Например, VIP Sound —
+                а ООО и ИП живут в юрлицах ниже.
+              </span>
             </label>
             <label className="block text-sm">
               <span className="text-[var(--muted)]">Контактное лицо</span>
@@ -202,39 +202,10 @@ export function ClientEditor({ clientId }: { clientId: string }) {
                 }
               />
             </label>
-            <label className="block text-sm">
-              <span className="text-[var(--muted)]">ИНН</span>
-              <input
-                className="field mt-1"
-                value={client.inn}
-                onChange={(e) => setClient({ ...client, inn: e.target.value })}
-              />
-            </label>
-            <label className="block text-sm md:col-span-2">
-              <span className="text-[var(--muted)]">Юридический адрес</span>
-              <input
-                className="field mt-1"
-                value={client.legalAddress}
-                onChange={(e) =>
-                  setClient({ ...client, legalAddress: e.target.value })
-                }
-              />
-            </label>
-            <label className="block text-sm md:col-span-2">
-              <span className="text-[var(--muted)]">Юр. реквизиты</span>
-              <textarea
-                className="field mt-1 min-h-[80px]"
-                value={client.legalDetails}
-                onChange={(e) =>
-                  setClient({ ...client, legalDetails: e.target.value })
-                }
-                placeholder="Р/с, банк, БИК, КПП…"
-              />
-            </label>
             <label className="block text-sm md:col-span-2">
               <span className="text-[var(--muted)]">Комментарий</span>
-              <textarea
-                className="field mt-1 min-h-[80px]"
+              <AutoTextarea
+                className="field mt-1"
                 value={client.comment}
                 onChange={(e) =>
                   setClient({ ...client, comment: e.target.value })
@@ -301,24 +272,48 @@ export function ClientEditor({ clientId }: { clientId: string }) {
       </div>
 
       <div className="mt-4">
+        <ClientLegalEntities
+          clientId={clientId}
+          entities={client.legalEntities || []}
+          onSaved={load}
+        />
+      </div>
+
+      <div className="mt-4">
         <LegalCardImport
-          confirmLabel="Записать в клиента"
+          confirmLabel="Добавить юрлицо"
           onConfirm={async (patch) => {
-            if (Object.keys(patch).length === 0) {
-              throw new Error("В тексте нет реквизитов, которые можно записать");
+            const name = patch.companyName?.trim();
+            if (!name) {
+              throw new Error("В карточке нет наименования юрлица");
             }
-            const res = await fetch(`/api/clients/${clientId}`, {
-              method: "PATCH",
+            const res = await fetch(`/api/clients/${clientId}/legal-entities`, {
+              method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(patch),
+              body: JSON.stringify({
+                name,
+                inn: patch.inn || "",
+                legalAddress: patch.legalAddress || "",
+                legalDetails: patch.legalDetails || "",
+              }),
             });
             if (!res.ok) {
               const data = await res.json().catch(() => ({}));
               throw new Error(
                 typeof data.error === "string"
                   ? data.error
-                  : "Не удалось записать реквизиты",
+                  : "Не удалось записать юрлицо",
               );
+            }
+            const contact: Record<string, string> = {};
+            if (patch.phone && !client.phone.trim()) contact.phone = patch.phone;
+            if (patch.email && !client.email.trim()) contact.email = patch.email;
+            if (Object.keys(contact).length > 0) {
+              await fetch(`/api/clients/${clientId}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(contact),
+              });
             }
             await load();
           }}

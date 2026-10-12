@@ -202,6 +202,11 @@ export function QuoteSummary({
                   </td>
                   <td className="px-3 py-2 text-right font-medium tabular-nums">
                     {formatMoney(z.payable)}
+                    {z.tax > 0 ? (
+                      <span className="mt-0.5 block text-caption font-normal text-[var(--muted)]">
+                        налоги {formatMoney(z.tax)}
+                      </span>
+                    ) : null}
                   </td>
                 </tr>
               ))}

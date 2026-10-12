@@ -17,6 +17,19 @@ import {
   requireSession,
 } from "@/lib/session";
 import { isKnownTimezone } from "@/lib/timezone";
+import { ensureQuoteSchemaColumns } from "@/lib/ensure-schema";
+import { isEventColorId } from "@/lib/event-color";
+
+let ensureOnce: Promise<void> | null = null;
+function ensureSchemaOnce() {
+  if (!ensureOnce) {
+    ensureOnce = ensureQuoteSchemaColumns().catch((e) => {
+      ensureOnce = null;
+      throw e;
+    });
+  }
+  return ensureOnce;
+}
 
 const companyEnum = catalogOwnerZod;
 
@@ -34,6 +47,7 @@ const userSelect = {
   monthlySalary: true,
   agencyPercent: true,
   owners: true,
+  eventColor: true,
   timezone: true,
   weatherPlace: true,
   canAccessPayments: true,
@@ -54,6 +68,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
+    await ensureSchemaOnce();
     const session = await requireSession();
     const { id } = await params;
     const dbAccess = canAccessDatabase(session.user.role, session.permissions);
@@ -162,6 +177,11 @@ const patchSchema = z.object({
   timezone: z.string().min(1).optional(),
   weatherPlace: z.enum(["IRKUTSK", "IRKUTSK_OBLAST"]).optional(),
   canAccessPayments: z.boolean().optional(),
+  eventColor: z
+    .string()
+    .max(32)
+    .optional()
+    .refine((v) => v === undefined || v === "" || isEventColorId(v)),
 });
 
 function displayName(parts: {
@@ -182,6 +202,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
+    await ensureSchemaOnce();
     const session = await requireSession();
     const { id } = await params;
     const dbAccess = canAccessDatabase(session.user.role, session.permissions);
@@ -261,6 +282,7 @@ export async function PATCH(
       timezone?: string;
       weatherPlace?: "IRKUTSK" | "IRKUTSK_OBLAST";
       canAccessPayments?: boolean;
+      eventColor?: string;
     } = {};
 
     if (body.firstName !== undefined) data.firstName = body.firstName;
@@ -296,6 +318,9 @@ export async function PATCH(
     }
     if (body.weatherPlace !== undefined) {
       data.weatherPlace = body.weatherPlace;
+    }
+    if (body.eventColor !== undefined) {
+      data.eventColor = body.eventColor;
     }
     if (isAdmin(session.user.role) && body.canAccessPayments !== undefined) {
       data.canAccessPayments = body.canAccessPayments;

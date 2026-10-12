@@ -96,11 +96,15 @@ export async function invertWhiteOnBlackToPng(blob: Blob): Promise<string> {
   return canvas.toDataURL("image/png");
 }
 
-export async function loadPrintBrandMark(): Promise<string | null> {
+export async function loadPrintBrandMark(
+  url = BRAND_LOGO_URL,
+  invert = true,
+): Promise<string | null> {
   try {
-    const res = await fetch(BRAND_LOGO_URL);
+    const res = await fetch(url);
     if (!res.ok) return null;
-    return await invertWhiteOnBlackToPng(await res.blob());
+    const blob = await res.blob();
+    return invert ? invertWhiteOnBlackToPng(blob) : blobToDataUrl(blob);
   } catch {
     return null;
   }

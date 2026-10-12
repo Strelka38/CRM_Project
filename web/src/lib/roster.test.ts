@@ -13,6 +13,7 @@ import {
   collectFreelancerBusyDates,
   packRosterGroupOffsets,
   packRosterGroupSkyline,
+  solidRosterColumnHeights,
   placeRosterSegOnSkyline,
   packRosterLanes,
   compareRosterLaneItems,
@@ -690,6 +691,9 @@ assert.deepEqual(
   [8],
 );
 assert.equal(seeded[1], 10);
+
+assert.deepEqual(solidRosterColumnHeights([10, 10, 2, 0]), [10, 10, 10, 10]);
+assert.deepEqual(solidRosterColumnHeights([0, 0]), [0, 0]);
 
 const skyline = [0, 0, 0, 0];
 assert.equal(

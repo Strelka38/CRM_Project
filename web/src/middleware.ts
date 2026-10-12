@@ -11,10 +11,13 @@ export default auth((req) => {
   const isAuthApi = pathname.startsWith("/api/auth");
   const isPublicQr =
     pathname.startsWith("/q/") || pathname.startsWith("/api/q/");
+  const isPublicQuote =
+    pathname.startsWith("/kp/") || pathname.startsWith("/api/kp/");
 
   if (isAuthApi) return NextResponse.next();
-  if (isPublicQr) return NextResponse.next();
+  if (isPublicQr || isPublicQuote) return NextResponse.next();
   if (pathname.startsWith("/brand/")) return NextResponse.next();
+  if (pathname.startsWith("/api/brand")) return NextResponse.next();
 
   if (!isLoggedIn && !isLogin) {
     const url = new URL("/login", req.nextUrl.origin);

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { ChangePasswordModal } from "@/components/ChangePasswordModal";
 import { ResetUserPasswordModal } from "@/components/ResetUserPasswordModal";
 import { OwnerTagsPicker } from "@/components/OwnerTagsPicker";
-import { Button, PageHeader, SortableTh, useTableSort, lifecycleLabel } from "@/components/ui";
+import { Button, PageHeader, SortableTh, useTableSort, lifecycleLabel, AutoTextarea } from "@/components/ui";
 import {
   normalizeOwners,
   ownerShorts,
@@ -23,6 +23,12 @@ import {
   type AppRole,
 } from "@/lib/roles";
 import { DEFAULT_TIMEZONE, TIMEZONES } from "@/lib/timezone";
+import {
+  EVENT_COLOR_IDS,
+  EVENT_COLOR_PRESETS,
+  defaultEventColorId,
+  isEventColorId,
+} from "@/lib/event-color";
 import { dateSortValue } from "@/lib/table-sort";
 
 type Specialty = {
@@ -53,6 +59,7 @@ type UserDetail = {
   monthlySalary: number;
   agencyPercent: number;
   owners: CatalogOwnerValue[];
+  eventColor: string;
   timezone: string;
   weatherPlace: "IRKUTSK" | "IRKUTSK_OBLAST";
   canAccessPayments: boolean;
@@ -134,6 +141,65 @@ function ProfileCard({
   );
 }
 
+function EventColorField({
+  value,
+  owners,
+  onChange,
+}: {
+  value: string;
+  owners: CatalogOwnerValue[];
+  onChange: (eventColor: string) => void;
+}) {
+  const picked = isEventColorId(value) ? value : "";
+  const firmId = defaultEventColorId(owners);
+  const hint = picked
+    ? `${EVENT_COLOR_PRESETS[picked].label} на мероприятиях этого менеджера. Подтверждённые — заливка, посчитанные — обводка.`
+    : firmId
+      ? `Как у фирмы ${ownerShorts(owners)}: ${EVENT_COLOR_PRESETS[firmId].label.toLowerCase()}. Подтверждённые — заливка, посчитанные — обводка.`
+      : "Без фирмы подтверждённые зелёные, посчитанные с тёмной обводкой.";
+
+  return (
+    <div className="text-sm sm:col-span-2">
+      <span className="text-[var(--muted)]">Цвет мероприятий</span>
+      <div className="mt-1 flex flex-wrap items-center gap-1.5">
+        <button
+          type="button"
+          aria-pressed={!picked}
+          onClick={() => onChange("")}
+          className={`rounded border px-2 py-1 text-caption font-medium ${
+            !picked
+              ? "border-[var(--solid)] bg-[var(--solid)] text-[var(--on-solid)]"
+              : "border-[var(--line)] bg-[var(--panel)] text-[var(--ink)] hover:bg-white/10"
+          }`}
+        >
+          Как у фирмы
+        </button>
+        {EVENT_COLOR_IDS.map((id) => {
+          const preset = EVENT_COLOR_PRESETS[id];
+          const on = picked === id;
+          return (
+            <button
+              key={id}
+              type="button"
+              title={preset.label}
+              aria-label={preset.label}
+              aria-pressed={on}
+              onClick={() => onChange(id)}
+              className={`size-7 rounded-full border ${
+                on
+                  ? "border-[var(--ink)] ring-2 ring-[var(--ink)] ring-offset-2 ring-offset-[var(--panel)]"
+                  : "border-transparent"
+              }`}
+              style={{ background: preset.fill }}
+            />
+          );
+        })}
+      </div>
+      <p className="mt-1 text-caption text-[var(--muted)]">{hint}</p>
+    </div>
+  );
+}
+
 export function EmployeeEditor({
   userId,
   selfView = false,
@@ -191,6 +257,7 @@ export function EmployeeEditor({
         monthlySalary: u.monthlySalary ?? 0,
         agencyPercent: u.agencyPercent ?? DEFAULT_AGENCY_PERCENT,
         owners: normalizeOwners(u.owners),
+        eventColor: isEventColorId(u.eventColor || "") ? u.eventColor : "",
         timezone: u.timezone || DEFAULT_TIMEZONE,
         weatherPlace: u.weatherPlace || "IRKUTSK",
         canAccessPayments: Boolean(u.canAccessPayments),
@@ -227,6 +294,9 @@ export function EmployeeEditor({
       timezone: user.timezone,
       weatherPlace: user.weatherPlace,
     };
+    if (roleIsManager(user.role)) {
+      payload.eventColor = isEventColorId(user.eventColor) ? user.eventColor : "";
+    }
     if (canAdmin) {
       if (canChangeRole) payload.role = user.role;
       payload.active = user.active;
@@ -402,8 +472,8 @@ export function EmployeeEditor({
             </div>
             <label className="block text-sm">
               <span className="text-[var(--muted)]">Комментарий</span>
-              <textarea
-                className="field mt-1 min-h-[80px]"
+              <AutoTextarea
+                className="field mt-1"
                 value={user.comment}
                 onChange={(e) =>
                   setUser({ ...user, comment: e.target.value })
@@ -639,6 +709,13 @@ export function EmployeeEditor({
                   ))}
                 </select>
               </label>
+              {roleIsManager(user.role) ? (
+                <EventColorField
+                  value={user.eventColor}
+                  owners={user.owners}
+                  onChange={(eventColor) => setUser({ ...user, eventColor })}
+                />
+              ) : null}
               {isAdmin && selfView ? (
                 <label className="block text-sm sm:col-span-2">
                   <span className="text-[var(--muted)]">

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { DEFAULT_KP_NAME, DEFAULT_KP_SITE } from "../brand-public";
 import {
   BRAND_NAME,
   BRAND_SITE,
@@ -53,5 +54,7 @@ assert.equal(empty.rows[3].value, "—");
 assert.equal(empty.rows[4].value, "—");
 assert.equal(BRAND_NAME, "Байкал Стейдж Групп");
 assert.equal(BRAND_SITE, "baikalstagegroup.ru");
+assert.equal(BRAND_NAME, DEFAULT_KP_NAME);
+assert.equal(BRAND_SITE, DEFAULT_KP_SITE);
 
 console.log("kp-header.test.ts: ok");

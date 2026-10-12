@@ -7,6 +7,7 @@ import {
 } from "./pricing";
 import {
   DEFAULT_QUOTE_ZONE_NAMES,
+  SERVICES_SECTION_TITLE,
   defaultQuoteZones,
 } from "./quote-defaults";
 import type { CloneBlock, QuoteStructurePayload } from "./quote-structure";
@@ -39,9 +40,12 @@ type ColMap = {
 };
 
 type ParseSheetOpts = {
-  priceIsCash?: boolean;
   forceDayCoef?: number;
+  /** Явный нал/безнал. Без него берётся флаг из шапки листа. */
+  cashless?: boolean;
 };
+
+export type QuoteImportSource = "excel" | "golova";
 
 type SheetItem = {
   name: string;
@@ -268,6 +272,39 @@ export function normalizeItemName(name: string): string {
     .replace(/[.,;:]+$/g, "");
 }
 
+const PERSONNEL_SERVICE_PREFIX_RE =
+  /^услуги\s+технического\s+персонала(?=$|[\s(:\-–—.,])/i;
+
+/**
+ * «Услуги технического персонала (Звукооператор)» → услуга «Звукооператор».
+ * Шаблонную фразу отбрасываем. Должность берём из скобок, после двоеточия
+ * или тире, либо из комментария, если в названии только шаблон.
+ * Без должности возвращаем null — строку не переписываем.
+ */
+export function personnelServiceLine(
+  rawName: string,
+  comment = "",
+): { name: string; isService: boolean } | null {
+  const name = rawName.replace(/\s+/g, " ").trim();
+  if (!name || !PERSONNEL_SERVICE_PREFIX_RE.test(name)) return null;
+
+  let rest = name.replace(PERSONNEL_SERVICE_PREFIX_RE, "").trim();
+  rest = rest.replace(/^[:\-–—]\s*/, "").trim();
+  const wrapped = rest.match(/^\(([^)]+)\)\s*$/);
+  if (wrapped) rest = wrapped[1].trim();
+
+  if (!rest) {
+    const note = comment.replace(/\s+/g, " ").trim();
+    if (note && !PERSONNEL_SERVICE_PREFIX_RE.test(note) && !isHeaderLabelName(note)) {
+      const noteWrapped = note.match(/^\(([^)]+)\)\s*$/);
+      rest = (noteWrapped ? noteWrapped[1] : note).trim();
+    }
+  }
+
+  if (!rest || isHeaderLabelName(rest)) return null;
+  return { name: rest, isService: true };
+}
+
 export function matchCatalogItem(
   name: string,
   catalog: Array<{ id: string; name: string }>,
@@ -382,44 +419,61 @@ function parseCashlessFlag(raw: unknown): boolean | null {
   return null;
 }
 
-function pricesForItem(
-  cash: number | null,
+/** Безнал-цена, только если она не равна налу и не совпадает с формулой. */
+function cashlessOverrideFor(
+  unitPrice: number,
   cashless: number | null,
-  hasTwoPrices: boolean,
-  quoteCashless: boolean,
-  priceIsCash = false,
-): { unitPrice: number; cashlessOverride: number | null } {
-  if (priceIsCash) {
-    return { unitPrice: cash ?? cashless ?? 0, cashlessOverride: null };
-  }
-  if (hasTwoPrices) {
-    const unitPrice = cash ?? 0;
-    if (cashless == null) return { unitPrice, cashlessOverride: null };
-    const computed = cashlessUnitPrice(
-      unitPrice,
-      true,
-      null,
-      DEFAULT_CASHLESS_PERCENT,
-    );
-    const override =
-      Math.round(cashless) !== Math.round(computed) ? cashless : null;
-    return { unitPrice, cashlessOverride: override };
-  }
-  const displayed = cash ?? cashless ?? 0;
-  if (!quoteCashless) {
-    return { unitPrice: displayed, cashlessOverride: null };
-  }
-  const unitPrice = guessCashFromCashless(displayed);
+): number | null {
+  if (cashless == null || !(cashless > 0)) return null;
+  if (Math.round(cashless) === Math.round(unitPrice)) return null;
   const computed = cashlessUnitPrice(
     unitPrice,
     true,
     null,
     DEFAULT_CASHLESS_PERCENT,
   );
+  if (Math.round(cashless) === Math.round(computed)) return null;
+  return cashless;
+}
+
+/**
+ * В блок кладём наличную базу (unitPrice), как у позиции из каталога.
+ * Одинаковые колонки нал/безнал не запирают цену в cashlessOverride.
+ * Одна колонка — это цена выбранного режима: нал как есть, безнал обратно в нал.
+ */
+function pricesForItem(
+  cash: number | null,
+  cashless: number | null,
+  hasTwoPrices: boolean,
+  quoteCashless: boolean,
+): { unitPrice: number; cashlessOverride: number | null } {
+  const twoDistinct =
+    hasTwoPrices &&
+    cash != null &&
+    cashless != null &&
+    Math.round(cash) !== Math.round(cashless);
+  if (twoDistinct) {
+    return {
+      unitPrice: cash!,
+      cashlessOverride: cashlessOverrideFor(cash!, cashless),
+    };
+  }
+
+  const displayed = cash ?? cashless ?? 0;
+  if (!(displayed > 0)) return { unitPrice: 0, cashlessOverride: null };
+  if (!quoteCashless) return { unitPrice: displayed, cashlessOverride: null };
+
+  const guessed = guessCashFromCashless(displayed);
+  let unitPrice =
+    guessed > 0 && guessed < displayed
+      ? guessed
+      : Math.max(1, Math.round(displayed * ((100 - DEFAULT_CASHLESS_PERCENT) / 100)));
+  if (!(unitPrice > 0) || unitPrice >= displayed) {
+    unitPrice = Math.max(1, displayed - 1);
+  }
   return {
     unitPrice,
-    cashlessOverride:
-      Math.round(computed) !== Math.round(displayed) ? displayed : null,
+    cashlessOverride: cashlessOverrideFor(unitPrice, displayed),
   };
 }
 
@@ -542,22 +596,42 @@ function parseSheetMeta(
   return meta;
 }
 
+/**
+ * Раздел сметы — только то, что уже есть у ручной сметы:
+ * корень каталога (Звук, Свет, Видео, Трансляция, Разное) или «Услуги».
+ * «Звуковое оборудование» сворачивается в «Звук». «Смета 1», итоги, примечания
+ * и подписи колонок разделами не становятся.
+ */
+function canonicalSectionTitle(raw: string): string | null {
+  const t = raw.replace(/\s+/g, " ").trim().replace(/:\s*$/, "");
+  if (!t || /^\d+$/.test(t)) return null;
+  if (isTotalsName(t) || looksLikeLabel(t)) return null;
+  if (/^смета\b/i.test(t) || /^лист\b/i.test(t)) return null;
+  if (/примечан|^комментар/i.test(t)) return null;
+  if (t.length > 60) return null;
+  if (/^услуг/i.test(t)) return SERVICES_SECTION_TITLE;
+  if (isHeaderLabelName(t)) return null;
+  const zone = zoneForSection(t);
+  if (zone) return zone;
+  const known = DEFAULT_QUOTE_ZONE_NAMES.find(
+    (name) => name.toLowerCase() === t.toLowerCase(),
+  );
+  return known ?? null;
+}
+
+function sectionTitleFromRow(colA: string, name: string): string | null {
+  return canonicalSectionTitle(colA) || canonicalSectionTitle(name);
+}
+
 function isSectionRow(
   colA: string,
   name: string,
   qty: number | null,
   price: number | null,
 ): boolean {
-  if (name && qty != null && qty > 0) return false;
-  const title = name || colA;
-  if (!title || isTotalsName(title)) return false;
-  if (zoneForSection(title)) return true;
-  if (/^\d+$/.test(title)) return false;
-  if (price != null) return false;
   if (qty != null && qty > 0) return false;
-  if (colA && name && colA === name && !/^\d+$/.test(colA)) return true;
-  if (colA && !name && !/^\d+$/.test(colA) && colA.length > 2) return true;
-  return false;
+  if (price != null && price > 0) return false;
+  return sectionTitleFromRow(colA, name) != null;
 }
 
 function sectionAboveHeader(ws: ExcelJS.Worksheet, headerRow: number): string {
@@ -565,12 +639,7 @@ function sectionAboveHeader(ws: ExcelJS.Worksheet, headerRow: number): string {
   const title =
     cellText(readCell(ws, headerRow - 1, 1)) ||
     cellText(readCell(ws, headerRow - 1, 2));
-  const t = title.trim();
-  if (!t || isTotalsName(t) || isHeaderLabelName(t) || looksLikeLabel(t)) {
-    return "";
-  }
-  if (/^\d+$/.test(t)) return "";
-  return t;
+  return canonicalSectionTitle(title) ?? "";
 }
 
 function parseSheet(
@@ -582,6 +651,7 @@ function parseSheet(
   if (!header) return null;
 
   const meta = parseSheetMeta(ws, header.row);
+  if (opts?.cashless != null) meta.cashless = opts.cashless;
   const { cols } = header;
   const hasTwoPrices = cols.priceCashless != null;
   const items: SheetItem[] = [];
@@ -611,7 +681,8 @@ function parseSheet(
     }
 
     if (isSectionRow(colA, name, qty, price)) {
-      currentSection = (name && name !== colA ? name : displayName).trim();
+      const canon = sectionTitleFromRow(colA, name);
+      if (canon) currentSection = canon;
       continue;
     }
 
@@ -621,15 +692,18 @@ function parseSheet(
     }
     if (qty == null || qty <= 0) continue;
 
-    const itemName =
-      comment && comment !== rawName ? `${rawName} (${comment})` : rawName;
+    const personnel = personnelServiceLine(rawName, comment);
+    const itemName = personnel
+      ? personnel.name
+      : comment && comment !== rawName
+        ? `${rawName} (${comment})`
+        : rawName;
 
     const { unitPrice, cashlessOverride } = pricesForItem(
       cash,
       cashless,
       hasTwoPrices,
       meta.cashless,
-      opts?.priceIsCash,
     );
     items.push({
       name: itemName,
@@ -642,7 +716,7 @@ function parseSheet(
           : dayCoef != null && Number.isFinite(dayCoef)
             ? dayCoef
             : null,
-      sectionTitle: currentSection,
+      sectionTitle: personnel ? SERVICES_SECTION_TITLE : currentSection,
     });
   }
 
@@ -842,13 +916,14 @@ function parseGolovaInfoSheet(ws: ExcelJS.Worksheet): ExcelQuoteMeta {
 
 function parseGolovaWorkbook(
   wb: ExcelJS.Workbook,
-  opts?: { fileName?: string },
+  opts?: { fileName?: string; cashless?: boolean },
 ): ParsedExcelQuote {
+  const cashless = opts?.cashless ?? true;
   const info = wb.worksheets.find((ws) => /общая информация/i.test(ws.name));
   const infoMeta = info ? parseGolovaInfoSheet(info) : emptyMeta();
-  infoMeta.cashless = true;
+  infoMeta.cashless = cashless;
 
-  const parseOpts: ParseSheetOpts = { priceIsCash: true, forceDayCoef: 1 };
+  const parseOpts: ParseSheetOpts = { forceDayCoef: 1, cashless };
   let combined: ParsedSheet | null = null;
   const tabs: ParsedSheet[] = [];
   for (const ws of wb.worksheets) {
@@ -865,7 +940,7 @@ function parseGolovaWorkbook(
   const { sheets, warnings } = pickPrimarySheets(parsed);
   const fromSheets = metaFromSheets(sheets, opts?.fileName);
   const meta = emptyMeta();
-  meta.cashless = true;
+  meta.cashless = cashless;
   meta.eventName = infoMeta.eventName || fromSheets.eventName;
   meta.date = infoMeta.date || fromSheets.date;
   meta.time = infoMeta.time || fromSheets.time;
@@ -892,20 +967,28 @@ function parseGolovaWorkbook(
 
 export async function parseArtemWorkbook(
   input: Buffer | ArrayBuffer | Uint8Array,
-  opts?: { fileName?: string },
+  opts?: {
+    fileName?: string;
+    source?: QuoteImportSource;
+    cashless?: boolean;
+  },
 ): Promise<ParsedExcelQuote> {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(Buffer.from(input));
-  if (isGolovaWorkbook(wb)) {
+  const useGolova =
+    opts?.source === "golova" ||
+    (opts?.source !== "excel" && isGolovaWorkbook(wb));
+  if (useGolova) {
     return parseGolovaWorkbook(wb, opts);
   }
   const parsed: ParsedSheet[] = [];
   for (const ws of wb.worksheets) {
-    const sheet = parseSheet(ws);
+    const sheet = parseSheet(ws, { cashless: opts?.cashless });
     if (sheet) parsed.push(sheet);
   }
   const { sheets, warnings } = pickPrimarySheets(parsed);
   const meta = metaFromSheets(sheets, opts?.fileName);
+  if (opts?.cashless != null) meta.cashless = opts.cashless;
   const structure =
     sheets.length > 1
       ? structureFromHallSheets(sheets)

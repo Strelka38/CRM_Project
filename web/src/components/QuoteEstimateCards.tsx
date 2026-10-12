@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { PriceInput } from "@/components/ui/PriceInput";
+import { PriceInput, AutoTextarea } from "@/components/ui";
 import { SideDrawer } from "@/components/ui/SideDrawer";
 import { cn } from "@/lib/cn";
 import { formatMoney, formatNumber } from "@/lib/format";
@@ -323,9 +323,8 @@ function EstimateLineSheet({
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-4 py-3">
         <label className="block text-sm">
           <span className="text-[var(--muted)]">Наименование</span>
-          <textarea
-            rows={2}
-            className="field mt-1 resize-none"
+          <AutoTextarea
+            className="field mt-1"
             value={block.name || ""}
             onChange={(e) => onUpdate({ name: e.target.value })}
           />

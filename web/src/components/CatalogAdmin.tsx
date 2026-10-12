@@ -14,11 +14,12 @@ import {
   CATALOG_ADD_ACTIONS,
   CatalogAddToolbar,
   CatalogExportMenu,
+  CatalogFolderLockButton,
   CatalogSelectionActions,
   type AddAction,
 } from "@/components/CatalogAddToolbar";
 import { Button } from "@/components/ui/Button";
-import { ActionSheet, SideDrawer, SortableTh, useTableSort } from "@/components/ui";
+import { ActionSheet, SideDrawer, SortableTh, useTableSort, AutoTextarea } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import {
@@ -39,17 +40,35 @@ import {
 import { EquipmentCardDrawer } from "@/components/EquipmentItemPage";
 import { formatUnitId } from "@/lib/equipment-id";
 import { formatMoney } from "@/lib/format";
+import {
+  folderDropZone,
+  isFolderDropBlocked,
+  planCategoryMoves,
+  planSiblingOrder,
+  relocatedSelectionPath,
+  topLevelSelectedCategories,
+  type FolderDropZone,
+} from "@/lib/catalog-move";
 
 const DRAG_MIME = "application/x-crm-catalog-move";
 const TREE_INDENT = 18;
 const GUIDE_X = 10;
 
-type DragPayload = {
-  kind: "item" | "kit";
-  id: string;
-  categoryId?: string | null;
-  name: string;
-};
+type DragPayload =
+  | {
+      kind: "item" | "kit";
+      id: string;
+      categoryId?: string | null;
+      name: string;
+    }
+  | {
+      kind: "folder";
+      id: string;
+      categoryId: string;
+      name: string;
+      path: string;
+      categoryIds: string[];
+    };
 
 type PendingConfirm =
   | { kind: "item"; id: string; name: string }
@@ -381,7 +400,11 @@ export function CatalogAdmin() {
   const [editingKit, setEditingKit] = useState<EditableKit | null>(null);
   const [dragging, setDragging] = useState<DragPayload | null>(null);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+  const [dropZone, setDropZone] = useState<FolderDropZone>("into");
+  const [foldersUnlocked, setFoldersUnlocked] = useState(false);
+  const [folderMoveError, setFolderMoveError] = useState("");
   const expandTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const draggingRef = useRef<DragPayload | null>(null);
   const csvImportRef = useRef<HTMLInputElement>(null);
   const [csvBusy, setCsvBusy] = useState(false);
   const [csvMessage, setCsvMessage] = useState("");
@@ -1390,19 +1413,53 @@ export function CatalogAdmin() {
     e.dataTransfer.setData(DRAG_MIME, JSON.stringify(payload));
     e.dataTransfer.setData("text/plain", payload.name);
     e.dataTransfer.effectAllowed = "move";
+    draggingRef.current = payload;
     setDragging(payload);
   }
 
   function endDrag() {
     clearExpandTimer();
+    draggingRef.current = null;
     setDragging(null);
     setDropTargetId(null);
+    setDropZone("into");
+  }
+
+  function toggleFolderMove() {
+    setFoldersUnlocked((open) => !open);
+    setFolderMoveError("");
+    endDrag();
+  }
+
+  function startFolderDrag(e: DragEvent, cat: Category) {
+    if (!foldersUnlocked || bulkBusy) {
+      e.preventDefault();
+      return;
+    }
+    const picked =
+      selectedCategoryIds.has(cat.id) && selectedCategoryIds.size > 1
+        ? [...selectedCategoryIds]
+        : [cat.id];
+    const roots = topLevelSelectedCategories(categories, picked);
+    const categoryIds = roots.map((folder) => folder.id);
+    startDrag(e, {
+      kind: "folder",
+      id: cat.id,
+      categoryId: cat.id,
+      path: cat.path,
+      categoryIds,
+      name:
+        categoryIds.length > 1
+          ? `${cat.name} +${categoryIds.length - 1}`
+          : cat.name,
+    });
   }
 
   function parseDragPayload(e: DragEvent): DragPayload | null {
+    const current = draggingRef.current ?? dragging;
     const raw =
       e.dataTransfer.getData(DRAG_MIME) ||
-      (dragging ? JSON.stringify(dragging) : "");
+      (current ? JSON.stringify(current) : "");
     if (!raw) return null;
     try {
       return JSON.parse(raw) as DragPayload;
@@ -1412,16 +1469,29 @@ export function CatalogAdmin() {
   }
 
   function onCategoryDragOver(e: DragEvent, cat: Category) {
-    if (!dragging) return;
+    const current = draggingRef.current ?? dragging;
+    if (!current) return;
     e.preventDefault();
+    e.stopPropagation();
     e.dataTransfer.dropEffect = "move";
-    if (dropTargetId !== cat.id) {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const zone: FolderDropZone =
+      current.kind === "folder"
+        ? folderDropZone(e.clientY, rect.top, rect.height)
+        : "into";
+    if (dropTargetId !== cat.id || zone !== "into") {
       clearExpandTimer();
-      setDropTargetId(cat.id);
+      if (dropTargetId !== cat.id) setDropTargetId(cat.id);
     }
+    if (dropZone !== zone) setDropZone(zone);
 
     const kids = byParent.get(cat.id) ?? [];
-    if (kids.length > 0 && !expanded.has(cat.path) && !expandTimerRef.current) {
+    if (
+      zone === "into" &&
+      kids.length > 0 &&
+      !expanded.has(cat.path) &&
+      !expandTimerRef.current
+    ) {
       expandTimerRef.current = setTimeout(() => {
         setExpanded((prev) => new Set(prev).add(cat.path));
         expandTimerRef.current = null;
@@ -1440,14 +1510,142 @@ export function CatalogAdmin() {
     e.preventDefault();
     e.stopPropagation();
     const payload = parseDragPayload(e) || dragging;
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const zone: FolderDropZone =
+      payload?.kind === "folder"
+        ? folderDropZone(e.clientY, rect.top, rect.height)
+        : "into";
     endDrag();
     if (!payload) return;
+    if (payload.kind === "folder") {
+      await moveFolders(payload, zone, cat);
+      return;
+    }
     if (payload.categoryId === cat.id) return;
 
     if (payload.kind === "item") {
       await moveItemToCategory(payload.id, cat.id);
     } else {
       await moveKitToCategory(payload.id, cat.id);
+    }
+  }
+
+  function onRootDragOver(e: DragEvent) {
+    if ((draggingRef.current ?? dragging)?.kind !== "folder") return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = "move";
+    if (dropTargetId !== "root") setDropTargetId("root");
+    if (dropZone !== "into") setDropZone("into");
+  }
+
+  async function onRootDrop(e: DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    const payload = parseDragPayload(e) || dragging;
+    endDrag();
+    if (!payload || payload.kind !== "folder") return;
+    await moveFolders(payload, "into", null);
+  }
+
+  async function moveFolders(
+    payload: Extract<DragPayload, { kind: "folder" }>,
+    placement: FolderDropZone,
+    target: Category | null,
+  ) {
+    if (!foldersUnlocked) return;
+    if (isFolderDropBlocked(categories, payload.categoryIds, target, placement)) {
+      return;
+    }
+    const moving = topLevelSelectedCategories(categories, payload.categoryIds);
+    if (moving.length === 0) return;
+    const movingIds = moving.map((folder) => folder.id);
+    const parentId = !target
+      ? null
+      : placement === "into"
+        ? target.id
+        : target.parentId;
+    if (
+      placement === "into" &&
+      moving.every((folder) => folder.parentId === parentId)
+    ) {
+      return;
+    }
+
+    const plan = planCategoryMoves(categories, movingIds, parentId);
+    if (!plan.ok) {
+      setFolderMoveError(plan.error);
+      return;
+    }
+
+    const siblings = categories
+      .filter((folder) => folder.parentId === parentId)
+      .map((folder) => folder.id);
+    const orderedIds =
+      placement === "into" || !target
+        ? [
+            ...siblings.filter((id) => !movingIds.includes(id)),
+            ...movingIds,
+          ]
+        : planSiblingOrder(siblings, movingIds, target.id, placement);
+    const orderChanged = orderedIds.some((id, index) => siblings[index] !== id);
+    if (plan.moves.length === 0 && !orderChanged) return;
+
+    setBulkBusy(true);
+    setFolderMoveError("");
+    try {
+      if (plan.moves.length > 0) {
+        const res = await fetch("/api/catalog/bulk", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "move",
+            itemIds: [],
+            kitIds: [],
+            categoryIds: movingIds,
+            targetCategoryId: parentId,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setFolderMoveError(data.error || "Не удалось переместить раздел");
+          return;
+        }
+      }
+      if (orderChanged) {
+        const res = await fetch("/api/catalog/categories/reorder", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ parentId, orderedIds }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setFolderMoveError(data.error || "Не удалось сохранить порядок разделов");
+          void loadCats();
+          return;
+        }
+      }
+      if (selectedPath) {
+        setSelectedPath(relocatedSelectionPath(selectedPath, plan.moves));
+      }
+      if (parentId) {
+        const parent = categories.find((folder) => folder.id === parentId);
+        if (parent) {
+          setExpanded((prev) => {
+            const next = new Set(prev);
+            next.add(parent.path);
+            for (const path of ancestorPaths(parent.path)) next.add(path);
+            return next;
+          });
+        }
+      }
+      setItemsByCat({});
+      setKitsByCat({});
+      void loadItems();
+      void loadKits();
+      void loadCats();
+    } finally {
+      setBulkBusy(false);
     }
   }
 
@@ -1630,7 +1828,14 @@ export function CatalogAdmin() {
     const isRenaming = renamingId === cat.id;
     const isDropTarget = dropTargetId === cat.id && dragging != null;
     const isSameCategory =
-      dragging != null && dragging.categoryId === cat.id;
+      dragging != null &&
+      dragging.kind !== "folder" &&
+      dragging.categoryId === cat.id;
+    const folderBlocked =
+      dragging?.kind === "folder" &&
+      isFolderDropBlocked(categories, dragging.categoryIds, cat, dropZone);
+    const draggingFolder =
+      dragging?.kind === "folder" && dragging.categoryIds.includes(cat.id);
     const kitCount = cat._count.kits ?? 0;
     const canExpand =
       kids.length > 0 || cat._count.items > 0 || kitCount > 0;
@@ -1653,13 +1858,21 @@ export function CatalogAdmin() {
           onDragLeave={(e) => onCategoryDragLeave(e, cat.id)}
           onDrop={(e) => void onCategoryDrop(e, cat)}
           className={`group relative z-[1] flex items-center gap-0.5 rounded-md transition-colors ${
-            isDropTarget && !isSameCategory
-              ? "bg-[var(--accent)]/15 ring-2 ring-[var(--accent)] ring-inset"
-              : isDropTarget && isSameCategory
-                ? "bg-[var(--selected)] opacity-60"
-                : isSelected
-                  ? "bg-[var(--selected)]"
-                  : "hover:bg-[var(--header-hover)]"
+            foldersUnlocked && !isRenaming ? "cursor-grab active:cursor-grabbing" : ""
+          } ${draggingFolder ? "opacity-40" : ""} ${
+            isDropTarget && folderBlocked
+              ? "bg-[var(--selected)] opacity-60"
+              : isDropTarget && dragging?.kind === "folder" && dropZone === "before"
+                ? "shadow-[inset_0_2px_0_0_var(--accent)]"
+                : isDropTarget && dragging?.kind === "folder" && dropZone === "after"
+                  ? "shadow-[inset_0_-2px_0_0_var(--accent)]"
+                  : isDropTarget && !isSameCategory
+                    ? "bg-[var(--accent)]/15 ring-2 ring-[var(--accent)] ring-inset"
+                    : isDropTarget && isSameCategory
+                      ? "bg-[var(--selected)] opacity-60"
+                      : isSelected
+                        ? "bg-[var(--selected)]"
+                        : "hover:bg-[var(--header-hover)]"
           }`}
           style={{ paddingLeft: depth * TREE_INDENT }}
         >
@@ -1692,10 +1905,20 @@ export function CatalogAdmin() {
           ) : (
             <button
               type="button"
+              draggable={foldersUnlocked}
+              onDragStart={(e) => {
+                e.stopPropagation();
+                startFolderDrag(e, cat);
+              }}
+              onDragEnd={endDrag}
+              onDragOver={(e) => onCategoryDragOver(e, cat)}
+              onDragLeave={(e) => onCategoryDragLeave(e, cat.id)}
+              onDrop={(e) => void onCategoryDrop(e, cat)}
               onClick={() => selectFolder(cat.path)}
+              title={foldersUnlocked ? "Перетащите раздел" : undefined}
               className={`min-w-0 flex-1 truncate py-1.5 text-left font-semibold text-[var(--ink)] ${
                 depth >= 2 ? "text-xs" : "text-sm"
-              }`}
+              } ${foldersUnlocked ? "cursor-grab active:cursor-grabbing" : ""}`}
             >
               {cat.name}
             </button>
@@ -1883,6 +2106,7 @@ export function CatalogAdmin() {
       const oa = order[a.kind];
       const ob = order[b.kind];
       if (oa !== ob) return oa - ob;
+      if (a.kind === "folder" || b.kind === "folder") return 0;
       const sa = "sortName" in a ? a.sortName : "";
       const sb = "sortName" in b ? b.sortName : "";
       return sa.localeCompare(sb, "ru");
@@ -1956,11 +2180,26 @@ export function CatalogAdmin() {
         price?: string;
         qty?: ReactNode;
         actions?: ReactNode;
+        draggable?: boolean;
+        onDragStart?: (e: DragEvent) => void;
+        onDragEnd?: () => void;
+        onDragOver?: (e: DragEvent) => void;
+        onDragLeave?: (e: DragEvent) => void;
+        onDrop?: (e: DragEvent) => void;
+        className?: string;
       },
     ) => (
       <li
         key={key}
-        className={`px-3 py-2.5 ${opts.checked ? "bg-[var(--selected)]/40" : ""}`}
+        draggable={opts.draggable}
+        onDragStart={opts.onDragStart}
+        onDragEnd={opts.onDragEnd}
+        onDragOver={opts.onDragOver}
+        onDragLeave={opts.onDragLeave}
+        onDrop={opts.onDrop}
+        className={`px-3 py-2.5 ${opts.className ?? ""} ${
+          opts.draggable ? "cursor-grab active:cursor-grabbing" : ""
+        } ${opts.checked ? "bg-[var(--selected)]/40" : ""}`}
       >
         <div className="flex items-start gap-2.5">
           {opts.onCheck ? (
@@ -2006,14 +2245,41 @@ export function CatalogAdmin() {
 
     if (row.kind === "folder") {
       const { cat } = row;
+      const isDropTarget = dropTargetId === cat.id && dragging != null;
+      const folderBlocked =
+        dragging?.kind === "folder" &&
+        isFolderDropBlocked(categories, dragging.categoryIds, cat, dropZone);
       return shell(`m-folder-${cat.id}`, {
         checked: selectedCategoryIds.has(cat.id),
         onCheck: () => toggleCategorySelected(cat.id),
+        onDragOver: (e) => onCategoryDragOver(e, cat),
+        onDragLeave: (e) => onCategoryDragLeave(e, cat.id),
+        onDrop: (e) => void onCategoryDrop(e, cat),
+        className:
+          dragging?.kind === "folder" && dragging.categoryIds.includes(cat.id)
+            ? "opacity-40"
+            : isDropTarget && folderBlocked
+              ? "opacity-60"
+              : isDropTarget && dragging?.kind === "folder" && dropZone === "before"
+                ? "shadow-[inset_0_2px_0_0_var(--accent)]"
+                : isDropTarget && dragging?.kind === "folder" && dropZone === "after"
+                  ? "shadow-[inset_0_-2px_0_0_var(--accent)]"
+                  : isDropTarget
+                    ? "bg-[var(--accent)]/15"
+                    : "",
         glyph: <TypeGlyph kind="folder" />,
         title: (
           <button
             type="button"
-            className="text-left font-semibold text-[var(--ink)]"
+            draggable={foldersUnlocked && renamingId !== cat.id}
+            onDragStart={(e) => {
+              e.stopPropagation();
+              startFolderDrag(e, cat);
+            }}
+            onDragEnd={endDrag}
+            className={`text-left font-semibold text-[var(--ink)] ${
+              foldersUnlocked ? "cursor-grab active:cursor-grabbing" : ""
+            }`}
             onClick={() => selectFolder(cat.path)}
           >
             {cat.name}
@@ -2182,7 +2448,9 @@ export function CatalogAdmin() {
       <>
         {dragging && (
           <p className="mx-3 mt-2 rounded-md bg-[var(--accent)]/10 px-2 py-1.5 text-xs text-[var(--accent)]">
-            Отпустите на раздел, чтобы переместить «{dragging.name}»
+            {dragging.kind === "folder"
+              ? `«${dragging.name}»: середина раздела — внутрь, край — рядом`
+              : `Отпустите на раздел, чтобы переместить «${dragging.name}»`}
           </p>
         )}
         <div className="border-b border-[var(--line)] px-3 py-2">
@@ -2201,7 +2469,16 @@ export function CatalogAdmin() {
         <button
           type="button"
           onClick={() => selectFolder("")}
-          className={`mx-2 mt-2 rounded-md px-2 py-1.5 text-left text-sm ${!selectedPath && !selectedItemId && !selectedKitId ? "bg-[var(--selected)]" : "hover:bg-[var(--header-hover)]"}`}
+          onDragOver={onRootDragOver}
+          onDragLeave={(e) => onCategoryDragLeave(e, "root")}
+          onDrop={(e) => void onRootDrop(e)}
+          className={`mx-2 mt-2 rounded-md px-2 py-1.5 text-left text-sm ${
+            dropTargetId === "root" && dragging?.kind === "folder"
+              ? "bg-[var(--accent)]/15 ring-2 ring-inset ring-[var(--accent)]"
+              : !selectedPath && !selectedItemId && !selectedKitId
+                ? "bg-[var(--selected)]"
+                : "hover:bg-[var(--header-hover)]"
+          }`}
         >
           Все разделы
         </button>
@@ -2352,6 +2629,11 @@ export function CatalogAdmin() {
                   {tableRows.length}
                 </span>
               </button>
+              <CatalogFolderLockButton
+                unlocked={foldersUnlocked}
+                disabled={bulkBusy}
+                onToggle={toggleFolderMove}
+              />
               <Button
                 variant="secondary"
                 onClick={() => setMobileMoreOpen(true)}
@@ -2412,6 +2694,11 @@ export function CatalogAdmin() {
                 onPrintQr={printSelectedQr}
                 onRename={renameSelectedFolder}
               />
+              <CatalogFolderLockButton
+                unlocked={foldersUnlocked}
+                disabled={bulkBusy}
+                onToggle={toggleFolderMove}
+              />
               <CatalogExportMenu
                 csvBusy={csvBusy}
                 onExportCsv={() => void exportCsv()}
@@ -2421,6 +2708,19 @@ export function CatalogAdmin() {
               />
             </div>
           </div>
+
+          {foldersUnlocked || folderMoveError ? (
+            <p
+              className={`border-b border-[var(--line)] px-4 py-2 text-xs ${
+                folderMoveError
+                  ? "text-[var(--danger)]"
+                  : "text-[var(--accent)]"
+              }`}
+            >
+              {folderMoveError ||
+                "Разделы разблокированы. Перетащите папку: середина — внутрь, край строки — рядом, «Все разделы» — в корень."}
+            </p>
+          ) : null}
 
           {sectionDraft !== null ? (
             <form
@@ -2623,13 +2923,43 @@ export function CatalogAdmin() {
                     if (row.kind === "folder") {
                       const { cat } = row;
                       const isRenaming = renamingId === cat.id;
+                      const isDropTarget =
+                        dropTargetId === cat.id && dragging != null;
+                      const folderBlocked =
+                        dragging?.kind === "folder" &&
+                        isFolderDropBlocked(
+                          categories,
+                          dragging.categoryIds,
+                          cat,
+                          dropZone,
+                        );
+                      const draggingFolder =
+                        dragging?.kind === "folder" &&
+                        dragging.categoryIds.includes(cat.id);
                       return (
                         <tr
                           key={`folder-${cat.id}`}
+                          onDragOver={(e) => onCategoryDragOver(e, cat)}
+                          onDragLeave={(e) => onCategoryDragLeave(e, cat.id)}
+                          onDrop={(e) => void onCategoryDrop(e, cat)}
                           className={`border-t border-[var(--line)] hover:bg-[var(--panel-muted)] ${
-                            selectedCategoryIds.has(cat.id)
-                              ? "bg-[var(--selected)]/40"
-                              : ""
+                            draggingFolder ? "opacity-40" : ""
+                          } ${
+                            isDropTarget && folderBlocked
+                              ? "opacity-60"
+                              : isDropTarget &&
+                                  dragging?.kind === "folder" &&
+                                  dropZone === "before"
+                                ? "shadow-[inset_0_2px_0_0_var(--accent)]"
+                                : isDropTarget &&
+                                    dragging?.kind === "folder" &&
+                                    dropZone === "after"
+                                  ? "shadow-[inset_0_-2px_0_0_var(--accent)]"
+                                  : isDropTarget
+                                    ? "bg-[var(--accent)]/15"
+                                    : selectedCategoryIds.has(cat.id)
+                                      ? "bg-[var(--selected)]/40"
+                                      : ""
                           }`}
                         >
                           <td className="px-2 py-2 text-center">
@@ -2661,7 +2991,25 @@ export function CatalogAdmin() {
                             ) : (
                               <button
                                 type="button"
-                                className="inline-flex items-center gap-2 font-semibold text-[var(--ink)] hover:underline"
+                                draggable={foldersUnlocked}
+                                onDragStart={(e) => {
+                                  e.stopPropagation();
+                                  startFolderDrag(e, cat);
+                                }}
+                                onDragEnd={endDrag}
+                                onDragOver={(e) => onCategoryDragOver(e, cat)}
+                                onDragLeave={(e) => onCategoryDragLeave(e, cat.id)}
+                                onDrop={(e) => void onCategoryDrop(e, cat)}
+                                title={
+                                  foldersUnlocked
+                                    ? "Перетащите раздел"
+                                    : undefined
+                                }
+                                className={`inline-flex items-center gap-2 font-semibold text-[var(--ink)] hover:underline ${
+                                  foldersUnlocked
+                                    ? "cursor-grab active:cursor-grabbing"
+                                    : ""
+                                }`}
                                 onClick={() => selectFolder(cat.path)}
                               >
                                 <TypeGlyph kind="folder" />
@@ -3100,8 +3448,8 @@ export function CatalogAdmin() {
         </label>
         <label className="mt-3 block text-sm">
           <span className="text-[var(--muted)]">Комментарий</span>
-          <textarea
-            className="field mt-1 min-h-24"
+          <AutoTextarea
+            className="field mt-1"
             placeholder="Что случилось, где, когда…"
             value={writeOffComment}
             onChange={(e) => setWriteOffComment(e.target.value)}

@@ -25,11 +25,11 @@ import {
 } from "@/components/CalendarEntryFormModal";
 import { CalendarEntryModal } from "@/components/CalendarEntryModal";
 import { useLayoutDensity } from "@/components/LayoutDensityProvider";
+import { OwnerTagsPicker } from "@/components/OwnerTagsPicker";
 import { ProjectModal } from "@/components/ProjectModal";
 import { Button, DrawerCloseButton, SideDrawer } from "@/components/ui";
 import {
   LIFECYCLE_LABELS,
-  LIFECYCLE_STATUSES,
   lifecycleColor,
   type LifecycleStatus,
 } from "@/components/ui/Badge";
@@ -52,6 +52,12 @@ import { CALENDAR_WEEK_ROWS, buildWeeks } from "@/lib/calendar-weeks";
 import { usePermissions } from "@/components/PermissionProvider";
 import { canOpenCalendarCreateMenu } from "@/lib/roles";
 import {
+  CATALOG_OWNER_VALUES,
+  quoteCalendarCompanies,
+  type CatalogOwnerValue,
+} from "@/lib/catalog-owner";
+import { resolveEventColor } from "@/lib/event-color";
+import {
   persistCalendarView,
   readStoredCalendarView,
 } from "@/lib/view-position";
@@ -71,6 +77,11 @@ type Quote = {
   lifecycle: LifecycleStatus;
   invoiceRequired: boolean;
   paid: boolean;
+  calendarOwners?: CatalogOwnerValue[];
+  owner?: {
+    owners?: CatalogOwnerValue[];
+    eventColor?: string | null;
+  } | null;
   staffVacantCount?: number;
   staffVacant?: string;
   brief?: string;
@@ -102,6 +113,7 @@ type CalItem =
       quote: Quote;
       label: string;
       color: string;
+      ink: string;
       subtitle: string;
     }
   | {
@@ -146,24 +158,24 @@ type CalendarDensity = {
 
 const DENSITY_TIMETREE: CalendarDensity = {
   maxLanes: 6,
-  laneHeight: 14,
+  laneHeight: 17,
   laneGap: 1,
   dayNumHeight: 20,
   overflowRow: 0,
 };
 
-const MOBILE_LANE_MIN = 12;
-const MOBILE_LANE_MAX = 18;
+const MOBILE_LANE_MIN = 14;
+const MOBILE_LANE_MAX = 22;
 
 const DENSITY_TIMETREE_DESKTOP: CalendarDensity = {
   maxLanes: 6,
-  laneHeight: 20,
+  laneHeight: 24,
   laneGap: 3,
   dayNumHeight: 30,
   overflowRow: 18,
 };
 
-const LIFE_FILTERS = LIFECYCLE_STATUSES;
+const LIFE_FILTERS = ["CALCULATED"] as const satisfies readonly LifecycleStatus[];
 
 const KIND_FILTERS = ["RENTAL", "TASK", "DAY_OFF"] as const satisfies readonly CalendarEntryKind[];
 
@@ -178,6 +190,7 @@ const FILTERS_STORAGE_KEY = "calendar.filters";
 type CalendarFilters = {
   lifecycles: Record<LifecycleStatus, boolean>;
   kinds: Record<CalendarEntryKind, boolean>;
+  companies: Record<CatalogOwnerValue, boolean>;
 };
 
 function defaultFilters(hideDayOffs = false): CalendarFilters {
@@ -185,13 +198,18 @@ function defaultFilters(hideDayOffs = false): CalendarFilters {
     lifecycles: {
       CALCULATED: true,
       CONFIRMED: true,
-      CANCELLED: true,
-      COMPLETED: true,
+      CANCELLED: false,
+      COMPLETED: false,
     },
     kinds: {
       RENTAL: true,
       TASK: true,
       DAY_OFF: !hideDayOffs,
+    },
+    companies: {
+      SHOW_MASTER: true,
+      DIAKOM: true,
+      NE_EVENT: true,
     },
   };
 }
@@ -201,10 +219,15 @@ function readStoredFilters(): CalendarFilters {
     const hideDayOffs = localStorage.getItem("calendar.hideDayOffs") === "1";
     const raw = localStorage.getItem(FILTERS_STORAGE_KEY);
     if (!raw) return defaultFilters(hideDayOffs);
-    const data = JSON.parse(raw) as Partial<CalendarFilters>;
+    const data = JSON.parse(raw) as {
+      lifecycles?: Partial<Record<LifecycleStatus, boolean>>;
+      kinds?: Partial<Record<CalendarEntryKind, boolean>>;
+      companies?: Partial<Record<CatalogOwnerValue, boolean>>;
+    };
     const base = defaultFilters(hideDayOffs);
     const lifecycles = { ...base.lifecycles };
     const kinds = { ...base.kinds };
+    const companies = { ...base.companies };
     if (data.lifecycles && typeof data.lifecycles === "object") {
       for (const k of LIFE_FILTERS) {
         if (typeof data.lifecycles[k] === "boolean") lifecycles[k] = data.lifecycles[k];
@@ -215,7 +238,12 @@ function readStoredFilters(): CalendarFilters {
         if (typeof data.kinds[k] === "boolean") kinds[k] = data.kinds[k];
       }
     }
-    return { lifecycles, kinds };
+    if (data.companies && typeof data.companies === "object") {
+      for (const k of CATALOG_OWNER_VALUES) {
+        if (typeof data.companies[k] === "boolean") companies[k] = data.companies[k];
+      }
+    }
+    return { lifecycles, kinds, companies };
   } catch {
     return defaultFilters();
   }
@@ -240,6 +268,7 @@ function FilterChip({
   onToggle,
   showLabel,
   outlined,
+  title,
 }: {
   label: string;
   color: string;
@@ -247,13 +276,14 @@ function FilterChip({
   onToggle: () => void;
   showLabel: boolean;
   outlined?: boolean;
+  title?: string;
 }) {
   return (
     <button
       type="button"
       aria-pressed={active}
-      aria-label={showLabel ? undefined : label}
-      title={label}
+      aria-label={showLabel ? undefined : title ?? label}
+      title={title ?? label}
       onClick={onToggle}
       className={cn(
         "inline-flex items-center justify-center rounded-full transition-opacity hover:text-[var(--ink)]",
@@ -311,27 +341,42 @@ function calendarQuoteStatus(q: Pick<Quote, "lifecycle" | "paid">): LifecycleSta
 }
 
 function calendarStatusColor(status: LifecycleStatus): string {
-  if (status === "CONFIRMED") return "var(--accent)";
+  if (status === "CONFIRMED") return "var(--cal-green)";
   if (status === "CALCULATED") return "var(--ink)";
   if (status === "COMPLETED") return "var(--cal-completed)";
   return lifecycleColor(status);
 }
 
-function calendarBarKind(
-  status: LifecycleStatus,
-): "is-confirmed" | "is-calculated" | "is-completed" | "" {
-  if (status === "CONFIRMED") return "is-confirmed";
-  if (status === "CALCULATED") return "is-calculated";
-  if (status === "COMPLETED") return "is-completed";
+function calendarItemBarKind(item: CalItem): string {
+  if (item.type === "entry" && item.entry.kind === "RENTAL") return "is-rental";
+  if (item.type === "entry" && item.entry.kind === "TASK") return "is-task";
   return "";
 }
 
-function calendarItemBarKind(item: CalItem): string {
-  if (item.type === "entry" && item.entry.kind === "RENTAL") return "is-rental";
-  if (item.type === "quote") {
-    return calendarBarKind(calendarQuoteStatus(item.quote));
+function quoteEventPaint(
+  item: Extract<CalItem, { type: "quote" }>,
+  vacant: boolean,
+): {
+  background: string;
+  color: string;
+  border?: string;
+  boxShadow?: string;
+} {
+  const calculated = calendarQuoteStatus(item.quote) === "CALCULATED";
+  if (calculated) {
+    return {
+      background: "var(--panel)",
+      color: "var(--ink)",
+      border: `1px solid ${item.color}`,
+      boxShadow: vacant
+        ? "inset 0 0 0 2px #fff"
+        : "inset 0 0 0 1px var(--bg)",
+    };
   }
-  return "";
+  return {
+    background: item.color,
+    color: item.ink,
+  };
 }
 
 function quoteLabel(q: Quote) {
@@ -653,6 +698,7 @@ function DayAgendaPage({
             const quoteStatus =
               item.type === "quote" ? calendarQuoteStatus(item.quote) : null;
             const stripeKind = calendarItemBarKind(item);
+            const calculated = quoteStatus === "CALCULATED";
             const statusLabel =
               item.type === "quote"
                 ? LIFECYCLE_LABELS[quoteStatus ?? item.quote.lifecycle]
@@ -671,14 +717,21 @@ function DayAgendaPage({
                   <span
                     className={cn(
                       "w-1.5 shrink-0 self-stretch rounded-full",
-                      stripeKind === "is-calculated" &&
-                        "border border-[var(--ink)] bg-[var(--panel)] shadow-[inset_0_0_0_1px_var(--bg)]",
-                      stripeKind === "is-confirmed" && "bg-[var(--accent)]",
-                      stripeKind === "is-completed" &&
-                        "bg-[var(--cal-completed)]",
                       stripeKind === "is-rental" && "bg-[var(--cal-rental)]",
+                      stripeKind === "is-task" && "bg-[var(--cal-task)]",
                     )}
-                    style={stripeKind ? undefined : { background: item.color }}
+                    style={
+                      item.type === "quote"
+                        ? calculated
+                          ? {
+                              background: "var(--panel)",
+                              boxShadow: `inset 0 0 0 1.5px ${item.color}`,
+                            }
+                          : { background: item.color }
+                        : stripeKind
+                          ? undefined
+                          : { background: item.color }
+                    }
                   />
                   <span className="w-[4.5rem] shrink-0 pt-0.5 text-[11px] leading-tight text-[var(--muted)]">
                     {itemTimeLabel(item)}
@@ -1071,6 +1124,10 @@ function MonthWeeks({
                     ? quoteStaffHint(seg.item.quote)
                     : "";
                 const barKind = calendarItemBarKind(seg.item);
+                const quotePaint =
+                  seg.item.type === "quote"
+                    ? quoteEventPaint(seg.item, vacant)
+                    : null;
                 const startOutside = week[seg.startCol]!.getMonth() !== month;
                 const endOutside =
                   week[seg.startCol + seg.span - 1]!.getMonth() !== month;
@@ -1087,7 +1144,14 @@ function MonthWeeks({
                   height: density.laneHeight,
                   lineHeight: `${density.laneHeight}px`,
                   fontSize: barFont,
-                  background: barKind ? undefined : seg.item.color,
+                  background: quotePaint
+                    ? quotePaint.background
+                    : barKind
+                      ? undefined
+                      : seg.item.color,
+                  color: quotePaint?.color,
+                  border: quotePaint?.border,
+                  boxShadow: quotePaint?.boxShadow,
                   borderRadius: `${radiusLeft} ${radiusRight} ${radiusRight} ${radiusLeft}`,
                   opacity: startOutside && endOutside ? 0.45 : 1,
                 };
@@ -1209,6 +1273,18 @@ export function CalendarView() {
     });
   }
 
+  function setCompanies(owners: CatalogOwnerValue[]) {
+    setFilters((prev) => {
+      const companies = { ...prev.companies };
+      for (const value of CATALOG_OWNER_VALUES) {
+        companies[value] = owners.includes(value);
+      }
+      const next = { ...prev, companies };
+      persistFilters(next);
+      return next;
+    });
+  }
+
   function toggleDash() {
     setDashMotion(true);
     setDashOpen((prev) => {
@@ -1317,7 +1393,19 @@ export function CalendarView() {
     const list: CalItem[] = [];
     for (const q of quotes) {
       const status = calendarQuoteStatus(q);
-      if (!filters.lifecycles[status]) continue;
+      if (status === "CANCELLED" || status === "COMPLETED") continue;
+      if (status === "CALCULATED" && !filters.lifecycles.CALCULATED) continue;
+      const companies = quoteCalendarCompanies(
+        q.calendarOwners,
+        q.owner?.owners,
+      );
+      if (
+        companies.length > 0 &&
+        !companies.some((c) => filters.companies[c])
+      ) {
+        continue;
+      }
+      const tone = resolveEventColor(q.owner?.eventColor, q.owner?.owners);
       const eventStart = q.eventDate
         ? startOfDay(new Date(q.eventDate))
         : parseEventDate(q.date);
@@ -1349,7 +1437,8 @@ export function CalendarView() {
         start,
         end,
         label: quoteLabel(q),
-        color: calendarStatusColor(status),
+        color: tone.fill || calendarStatusColor(status),
+        ink: tone.ink,
         subtitle: quoteBriefPreview(q.brief),
       });
     }
@@ -1793,6 +1882,14 @@ export function CalendarView() {
             outlined={status === "CALCULATED"}
           />
         ))}
+        <span className="mx-0.5 h-3 w-px shrink-0 bg-[var(--line)]" aria-hidden />
+        <OwnerTagsPicker
+          label=""
+          compact
+          value={CATALOG_OWNER_VALUES.filter((value) => filters.companies[value])}
+          onChange={setCompanies}
+        />
+        <span className="mx-0.5 h-3 w-px shrink-0 bg-[var(--line)]" aria-hidden />
         {KIND_FILTERS.map((kind) => (
           <FilterChip
             key={kind}

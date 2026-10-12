@@ -13,7 +13,7 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { DateRangePicker } from "@/components/DateRangePicker";
 import { DuplicateQuoteModal } from "@/components/QuoteTemplateActions";
 import { SideDrawer } from "@/components/ui/SideDrawer";
-import { PeekHeader, lifecycleLabel } from "@/components/ui";
+import { AutoTextarea, PeekHeader, lifecycleLabel } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { unscheduleQuotePatch } from "@/lib/calendar-event-actions";
 import {
@@ -907,8 +907,8 @@ export function ProjectModal({
                   </div>
                   {canEditBriefNow ? (
                     <>
-                      <textarea
-                        className="field min-h-[96px] resize-y"
+                      <AutoTextarea
+                        className="field"
                         placeholder="Кратко опишите задачу…"
                         value={brief}
                         onChange={(e) => {

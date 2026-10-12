@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import {
   filterIdsOutsideMovedFolders,
+  folderDropZone,
+  isFolderDropBlocked,
   planCategoryMoves,
+  planSiblingOrder,
+  relocatedSelectionPath,
   rewriteDescendantPath,
   topLevelSelectedCategories,
 } from "./catalog-move";
@@ -98,4 +102,39 @@ assert.deepEqual(
     ["Каталог/Трансляция Online/IMAG"],
   ),
   ["sibling"],
+);
+
+assert.equal(folderDropZone(10, 0, 100), "before");
+assert.equal(folderDropZone(50, 0, 100), "into");
+assert.equal(folderDropZone(90, 0, 100), "after");
+
+assert.equal(
+  isFolderDropBlocked(cats, ["imag"], { id: "cams", path: cats[3].path }, "into"),
+  true,
+);
+assert.equal(
+  isFolderDropBlocked(cats, ["imag"], { id: "sound", path: cats[4].path }, "into"),
+  false,
+);
+assert.equal(isFolderDropBlocked(cats, ["online"], null, "into"), false);
+
+assert.deepEqual(
+  planSiblingOrder(["a", "b", "c", "d"], ["a", "c"], "d", "before"),
+  ["b", "a", "c", "d"],
+);
+assert.deepEqual(
+  planSiblingOrder(["a", "b", "c"], ["x"], "b", "after"),
+  ["a", "b", "x", "c"],
+);
+
+assert.equal(
+  relocatedSelectionPath("Каталог/Трансляция Online/IMAG/Камеры", [
+    {
+      id: "imag",
+      parentId: "sound",
+      oldPath: "Каталог/Трансляция Online/IMAG",
+      newPath: "Каталог/Звук/IMAG",
+    },
+  ]),
+  "Каталог/Звук/IMAG/Камеры",
 );

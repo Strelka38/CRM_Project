@@ -38,4 +38,5 @@ export { Skeleton, TableSkeleton, CalendarSkeleton } from "./Skeleton";
 export { EmptyState } from "./EmptyState";
 export { NavLink } from "./NavLink";
 export { PriceInput } from "./PriceInput";
+export { AutoTextarea } from "./AutoTextarea";
 export { SortableTh, useTableSort } from "./SortableTh";

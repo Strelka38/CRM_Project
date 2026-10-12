@@ -17,6 +17,7 @@ import {
   lifecycleLabel,
 } from "@/components/ui";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { QuoteImportModal } from "@/components/QuoteImportModal";
 import { DateRangePicker } from "@/components/DateRangePicker";
 import { CreateFromTemplateModal } from "@/components/QuoteTemplateActions";
 import {
@@ -118,8 +119,13 @@ export default function QuotesPage() {
   const [csvBusy, setCsvBusy] = useState(false);
   const [csvMessage, setCsvMessage] = useState("");
   const [importNotice, setImportNotice] = useState("");
+  const [importOpen, setImportOpen] = useState(false);
   const csvImportRef = useRef<HTMLInputElement>(null);
   const excelImportRef = useRef<HTMLInputElement>(null);
+  const importChoice = useRef<{ source: "excel" | "golova"; cashless: boolean }>({
+    source: "excel",
+    cashless: true,
+  });
 
   async function load() {
     try {
@@ -309,6 +315,8 @@ export default function QuotesPage() {
     try {
       const form = new FormData();
       for (const file of files) form.append("file", file);
+      form.append("source", importChoice.current.source);
+      form.append("cashless", importChoice.current.cashless ? "1" : "0");
       const res = await fetch("/api/quotes/import-excel", {
         method: "POST",
         body: form,
@@ -470,11 +478,11 @@ export default function QuotesPage() {
                         onSelect: () => setFromTemplateOpen(true),
                       },
                       {
-                        label: creating ? "Импортируем…" : "Из Excel",
-                        hint: "Можно выбрать несколько файлов",
+                        label: creating ? "Импортируем…" : "Импорт сметы",
+                        hint: "Голова или Excel, нал или безнал",
                         icon: <IconExcel />,
                         disabled: creating,
-                        onSelect: () => excelImportRef.current?.click(),
+                        onSelect: () => setImportOpen(true),
                       },
                     ],
                   },
@@ -524,14 +532,10 @@ export default function QuotesPage() {
                 onClick={() => setFromTemplateOpen(true)}
               />
               <DirectoryAddButton
-                title={
-                  creating
-                    ? "Импортируем…"
-                    : "Из Excel — можно выбрать несколько файлов"
-                }
+                title={creating ? "Импортируем…" : "Импорт сметы"}
                 icon={<IconExcel />}
                 disabled={creating}
-                onClick={() => excelImportRef.current?.click()}
+                onClick={() => setImportOpen(true)}
               />
             </>
           ) : null}
@@ -815,6 +819,19 @@ export default function QuotesPage() {
         onConfirm={removeQuote}
         onCancel={() => setPendingDelete([])}
       />
+
+      {isManager && (
+        <QuoteImportModal
+          open={importOpen}
+          busy={creating}
+          onClose={() => setImportOpen(false)}
+          onConfirm={(choice) => {
+            importChoice.current = choice;
+            setImportOpen(false);
+            excelImportRef.current?.click();
+          }}
+        />
+      )}
 
       {isManager && (
         <CreateFromTemplateModal

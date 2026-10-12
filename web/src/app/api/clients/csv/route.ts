@@ -7,6 +7,7 @@ import {
   parseClientCsv,
 } from "@/lib/directory-csv";
 import { requireDatabaseAccess } from "@/lib/session";
+import { upsertFlatLegalEntity } from "@/lib/client-legal";
 
 const clientSelect = {
   id: true,
@@ -76,11 +77,23 @@ export async function POST(req: NextRequest) {
           });
           if (existing) {
             await prisma.client.update({ where: { id: r.id }, data });
+            await upsertFlatLegalEntity(r.id, {
+              name: r.companyName,
+              inn: r.inn,
+              legalAddress: r.legalAddress,
+              legalDetails: r.legalDetails,
+            });
             updated += 1;
             continue;
           }
         }
-        await prisma.client.create({ data });
+        const row = await prisma.client.create({ data });
+        await upsertFlatLegalEntity(row.id, {
+          name: r.companyName,
+          inn: r.inn,
+          legalAddress: r.legalAddress,
+          legalDetails: r.legalDetails,
+        });
         created += 1;
       } catch (err) {
         rowErrors.push(

@@ -140,6 +140,8 @@ model User {
   agencyPercent Float            @default(5)
   /// К каким фирмам относится сотрудник (ШМ / ДК / NE) — для учёта ЗП в доходности
   owners        CatalogOwner[]   @default([])
+  /// Цвет мероприятий менеджера в календаре. Пусто = цвет первой фирмы.
+  eventColor    String           @default("")
   /// IANA, по умолчанию Иркутск (UTC+8)
   timezone      String           @default("Asia/Irkutsk")
   weatherPlace  WeatherPlace     @default(IRKUTSK)
@@ -443,8 +445,26 @@ model Client {
   updatedAt       DateTime        @updatedAt
   quotes          Quote[]
   calendarEntries CalendarEntry[]
+  legalEntities   ClientLegalEntity[]
 
   @@index([companyName])
+  @@index([inn])
+}
+
+/// Юрлицо заказчика. У одной компании (торговое имя в Client.companyName) их может быть несколько: ООО и ИП.
+model ClientLegalEntity {
+  id           String   @id @default(cuid())
+  clientId     String
+  client       Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  name         String
+  inn          String   @default("")
+  legalAddress String   @default("")
+  legalDetails String   @default("")
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([clientId])
   @@index([inn])
 }
 
@@ -629,6 +649,8 @@ model Quote {
   brief           String            @default("")
   discountPercent Float             @default(0)
   lifecycle       QuoteLifecycle    @default(CALCULATED)
+  /// В каком календаре показывать мероприятие (ШМ / ДК / NE). Пусто = конторы менеджера.
+  calendarOwners  CatalogOwner[]    @default([])
   invoiceRequired Boolean           @default(false)
   invoiceSent     Boolean           @default(false)
   paid            Boolean           @default(false)
@@ -658,12 +680,24 @@ model Quote {
   snapshots          QuoteSnapshot[]
   auditEvents        QuoteAuditEvent[]
   specRevisions      SpecRevision[]
+  /// Публичная ссылка на КП. Снимается, когда статус становится «Завершено».
+  share              QuoteShare?
 
   @@index([ownerId])
   @@index([eventDate])
   @@index([lifecycle])
   @@index([clientId])
   @@index([venueId])
+}
+
+/// Публичная ссылка на коммерческое предложение. Одна на смету.
+model QuoteShare {
+  quoteId   String   @id
+  quote     Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  filters   Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 /// Доля компании в калькуляции сметы (когда sharesCustom = true)
@@ -738,6 +772,8 @@ model QuoteZone {
   active    Boolean      @default(true)
   /// 1-based дни мероприятия, когда зона работает. Пусто = все дни.
   workingDayIndexes Int[] @default([])
+  /// Коэффициент, скидка по видам (аренда / расходники / услуги) и налоги листа.
+  pricing   Json         @default("{}")
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
   blocks      QuoteBlock[]

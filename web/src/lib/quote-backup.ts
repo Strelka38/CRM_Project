@@ -26,6 +26,7 @@ import {
 } from "@/lib/database-backup-format";
 import { parseLifecycleStatus } from "@/lib/lifecycle";
 import { DEFAULT_CASHLESS_PERCENT } from "@/lib/pricing";
+import { parseZonePricing } from "@/lib/zone-pricing";
 import {
   defaultDemountDate,
   defaultMountDate,
@@ -405,6 +406,7 @@ async function importQuotes(
       invoiceSent: bool(rec.invoiceSent, false),
       paid: bool(rec.paid, false),
       paymentComment: str(rec.paymentComment),
+      calendarOwners: ownersOf(rec.calendarOwners),
       sharesCustom: bool(rec.sharesCustom, false),
       assignmentImportWatermark: asJson(rec.assignmentImportWatermark),
       ownerId,
@@ -468,6 +470,7 @@ async function importQuoteZones(
       sortOrder: int(rec.sortOrder, 0),
       active: bool(rec.active, true),
       workingDayIndexes: intList(rec.workingDayIndexes),
+      pricing: parseZonePricing(rec.pricing) as Prisma.InputJsonValue,
       createdAt: asDate(rec.createdAt),
     });
   }

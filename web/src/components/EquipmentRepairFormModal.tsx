@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Button, Modal } from "@/components/ui";
+import { Button, Modal, AutoTextarea } from "@/components/ui";
 import { EQUIPMENT_FAULT_TYPES } from "@/lib/equipment-repairs";
 
 type Props = {
@@ -88,8 +88,8 @@ export function EquipmentRepairFormModal({
         </label>
         <label className="block text-sm">
           <span className="text-[var(--muted)]">Комментарий</span>
-          <textarea
-            className="field mt-1 min-h-24"
+          <AutoTextarea
+            className="field mt-1"
             placeholder="Что случилось, где, как проявляется…"
             value={comment}
             onChange={(e) => setComment(e.target.value)}

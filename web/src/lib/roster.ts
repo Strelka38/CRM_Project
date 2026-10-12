@@ -1285,9 +1285,19 @@ export function packRosterGroupOffsets(
 }
 
 /**
- * Упаковка группы по фактической высоте в каждом столбце.
- * Демонтаж в конце не «бронирует» полную высоту мероприятия на этот день —
- * следующие события поднимаются вверх, а не уходят колбасой вниз.
+ * Сплошной блок: на каждом дне мероприятия одна и та же высота.
+ * Иначе сосед на коротком дне (монтаж/демонтаж) встаёт внутрь чужих рядов.
+ */
+export function solidRosterColumnHeights(columnHeights: number[]): number[] {
+  let max = 0;
+  for (const h of columnHeights) if (h > max) max = h;
+  if (max <= 0) return columnHeights.map(() => 0);
+  return columnHeights.map(() => max);
+}
+
+/**
+ * Упаковка группы по высоте в каждом столбце.
+ * Для мероприятия сюда приходит уже сплошной блок (`solidRosterColumnHeights`).
  */
 export function packRosterGroupSkyline(
   opts: {

@@ -4,6 +4,7 @@ import { signIn } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, Suspense, useState } from "react";
 import { BrandLogo } from "@/components/BrandLogo";
+import { useBrand } from "@/lib/use-brand";
 import { Button } from "@/components/ui/Button";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
@@ -14,6 +15,7 @@ function BrandMark({
   compact?: boolean;
   onDark?: boolean;
 }) {
+  const brand = useBrand();
   const size = compact ? 32 : 40;
   return (
     <div className={`flex items-center ${compact ? "gap-2.5" : "gap-3"}`}>
@@ -22,7 +24,12 @@ function BrandMark({
           compact ? "size-8" : "size-10"
         }`}
       >
-        <BrandLogo size={size} invertOnLight={!onDark} />
+        <BrandLogo
+          size={size}
+          invertOnLight={!onDark}
+          src={brand.crmLogoUrl}
+          alt={brand.crmName}
+        />
       </span>
       <span className="leading-none">
         <span
@@ -30,7 +37,7 @@ function BrandMark({
             onDark ? "text-[var(--login-ink)]" : "text-[var(--ink)]"
           } ${compact ? "text-sm" : "text-base"}`}
         >
-          BaikalStageGroup
+          {brand.crmName}
         </span>
         <span
           className={`mt-1 block font-mono text-caption uppercase tracking-[0.12em] ${
@@ -67,6 +74,7 @@ function LoginForm() {
   const [showDemo, setShowDemo] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const brand = useBrand();
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -121,7 +129,7 @@ function LoginForm() {
                 и календарь смен
               </h1>
               <p className="mt-5 max-w-sm text-[length:var(--fs-read)] leading-[var(--lh-read)] text-[var(--login-muted)]">
-                Панель команды BaikalStageGroup: КП, комплекты, занятость
+                Панель команды {brand.crmName}: КП, комплекты, занятость
                 площадок и выплаты — без переключения между таблицами.
               </p>
               <dl className="mt-10 grid grid-cols-2 gap-x-8 gap-y-5">
@@ -168,7 +176,7 @@ function LoginForm() {
             >
               <div className="hidden lg:block">
                 <p className="font-mono text-caption uppercase tracking-[0.1em] text-[var(--muted)]">
-                  BaikalStageGroup
+                  {brand.crmName}
                 </p>
                 <h2 className="mt-1 text-[length:var(--fs-h1)] leading-[var(--lh-h1)] font-medium tracking-tight text-[var(--ink)]">
                   Войти

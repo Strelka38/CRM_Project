@@ -14,6 +14,7 @@ import {
   syncInvoiceNotifications,
 } from "@/lib/notifications";
 import { nextProposalNumber } from "@/lib/proposal-number";
+import { ensureQuoteSchemaColumns } from "@/lib/ensure-schema";
 import {
   formatVacantRoles,
   vacantStaffLabels,
@@ -25,10 +26,59 @@ import {
   requireSession,
 } from "@/lib/session";
 
+let ensureOnce: Promise<void> | null = null;
+
+function ensureSchemaOnce() {
+  if (!ensureOnce) {
+    ensureOnce = ensureQuoteSchemaColumns().catch((e) => {
+      ensureOnce = null;
+      throw e;
+    });
+  }
+  return ensureOnce;
+}
+
 export async function GET(req: NextRequest) {
   try {
     const session = await requireSession();
+    await ensureSchemaOnce();
     await syncInvoiceNotifications();
+
+    const q = req.nextUrl.searchParams.get("q")?.trim() ?? "";
+    if (q) {
+      await requireManager();
+      const or: Array<Record<string, unknown>> = [
+        { eventName: { contains: q, mode: "insensitive" } },
+        { date: { contains: q, mode: "insensitive" } },
+        { proposalNumber: { contains: q, mode: "insensitive" } },
+        { client: { contains: q, mode: "insensitive" } },
+      ];
+      const dotted = q.match(/^(\d{1,2})[./](\d{1,2})(?:[./](\d{2,4}))?$/);
+      if (dotted) {
+        const dd = dotted[1].padStart(2, "0");
+        const mm = dotted[2].padStart(2, "0");
+        const year = dotted[3]
+          ? dotted[3].length === 2
+            ? `20${dotted[3]}`
+            : dotted[3]
+          : "";
+        or.push({ date: { contains: year ? `${year}-${mm}-${dd}` : `-${mm}-${dd}` } });
+      }
+      const hits = await prisma.quote.findMany({
+        where: { OR: or },
+        select: {
+          id: true,
+          eventName: true,
+          date: true,
+          proposalNumber: true,
+          client: true,
+          managerName: true,
+        },
+        orderBy: [{ eventDate: "desc" }, { updatedAt: "desc" }],
+        take: 40,
+      });
+      return NextResponse.json(hits);
+    }
 
     const from = req.nextUrl.searchParams.get("from");
     const to = req.nextUrl.searchParams.get("to");
@@ -71,7 +121,15 @@ export async function GET(req: NextRequest) {
           ? { eventDate: "asc" }
           : { updatedAt: "desc" },
       include: {
-        owner: { select: { id: true, name: true, email: true } },
+        owner: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            owners: true,
+            eventColor: true,
+          },
+        },
         _count: { select: { blocks: true } },
         ...(calendar
           ? {

@@ -63,6 +63,7 @@ export async function POST(
       cashlessPercent: source.cashlessPercent,
       discountPercent: source.discountPercent,
       notes: source.notes,
+      calendarOwners: source.calendarOwners,
       structure,
     });
 

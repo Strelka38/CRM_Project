@@ -104,6 +104,56 @@ function ExportIcon() {
   );
 }
 
+function IconLockClosed() {
+  return (
+    <svg viewBox="0 0 24 24" className="size-6" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
+      <rect x="5" y="11" width="14" height="9" rx="1.5" />
+      <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+    </svg>
+  );
+}
+
+function IconLockOpen() {
+  return (
+    <svg viewBox="0 0 24 24" className="size-6" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
+      <rect x="5" y="11" width="14" height="9" rx="1.5" />
+      <path d="M8 11V8a4 4 0 0 1 7.5-1.5" />
+    </svg>
+  );
+}
+
+export function CatalogFolderLockButton({
+  unlocked,
+  onToggle,
+  disabled,
+}: {
+  unlocked: boolean;
+  onToggle: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      title={
+        unlocked
+          ? "Разделы разблокированы — перетащите папку"
+          : "Включить перемещение разделов"
+      }
+      aria-label={unlocked ? "Заблокировать разделы" : "Перемещать разделы"}
+      aria-pressed={unlocked}
+      disabled={disabled}
+      onClick={onToggle}
+      className={`rounded-md p-1.5 hover:bg-[var(--header-hover)] disabled:opacity-40 ${
+        unlocked
+          ? "bg-[var(--accent)]/10 text-[var(--accent)]"
+          : "text-[var(--muted)] hover:text-[var(--ink)]"
+      }`}
+    >
+      {unlocked ? <IconLockOpen /> : <IconLockClosed />}
+    </button>
+  );
+}
+
 const toolbarBtn =
   "relative rounded-md p-1.5 text-[var(--muted)] transition-colors hover:bg-[var(--header-hover)] hover:text-[var(--ink)] disabled:opacity-40";
 

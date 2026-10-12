@@ -81,6 +81,16 @@ export function formatOwnersCsv(
     .join(";");
 }
 
+/** Конторы календаря: явные теги сметы, иначе конторы менеджера. */
+export function quoteCalendarCompanies(
+  calendarOwners: CatalogOwnerValue[] | null | undefined,
+  managerOwners: CatalogOwnerValue[] | null | undefined,
+): CatalogOwnerValue[] {
+  const tags = normalizeOwners(calendarOwners);
+  if (tags.length > 0) return tags;
+  return normalizeOwners(managerOwners);
+}
+
 export function normalizeOwners(
   owners: CatalogOwnerValue[] | null | undefined,
   legacyOwner?: CatalogOwnerValue | null,

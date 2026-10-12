@@ -13,6 +13,7 @@ import { normalizeFreelancerName } from "@/lib/freelancer-directory";
 import { DEFAULT_CASHLESS_PERCENT } from "@/lib/pricing";
 import { APP_ROLES } from "@/lib/roles";
 import { DEFAULT_TIMEZONE } from "@/lib/timezone";
+import { isEventColorId } from "@/lib/event-color";
 import { newQrToken } from "@/lib/uploads";
 import {
   DATABASE_BACKUP_KIND,
@@ -182,6 +183,7 @@ export async function collectDatabaseBackup(): Promise<DatabaseBackupFile> {
     kits,
     kitComponents,
     clients,
+    clientLegalEntities,
     freelancers,
     freelancerSpecialties,
     venues,
@@ -204,6 +206,7 @@ export async function collectDatabaseBackup(): Promise<DatabaseBackupFile> {
     prisma.kit.findMany({ orderBy: { sortOrder: "asc" } }),
     prisma.kitComponent.findMany(),
     prisma.client.findMany({ orderBy: { companyName: "asc" } }),
+    prisma.clientLegalEntity.findMany({ orderBy: [{ clientId: "asc" }, { sortOrder: "asc" }] }),
     prisma.freelancer.findMany({ orderBy: { name: "asc" } }),
     prisma.freelancerSpecialty.findMany(),
     prisma.venue.findMany({ orderBy: { name: "asc" } }),
@@ -234,6 +237,7 @@ export async function collectDatabaseBackup(): Promise<DatabaseBackupFile> {
         kits,
         kitComponents,
         clients,
+        clientLegalEntities,
         freelancers,
         freelancerSpecialties,
         venues,
@@ -284,6 +288,7 @@ export function parseDatabaseBackup(raw: unknown): DatabaseBackupFile {
       kits: rowsOf(tables.kits),
       kitComponents: rowsOf(tables.kitComponents),
       clients: rowsOf(tables.clients),
+      clientLegalEntities: rowsOf(tables.clientLegalEntities),
       freelancers: rowsOf(tables.freelancers),
       freelancerSpecialties: rowsOf(tables.freelancerSpecialties),
       venues: rowsOf(tables.venues),
@@ -379,6 +384,15 @@ export async function applyDatabaseBackup(
   );
   const clientIds = await withBackupTx((tx) =>
     importClients(tx, backup.tables.clients, counts, warnings),
+  );
+  await withBackupTx((tx) =>
+    importClientLegalEntities(
+      tx,
+      backup.tables.clientLegalEntities,
+      clientIds,
+      counts,
+      warnings,
+    ),
   );
   const freelancerIds = await withBackupTx((tx) =>
     importFreelancers(tx, backup.tables.freelancers, counts, warnings),
@@ -605,6 +619,7 @@ async function importUsers(
       agencyPercent: num(rec.agencyPercent, DEFAULT_AGENCY_PERCENT),
       canAccessPayments: bool(rec.canAccessPayments, false),
       owners: ownersOf(rec.owners),
+      eventColor: isEventColorId(str(rec.eventColor)) ? str(rec.eventColor) : "",
       timezone: str(rec.timezone, DEFAULT_TIMEZONE) || DEFAULT_TIMEZONE,
       weatherPlace: pickEnum(
         rec.weatherPlace,
@@ -626,6 +641,7 @@ async function importUsers(
         agencyPercent: profile.agencyPercent,
         canAccessPayments: profile.canAccessPayments,
         owners: profile.owners,
+        eventColor: profile.eventColor,
         timezone: profile.timezone,
         weatherPlace: profile.weatherPlace,
       };
@@ -943,6 +959,71 @@ async function importClients(
     counts.clients += 1;
   }
   return map;
+}
+
+async function importClientLegalEntities(
+  tx: Prisma.TransactionClient,
+  raw: unknown[],
+  clientIds: IdMap,
+  counts: DatabaseBackupCounts,
+  warnings: string[],
+) {
+  for (const rec of rowsOf(raw)) {
+    const id = requireId(rec);
+    const clientId = mapped(clientIds, str(rec.clientId));
+    const name = str(rec.name).trim();
+    if (!id || !clientId || !name) {
+      warnings.push("Пропущено юрлицо клиента: нет клиента или названия");
+      continue;
+    }
+    const data = {
+      clientId,
+      name,
+      inn: str(rec.inn),
+      legalAddress: str(rec.legalAddress),
+      legalDetails: str(rec.legalDetails),
+      sortOrder: int(rec.sortOrder, 0),
+    };
+    const existing = await tx.clientLegalEntity.findUnique({ where: { id } });
+    if (existing) {
+      await tx.clientLegalEntity.update({ where: { id }, data });
+    } else {
+      await tx.clientLegalEntity.create({
+        data: { id, ...data, createdAt: asDate(rec.createdAt) },
+      });
+    }
+    counts.clientLegalEntities += 1;
+  }
+
+  const pending = await tx.client.findMany({
+    where: {
+      legalEntities: { none: {} },
+      OR: [
+        { inn: { not: "" } },
+        { legalAddress: { not: "" } },
+        { legalDetails: { not: "" } },
+      ],
+    },
+    select: {
+      id: true,
+      companyName: true,
+      inn: true,
+      legalAddress: true,
+      legalDetails: true,
+    },
+  });
+  for (const c of pending) {
+    await tx.clientLegalEntity.create({
+      data: {
+        clientId: c.id,
+        name: c.companyName,
+        inn: c.inn,
+        legalAddress: c.legalAddress,
+        legalDetails: c.legalDetails,
+      },
+    });
+    counts.clientLegalEntities += 1;
+  }
 }
 
 async function importFreelancers(

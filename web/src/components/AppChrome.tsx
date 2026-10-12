@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AccountingMenu } from "@/components/AccountingMenu";
 import { BrandLogo } from "@/components/BrandLogo";
+import { useBrand } from "@/lib/use-brand";
 import { DatabaseMenu } from "@/components/DatabaseMenu";
 import { SettingsMenu } from "@/components/SettingsMenu";
 import { WarehouseMenu } from "@/components/WarehouseMenu";
@@ -29,14 +30,15 @@ export type AppChromeProps = {
 };
 
 function SidebarBrand() {
+  const brand = useBrand();
   return (
     <Link href="/calendar" className="flex items-center gap-2.5 px-1 py-1">
       <span className="brand-logo-slot flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-lg">
-        <BrandLogo size={32} />
+        <BrandLogo size={32} src={brand.crmLogoUrl} alt={brand.crmName} />
       </span>
       <span className="flex min-w-0 flex-col leading-none">
         <span className="truncate text-sm font-medium text-[var(--header-ink)]">
-          BaikalStageGroup
+          {brand.crmName}
         </span>
         <span className="mt-0.5 text-caption uppercase tracking-[0.2em] text-[var(--header-muted)]">
           CRM
@@ -293,6 +295,7 @@ export function AppChrome({
   allowedHrefs,
   logoutAction,
 }: AppChromeProps) {
+  const brand = useBrand();
   const pathname = usePathname();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const unread = useUnreadNotifications();
@@ -344,10 +347,10 @@ export function AppChrome({
       <header className="app-topbar">
         <Link href="/calendar" className="flex min-w-0 items-center gap-2">
           <span className="brand-logo-slot flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-lg">
-            <BrandLogo size={32} />
+            <BrandLogo size={32} src={brand.crmLogoUrl} alt={brand.crmName} />
           </span>
           <span className="truncate text-sm font-medium text-[var(--header-ink)]">
-            CRM
+            {brand.crmName}
           </span>
         </Link>
       </header>

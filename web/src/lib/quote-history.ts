@@ -20,6 +20,7 @@ export type QuoteSnapshotPayload = {
     requestContact?: string;
     managerName: string;
     ownerId: string;
+    calendarOwners?: string[];
     cashless: boolean;
     cashlessPercent: number;
     durationDays: number;
@@ -68,6 +69,7 @@ type QuoteBody = {
   requestContact?: string;
   managerName: string;
   ownerId: string;
+  calendarOwners?: string[];
   cashless: boolean;
   cashlessPercent: number;
   durationDays: number;
@@ -117,6 +119,7 @@ export function buildQuoteSnapshotPayload(quote: QuoteBody): QuoteSnapshotPayloa
       requestContact: quote.requestContact || "",
       managerName: quote.managerName,
       ownerId: quote.ownerId,
+      calendarOwners: quote.calendarOwners ?? [],
       cashless: quote.cashless,
       cashlessPercent: quote.cashlessPercent,
       durationDays: quote.durationDays,
@@ -228,6 +231,7 @@ const META_AUDIT_KEYS = [
   "requestContact",
   "managerName",
   "ownerId",
+  "calendarOwners",
   "cashless",
   "cashlessPercent",
   "durationDays",
@@ -298,6 +302,7 @@ export type QuoteSnapshotPatch = {
   requestContact: string;
   managerName: string;
   ownerId: string;
+  calendarOwners?: string[];
   cashless: boolean;
   cashlessPercent: number;
   durationDays: number;
@@ -348,6 +353,9 @@ export function snapshotToQuotePatch(
     requestContact: payload.meta.requestContact || "",
     managerName: payload.meta.managerName,
     ownerId: payload.meta.ownerId,
+    ...(payload.meta.calendarOwners
+      ? { calendarOwners: payload.meta.calendarOwners }
+      : {}),
     cashless: payload.meta.cashless,
     cashlessPercent: payload.meta.cashlessPercent,
     durationDays: payload.meta.durationDays,

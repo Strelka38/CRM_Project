@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { lifecycleLabel, SortableTh, useTableSort } from "@/components/ui";
+import { lifecycleLabel, SortableTh, useTableSort, AutoTextarea } from "@/components/ui";
 import { dateSortValue } from "@/lib/table-sort";
 
 type VenuePhoto = {
@@ -232,8 +232,8 @@ export function VenueEditor({ venueId }: { venueId: string }) {
             </label>
             <label className="block text-sm md:col-span-2">
               <span className="text-[var(--muted)]">Комментарий</span>
-              <textarea
-                className="field mt-1 min-h-[120px]"
+              <AutoTextarea
+                className="field mt-1"
                 value={venue.comment}
                 onChange={(e) =>
                   setVenue({ ...venue, comment: e.target.value })

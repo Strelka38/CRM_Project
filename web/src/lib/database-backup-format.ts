@@ -1,5 +1,5 @@
 export const DATABASE_BACKUP_KIND = "baikal-crm-database";
-export const DATABASE_BACKUP_VERSION = 4;
+export const DATABASE_BACKUP_VERSION = 5;
 
 export const QUOTE_PACK_KIND = "baikal-crm-quotes";
 export const QUOTE_PACK_VERSION = 1;
@@ -32,6 +32,7 @@ export type DatabaseBackupTables = {
   kits: unknown[];
   kitComponents: unknown[];
   clients: unknown[];
+  clientLegalEntities: unknown[];
   freelancers: unknown[];
   freelancerSpecialties: unknown[];
   venues: unknown[];
@@ -88,6 +89,7 @@ export function emptyBackupCounts(): DatabaseBackupCounts {
     kits: 0,
     kitComponents: 0,
     clients: 0,
+    clientLegalEntities: 0,
     freelancers: 0,
     freelancerSpecialties: 0,
     venues: 0,

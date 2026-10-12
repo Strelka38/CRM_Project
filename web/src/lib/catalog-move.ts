@@ -107,3 +107,69 @@ export function planCategoryMoves(
 
   return { ok: true, moves };
 }
+
+export type FolderDropZone = "before" | "into" | "after";
+
+/** Верх и низ строки — вставка рядом, середина — вложить в папку. */
+export function folderDropZone(
+  clientY: number,
+  top: number,
+  height: number,
+): FolderDropZone {
+  if (!(height > 0)) return "into";
+  const ratio = (clientY - top) / height;
+  if (ratio < 0.28) return "before";
+  if (ratio > 0.72) return "after";
+  return "into";
+}
+
+export function isFolderDropBlocked(
+  categories: CatalogMoveCategory[],
+  movingIds: Iterable<string>,
+  target: { id: string; path: string } | null,
+  placement: FolderDropZone,
+): boolean {
+  if (!target) return placement !== "into";
+  const moving = topLevelSelectedCategories(categories, movingIds);
+  return moving.some(
+    (folder) =>
+      target.id === folder.id || target.path.startsWith(`${folder.path}/`),
+  );
+}
+
+/** Новый порядок соседей: переносимые папки встают до или после цели. */
+export function planSiblingOrder(
+  siblingIdsInOrder: string[],
+  movingIds: string[],
+  targetId: string,
+  placement: "before" | "after",
+): string[] {
+  const movingSet = new Set(movingIds);
+  const movingInOrder = [
+    ...siblingIdsInOrder.filter((id) => movingSet.has(id)),
+    ...movingIds.filter((id) => !siblingIdsInOrder.includes(id)),
+  ];
+  const rest = siblingIdsInOrder.filter((id) => !movingSet.has(id));
+  let at = rest.indexOf(targetId);
+  if (at < 0) at = rest.length;
+  else if (placement === "after") at += 1;
+  const next = [...rest];
+  next.splice(at, 0, ...movingInOrder);
+  return next;
+}
+
+export function relocatedSelectionPath(
+  selectedPath: string,
+  moves: CategoryMove[],
+): string {
+  if (!selectedPath) return selectedPath;
+  const hit = [...moves]
+    .filter(
+      (move) =>
+        selectedPath === move.oldPath ||
+        selectedPath.startsWith(`${move.oldPath}/`),
+    )
+    .sort((a, b) => b.oldPath.length - a.oldPath.length)[0];
+  if (!hit) return selectedPath;
+  return hit.newPath + selectedPath.slice(hit.oldPath.length);
+}

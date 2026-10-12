@@ -19,20 +19,35 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, count: result.count });
     }
     if (body.action === "paid") {
-      const [completed, rest] = await prisma.$transaction([
-        prisma.quote.updateMany({
+      const count = await prisma.$transaction(async (tx) => {
+        const completing = await tx.quote.findMany({
           where: { id: { in: ids }, lifecycle: "CONFIRMED" },
-          data: { paid: true, invoiceSent: true, lifecycle: "COMPLETED" },
-        }),
-        prisma.quote.updateMany({
-          where: { id: { in: ids }, lifecycle: { not: "CONFIRMED" } },
-          data: { paid: true, invoiceSent: true },
-        }),
-      ]);
-      return NextResponse.json({
-        ok: true,
-        count: completed.count + rest.count,
+          select: { id: true },
+        });
+        const completingIds = completing.map((row) => row.id);
+        const completed =
+          completingIds.length === 0
+            ? { count: 0 }
+            : await tx.quote.updateMany({
+                where: { id: { in: completingIds } },
+                data: { paid: true, invoiceSent: true, lifecycle: "COMPLETED" },
+              });
+        if (completingIds.length > 0) {
+          await tx.quoteShare.deleteMany({
+            where: { quoteId: { in: completingIds } },
+          });
+        }
+        const restIds = ids.filter((id) => !completingIds.includes(id));
+        const rest =
+          restIds.length === 0
+            ? { count: 0 }
+            : await tx.quote.updateMany({
+                where: { id: { in: restIds } },
+                data: { paid: true, invoiceSent: true },
+              });
+        return completed.count + rest.count;
       });
+      return NextResponse.json({ ok: true, count });
     }
     const result = await prisma.quote.updateMany({
       where: { id: { in: ids } },

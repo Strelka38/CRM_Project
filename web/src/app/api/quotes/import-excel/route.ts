@@ -6,6 +6,7 @@ import { notifyManagersOfNewEvent } from "@/lib/notifications";
 import {
   applyCatalogMatches,
   parseArtemWorkbook,
+  type QuoteImportSource,
 } from "@/lib/quote-excel-import";
 
 const MAX_BYTES = 20 * 1024 * 1024;
@@ -30,10 +31,23 @@ type FailedImport = {
   error: string;
 };
 
+function readSource(raw: FormDataEntryValue | null): QuoteImportSource | undefined {
+  if (raw === "golova" || raw === "excel") return raw;
+  return undefined;
+}
+
+function readCashless(raw: FormDataEntryValue | null): boolean | undefined {
+  if (typeof raw !== "string" || raw === "") return undefined;
+  if (raw === "0" || raw === "false" || raw === "cash") return false;
+  if (raw === "1" || raw === "true" || raw === "cashless") return true;
+  return undefined;
+}
+
 async function importOneFile(
   file: File,
   session: { user: { id: string; name?: string | null } },
   catalog: CatalogRow[],
+  opts: { source?: QuoteImportSource; cashless?: boolean },
 ): Promise<ImportedQuote | FailedImport> {
   const fileName = file.name || "файл.xlsx";
   if (file.size > MAX_BYTES) {
@@ -46,7 +60,11 @@ async function importOneFile(
   const buf = Buffer.from(await file.arrayBuffer());
   let parsed;
   try {
-    parsed = await parseArtemWorkbook(buf, { fileName });
+    parsed = await parseArtemWorkbook(buf, {
+      fileName,
+      source: opts.source,
+      cashless: opts.cashless,
+    });
   } catch (e) {
     console.error("parseArtemWorkbook", fileName, e);
     return { fileName, error: "Не удалось прочитать Excel-файл" };
@@ -131,10 +149,16 @@ export async function POST(req: NextRequest) {
       select: { id: true, name: true },
     });
 
+    const source = readSource(form.get("source"));
+    const cashless = readCashless(form.get("cashless"));
+
     const imported: ImportedQuote[] = [];
     const failed: FailedImport[] = [];
     for (const file of files) {
-      const result = await importOneFile(file, session, catalog);
+      const result = await importOneFile(file, session, catalog, {
+        source,
+        cashless,
+      });
       if ("id" in result) imported.push(result);
       else failed.push(result);
     }

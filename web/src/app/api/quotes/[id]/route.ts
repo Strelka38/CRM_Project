@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { parseEventDate } from "@/lib/dates";
 import { ensureDefaultZone, getAccessibleQuote } from "@/lib/quote-access";
@@ -26,9 +27,11 @@ import {
   notifyBrigadiersOfConfirmedMount,
 } from "@/lib/notifications";
 import { ensureQuoteSchemaColumns } from "@/lib/ensure-schema";
-import { quoteLifecycleZod } from "@/lib/zod-enums";
+import { catalogOwnerZod, quoteLifecycleZod } from "@/lib/zod-enums";
+import { normalizeOwners } from "@/lib/catalog-owner";
 import { isStatsLifecycle } from "@/lib/lifecycle";
 import { QUOTE_OWNER_ROLES } from "@/lib/roles";
+import { parseZonePricing } from "@/lib/zone-pricing";
 
 let ensureOnce: Promise<void> | null = null;
 
@@ -72,6 +75,7 @@ const zoneSchema = z.object({
   sortOrder: z.number().int(),
   active: z.boolean().optional(),
   workingDayIndexes: z.array(z.number().int().min(1).max(366)).optional(),
+  pricing: z.unknown().optional(),
 });
 
 const blockSchema = z.object({
@@ -106,6 +110,7 @@ const patchSchema = z.object({
   requestContact: z.string().max(1000).optional(),
   managerName: z.string().optional(),
   ownerId: z.string().min(1).optional(),
+  calendarOwners: z.array(catalogOwnerZod).max(3).optional(),
   cashless: z.boolean().optional(),
   cashlessPercent: z.number().min(0).max(99).optional(),
   durationDays: z.number().int().positive().optional(),
@@ -149,6 +154,9 @@ export async function PATCH(
 
     const body = patchSchema.parse(await req.json());
     const { blocks, zones, forceStock: _forceStock, ...meta } = body;
+    if (meta.calendarOwners) {
+      meta.calendarOwners = normalizeOwners(meta.calendarOwners);
+    }
 
     if (!manager) {
       if (blocks !== undefined || zones !== undefined) {
@@ -324,6 +332,9 @@ export async function PATCH(
           ...(meta.date !== undefined ? { eventDate } : {}),
         },
       });
+      if (nextLifecycle === "COMPLETED") {
+        await tx.quoteShare.deleteMany({ where: { quoteId: id } });
+      }
 
       if (zones || blocks) {
         // Replace blocks first so zone FK can be dropped safely
@@ -344,6 +355,10 @@ export async function PATCH(
             z.workingDayIndexes !== undefined
               ? storedWorkingDayIndexes(z.workingDayIndexes, eventDays)
               : undefined;
+          const pricing =
+            z.pricing !== undefined
+              ? (parseZonePricing(z.pricing) as Prisma.InputJsonValue)
+              : undefined;
           await tx.quoteZone.upsert({
             where: { id: z.id },
             create: {
@@ -353,6 +368,7 @@ export async function PATCH(
               sortOrder: z.sortOrder,
               active: z.active ?? true,
               workingDayIndexes: workingDayIndexes ?? [],
+              ...(pricing !== undefined ? { pricing } : {}),
             },
             update: {
               name: z.name,
@@ -361,6 +377,7 @@ export async function PATCH(
               ...(workingDayIndexes !== undefined
                 ? { workingDayIndexes }
                 : {}),
+              ...(pricing !== undefined ? { pricing } : {}),
             },
           });
         }

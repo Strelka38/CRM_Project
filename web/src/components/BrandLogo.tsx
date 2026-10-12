@@ -3,6 +3,8 @@ import { cn } from "@/lib/cn";
 type Props = {
   size?: number;
   className?: string;
+  src?: string;
+  alt?: string;
   /** Invert to black when light theme is active. */
   invertOnLight?: boolean;
 };
@@ -11,12 +13,14 @@ export function BrandLogo({
   size = 32,
   className,
   invertOnLight = true,
+  src = "/brand/bsg-logo.png",
+  alt = "BaikalStageGroup",
 }: Props) {
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img
-      src="/brand/bsg-logo.png"
-      alt="BaikalStageGroup"
+      src={src}
+      alt={alt}
       width={size}
       height={size}
       draggable={false}

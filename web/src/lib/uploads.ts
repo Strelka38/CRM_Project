@@ -124,6 +124,21 @@ export async function saveEquipmentRepairPhoto(
   return { storagePath, absPath };
 }
 
+export async function saveBrandLogo(
+  kind: "crm" | "kp",
+  mimeType: string,
+  data: Buffer,
+): Promise<{ storagePath: string; absPath: string }> {
+  const ext = EXT_BY_MIME[mimeType] || ".png";
+  const dir = path.join(UPLOAD_ROOT, "brand");
+  await mkdir(dir, { recursive: true });
+  const filename = `${kind}-${Date.now()}-${randomBytes(4).toString("hex")}${ext}`;
+  const absPath = path.join(dir, filename);
+  await writeFile(absPath, data);
+  const storagePath = path.join("brand", filename);
+  return { storagePath, absPath };
+}
+
 export async function saveLegalEntityImage(
   entityId: string,
   kind: "seal" | "signature",

@@ -8,7 +8,7 @@ import {
 } from "@/components/CatalogPicker";
 import { ClientQuickSearch, type PickedClient } from "@/components/ClientQuickSearch";
 import { DateRangePicker } from "@/components/DateRangePicker";
-import { Button, PeekHeader, SideDrawer } from "@/components/ui";
+import { Button, PeekHeader, SideDrawer, AutoTextarea } from "@/components/ui";
 import {
   ENTRY_KIND_LABELS,
   displayUserName,
@@ -369,8 +369,8 @@ export function CalendarEntryFormModal({
             {kind === "TASK" && (
               <label className="block space-y-1">
                 <span className="text-xs text-[var(--muted)]">Задача</span>
-                <textarea
-                  className="field min-h-[4.5rem] w-full"
+                <AutoTextarea
+                  className="field w-full"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   placeholder="Что нужно сделать"
@@ -664,8 +664,8 @@ export function CalendarEntryFormModal({
               <span className="text-xs text-[var(--muted)]">
                 Комментарий (необязательно)
               </span>
-              <textarea
-                className="field min-h-[3rem] w-full"
+              <AutoTextarea
+                className="field w-full"
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
               />

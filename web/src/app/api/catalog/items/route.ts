@@ -23,6 +23,28 @@ export async function GET(req: NextRequest) {
   try {
     await requireSession();
     await ensureSchemaOnce();
+    const idsRaw = req.nextUrl.searchParams.get("ids");
+    if (idsRaw) {
+      const ids = [
+        ...new Set(
+          idsRaw
+            .split(",")
+            .map((id) => id.trim())
+            .filter(Boolean),
+        ),
+      ].slice(0, 400);
+      const priced = await prisma.catalogItem.findMany({
+        where: { id: { in: ids } },
+        select: {
+          id: true,
+          basePrice: true,
+          cashlessOverride: true,
+          itemKind: true,
+        },
+      });
+      return NextResponse.json(priced);
+    }
+
     const q = req.nextUrl.searchParams.get("q")?.trim();
     const kind = req.nextUrl.searchParams.get("kind");
     const categoryId = req.nextUrl.searchParams.get("categoryId");

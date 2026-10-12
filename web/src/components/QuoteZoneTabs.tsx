@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import {
   formatZoneDateHint,
   workingDayCount,
 } from "@/lib/quote-assignment-days";
+import type { ZonePricing } from "@/lib/zone-pricing";
 
 export type ZoneTab = {
   id: string;
@@ -13,6 +14,7 @@ export type ZoneTab = {
   sortOrder: number;
   active?: boolean;
   workingDayIndexes?: number[];
+  pricing?: ZonePricing;
 };
 
 type Props = {
@@ -23,8 +25,22 @@ type Props = {
   onRename: (id: string, name: string) => void;
   onDelete: (id: string) => void;
   onToggleActive?: (id: string) => void;
+  onCopy?: (id: string) => void;
+  onCopyTo?: (id: string) => void;
+  onOpenParams?: (id: string) => void;
+  onReorder?: (id: string, dir: -1 | 1) => void;
+  onRefreshPrices?: (id: string) => void;
+  onCopySelected?: (id: string, targetZoneId: string) => void;
+  onDeleteSelected?: (id: string) => void;
+  onMoveSelected?: (id: string, targetZoneId: string) => void;
+  onRefreshSelected?: (id: string) => void;
+  onShowKitContents?: (zoneId: string, open: boolean) => void;
+  kitContentsOpen?: boolean;
+  selectedCount?: number;
   canEdit?: boolean;
   showSummary?: boolean;
+  /** Имя вкладки. При одной зоне его нет — смотреть не на что. */
+  showNames?: boolean;
   eventDate?: string;
   durationDays?: number;
 };
@@ -37,8 +53,21 @@ export function QuoteZoneTabs({
   onRename,
   onDelete,
   onToggleActive,
+  onCopy,
+  onCopyTo,
+  onOpenParams,
+  onReorder,
+  onRefreshPrices,
+  onCopySelected,
+  onDeleteSelected,
+  onMoveSelected,
+  onRefreshSelected,
+  onShowKitContents,
+  kitContentsOpen = false,
+  selectedCount = 0,
   canEdit = true,
   showSummary = true,
+  showNames = true,
   eventDate,
   durationDays,
 }: Props) {
@@ -46,12 +75,15 @@ export function QuoteZoneTabs({
   const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(
     null,
   );
+  const [sub, setSub] = useState<string | null>(null);
+  const [subLeft, setSubLeft] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const buttonRefs = useRef(new Map<string, HTMLButtonElement>());
 
   function closeMenu() {
     setMenuId(null);
     setMenuPos(null);
+    setSub(null);
   }
 
   function toggleMenu(id: string) {
@@ -62,13 +94,16 @@ export function QuoteZoneTabs({
     const btn = buttonRefs.current.get(id);
     if (!btn) return;
     const r = btn.getBoundingClientRect();
-    const width = 176;
+    const width = 288;
+    const left = Math.min(
+      Math.max(8, r.right - width),
+      window.innerWidth - width - 8,
+    );
+    setSubLeft(left + width + 200 > window.innerWidth);
+    setSub(null);
     setMenuPos({
       top: r.bottom + 4,
-      left: Math.min(
-        Math.max(8, r.right - width),
-        window.innerWidth - width - 8,
-      ),
+      left,
     });
     setMenuId(id);
   }
@@ -135,9 +170,11 @@ export function QuoteZoneTabs({
               }
             >
               <span className="block truncate">
-                {off ? `${z.name} (выкл.)` : z.name}
+                {showNames ? (off ? `${z.name} (выкл.)` : z.name) : (
+                  <span className="sr-only">{z.name}</span>
+                )}
               </span>
-              {hint ? (
+              {showNames && hint ? (
                 <span
                   className={`block truncate text-caption font-normal ${
                     selected ? "text-[var(--muted)]" : ""
@@ -197,58 +234,326 @@ export function QuoteZoneTabs({
 
       {menuZone && menuPos && typeof document !== "undefined"
         ? createPortal(
-            <div
-              ref={menuRef}
-              role="menu"
-              className="fixed z-[80] w-44 rounded-md border border-[var(--line)] bg-[var(--panel)] py-1 shadow-lg"
-              style={{ top: menuPos.top, left: menuPos.left }}
-            >
-              <button
-                type="button"
-                role="menuitem"
-                className="block w-full px-3 py-1.5 text-left text-xs hover:bg-[var(--selected)]/50"
-                onClick={() => {
-                  const zone = menuZone;
-                  closeMenu();
-                  const name = prompt("Название зоны", zone.name);
-                  if (name && name.trim()) onRename(zone.id, name.trim());
-                }}
-              >
-                Переименовать
-              </button>
-              {onToggleActive && (
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="block w-full px-3 py-1.5 text-left text-xs hover:bg-[var(--selected)]/50"
-                  onClick={() => {
-                    const id = menuZone.id;
-                    closeMenu();
-                    onToggleActive(id);
-                  }}
-                >
-                  {menuZone.active === false
-                    ? "Включить в расчёт"
-                    : "Выключить (скрыть из суммы)"}
-                </button>
-              )}
-              <button
-                type="button"
-                role="menuitem"
-                className="block w-full px-3 py-1.5 text-left text-xs text-[var(--danger)] hover:bg-red-500/15 disabled:opacity-40"
-                disabled={zones.length <= 1}
-                onClick={() => {
-                  const id = menuZone.id;
-                  closeMenu();
-                  onDelete(id);
-                }}
-              >
-                Удалить
-              </button>
-            </div>,
+            <SheetMenu
+              menuRef={menuRef}
+              menuPos={menuPos}
+              subLeft={subLeft}
+              sub={sub}
+              setSub={setSub}
+              zone={menuZone}
+              zones={zones}
+              selectedCount={selectedCount}
+              kitContentsOpen={kitContentsOpen}
+              onClose={closeMenu}
+              onRename={onRename}
+              onDelete={onDelete}
+              onToggleActive={onToggleActive}
+              onCopy={onCopy}
+              onCopyTo={onCopyTo}
+              onOpenParams={onOpenParams}
+              onReorder={onReorder}
+              onRefreshPrices={onRefreshPrices}
+              onCopySelected={onCopySelected}
+              onDeleteSelected={onDeleteSelected}
+              onMoveSelected={onMoveSelected}
+              onRefreshSelected={onRefreshSelected}
+              onShowKitContents={onShowKitContents}
+              onSelectZone={onSelect}
+            />,
             document.body,
           )
         : null}
+    </div>
+  );
+}
+
+const ITEM =
+  "flex w-full items-center justify-between gap-3 px-3 py-1.5 text-left text-xs hover:bg-[var(--selected)]/50 disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent";
+
+function SheetMenu({
+  menuRef,
+  menuPos,
+  subLeft,
+  sub,
+  setSub,
+  zone,
+  zones,
+  selectedCount,
+  kitContentsOpen,
+  onClose,
+  onRename,
+  onDelete,
+  onToggleActive,
+  onCopy,
+  onCopyTo,
+  onOpenParams,
+  onReorder,
+  onRefreshPrices,
+  onCopySelected,
+  onDeleteSelected,
+  onMoveSelected,
+  onRefreshSelected,
+  onShowKitContents,
+  onSelectZone,
+}: {
+  menuRef: RefObject<HTMLDivElement | null>;
+  menuPos: { top: number; left: number };
+  subLeft: boolean;
+  sub: string | null;
+  setSub: (id: string | null) => void;
+  zone: ZoneTab;
+  zones: ZoneTab[];
+  selectedCount: number;
+  kitContentsOpen: boolean;
+  onClose: () => void;
+  onRename: (id: string, name: string) => void;
+  onDelete: (id: string) => void;
+  onToggleActive?: (id: string) => void;
+  onCopy?: (id: string) => void;
+  onCopyTo?: (id: string) => void;
+  onOpenParams?: (id: string) => void;
+  onReorder?: (id: string, dir: -1 | 1) => void;
+  onRefreshPrices?: (id: string) => void;
+  onCopySelected?: (id: string, targetZoneId: string) => void;
+  onDeleteSelected?: (id: string) => void;
+  onMoveSelected?: (id: string, targetZoneId: string) => void;
+  onRefreshSelected?: (id: string) => void;
+  onShowKitContents?: (zoneId: string, open: boolean) => void;
+  onSelectZone: (id: string) => void;
+}) {
+  const index = zones.findIndex((z) => z.id === zone.id);
+  const others = zones.filter((z) => z.id !== zone.id);
+  const hasSelection = selectedCount > 0;
+
+  function run(fn?: (id: string) => void) {
+    const id = zone.id;
+    onClose();
+    fn?.(id);
+  }
+
+  function flyout(id: string, label: string, items: ReactNode) {
+    const open = sub === id;
+    return (
+      <div className="relative">
+        <button
+          type="button"
+          role="menuitem"
+          aria-expanded={open}
+          className={ITEM}
+          onClick={() => setSub(open ? null : id)}
+        >
+          {label}
+          <span aria-hidden className="text-[var(--muted)]">
+            ›
+          </span>
+        </button>
+        {open ? (
+          <div
+            role="menu"
+            className={`absolute top-0 z-10 w-52 rounded-md border border-[var(--line)] bg-[var(--panel)] py-1 shadow-lg ${
+              subLeft ? "right-full mr-1" : "left-full ml-1"
+            }`}
+          >
+            {items}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      ref={menuRef}
+      role="menu"
+      className="fixed z-[80] w-72 rounded-md border border-[var(--line)] bg-[var(--panel)] py-1 shadow-lg"
+      style={{ top: menuPos.top, left: menuPos.left }}
+    >
+      <p className="px-3 pb-1 pt-1.5 text-sm font-medium text-[var(--ink)]">Параметры</p>
+      <button
+        type="button"
+        role="menuitem"
+        className={ITEM}
+        onClick={() => {
+          const current = zone;
+          onClose();
+          const name = prompt("Название листа", current.name);
+          if (name && name.trim()) onRename(current.id, name.trim());
+        }}
+      >
+        Переименовать
+      </button>
+      <button type="button" role="menuitem" className={ITEM} onClick={() => run(onCopy)}>
+        Копировать лист
+      </button>
+      <button type="button" role="menuitem" className={ITEM} onClick={() => run(onCopyTo)}>
+        Копировать лист в…
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        className={`${ITEM} text-[var(--danger)]`}
+        disabled={zones.length <= 1}
+        onClick={() => run(onDelete)}
+      >
+        Удалить лист
+      </button>
+      <div className="my-1 border-t border-[var(--line)]" />
+      {onToggleActive ? (
+        <button
+          type="button"
+          role="menuitem"
+          className={ITEM}
+          onClick={() => run(onToggleActive)}
+        >
+          {zone.active === false ? "Активировать" : "Деактивировать"}
+        </button>
+      ) : null}
+      <button type="button" role="menuitem" className={ITEM} onClick={() => run(onOpenParams)}>
+        Коэффициент, скидка, налоги
+      </button>
+      {flyout(
+        "order",
+        "Упорядочить",
+        <>
+          <button
+            type="button"
+            className={ITEM}
+            disabled={index <= 0}
+            onClick={() => {
+              const id = zone.id;
+              onClose();
+              onReorder?.(id, -1);
+            }}
+          >
+            Раньше
+          </button>
+          <button
+            type="button"
+            className={ITEM}
+            disabled={index < 0 || index >= zones.length - 1}
+            onClick={() => {
+              const id = zone.id;
+              onClose();
+              onReorder?.(id, 1);
+            }}
+          >
+            Позже
+          </button>
+        </>,
+      )}
+      <button
+        type="button"
+        role="menuitem"
+        className={ITEM}
+        onClick={() => run(onRefreshPrices)}
+      >
+        Актуализировать цены
+      </button>
+      <div className="my-1 border-t border-[var(--line)]" />
+      {flyout(
+        "copy-sel",
+        "Копировать выделенные",
+        <>
+          <button
+            type="button"
+            className={ITEM}
+            disabled={!hasSelection}
+            onClick={() => {
+              const id = zone.id;
+              onClose();
+              onCopySelected?.(id, id);
+            }}
+          >
+            В этот лист
+          </button>
+          {others.map((target) => (
+            <button
+              key={target.id}
+              type="button"
+              className={ITEM}
+              disabled={!hasSelection}
+              onClick={() => {
+                const id = zone.id;
+                onClose();
+                onCopySelected?.(id, target.id);
+              }}
+            >
+              В «{target.name}»
+            </button>
+          ))}
+        </>,
+      )}
+      <button
+        type="button"
+        role="menuitem"
+        className={`${ITEM} text-[var(--danger)]`}
+        disabled={!hasSelection}
+        onClick={() => run(onDeleteSelected)}
+      >
+        Удалить выделенные
+      </button>
+      {flyout(
+        "move-sel",
+        "Перенести выделенные",
+        others.length === 0 ? (
+          <p className="px-3 py-1.5 text-xs text-[var(--muted)]">Других листов нет</p>
+        ) : (
+          others.map((target) => (
+            <button
+              key={target.id}
+              type="button"
+              className={ITEM}
+              disabled={!hasSelection}
+              onClick={() => {
+                const id = zone.id;
+                onClose();
+                onMoveSelected?.(id, target.id);
+              }}
+            >
+              В «{target.name}»
+            </button>
+          ))
+        ),
+      )}
+      {flyout(
+        "actions-sel",
+        "Действия с выделенными",
+        <button
+          type="button"
+          className={ITEM}
+          disabled={!hasSelection}
+          onClick={() => run(onRefreshSelected)}
+        >
+          Актуализировать цены
+        </button>,
+      )}
+      <div className="my-1 border-t border-[var(--line)]" />
+      <button
+        type="button"
+        role="menuitem"
+        className={ITEM}
+        onClick={() => {
+          onSelectZone(zone.id);
+          onClose();
+          onShowKitContents?.(zone.id, true);
+        }}
+      >
+        Показать состав комплекта/набора
+        {kitContentsOpen ? <span className="text-[var(--accent)]">✓</span> : null}
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        className={ITEM}
+        onClick={() => {
+          onSelectZone(zone.id);
+          onClose();
+          onShowKitContents?.(zone.id, false);
+        }}
+      >
+        Скрыть состав комплекта/набора
+        {!kitContentsOpen ? <span className="text-[var(--muted)]">✓</span> : null}
+      </button>
     </div>
   );
 }

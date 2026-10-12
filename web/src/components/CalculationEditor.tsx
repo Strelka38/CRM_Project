@@ -737,7 +737,7 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
   }
 
   return (
-    <div className="mx-auto w-full max-w-[1920px] px-2 py-3 md:px-3">
+    <div className="w-full min-w-0 px-2 py-3 md:px-3">
       <PageHeader
         title={`Калькуляция №${data.proposalNumber}`}
         subtitle={`${data.eventName || "Без названия"} · ${data.client || "—"} · ${data.date || "без даты"}`}

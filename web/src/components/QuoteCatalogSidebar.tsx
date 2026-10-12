@@ -5,6 +5,11 @@ import { ItemDrawer, type DrawerItem } from "@/components/ItemDrawer";
 import { type PickedCatalogItem, type PickedKit } from "@/components/CatalogPicker";
 import { cn } from "@/lib/cn";
 import {
+  normalizeOwners,
+  ownerShorts,
+  type CatalogOwnerValue,
+} from "@/lib/catalog-owner";
+import {
   beginCatalogDrag,
   endCatalogDrag,
   setCatalogDragData,
@@ -32,6 +37,8 @@ type Props = {
   currentQtyLabel?: string;
   embedded?: boolean;
   addTargetLabel?: string;
+  /** Ширину задаёт родитель через --quote-catalog-width, без фиксированных 280/300. */
+  resizable?: boolean;
 };
 
 const CATALOG_NAV = "[data-catalog-nav]";
@@ -71,6 +78,25 @@ function focusFirstCatalogNav(sidebar: HTMLElement) {
   first.focus();
   if (first instanceof HTMLInputElement) first.select();
   first.scrollIntoView({ block: "nearest" });
+}
+
+function FirmTag({
+  owners,
+  owner,
+}: {
+  owners?: CatalogOwnerValue[] | null;
+  owner?: CatalogOwnerValue | null;
+}) {
+  const shorts = ownerShorts(normalizeOwners(owners, owner));
+  if (!shorts || shorts === "—") return null;
+  return (
+    <span
+      className="mt-0.5 shrink-0 rounded border border-[var(--line)] bg-[var(--panel-muted)] px-1 py-px text-caption font-medium uppercase leading-tight tracking-wide text-[var(--ink)]"
+      title={shorts}
+    >
+      {shorts}
+    </span>
+  );
 }
 
 function FolderIcon({ open }: { open: boolean }) {
@@ -243,7 +269,7 @@ function CatalogItemRow({
         <span className="mt-1 shrink-0 text-caption text-[var(--muted)]" aria-hidden>
           ▱
         </span>
-        <div className="grid min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)_1.25rem] items-start gap-x-1">
+        <div className="grid min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)_auto_1.25rem] items-start gap-x-1">
           <div>
             <div className="grid grid-cols-[1.35rem_1.25rem_2.4rem] items-center gap-px">
               <span
@@ -292,6 +318,7 @@ function CatalogItemRow({
           >
             {item.name}
           </button>
+          <FirmTag owners={item.owners} owner={item.owner} />
           <button
             type="button"
             tabIndex={-1}
@@ -398,6 +425,7 @@ export function QuoteCatalogSidebar({
   currentQtyLabel = "Уже в текущем документе",
   embedded = false,
   addTargetLabel = "смету",
+  resizable = false,
 }: Props) {
   const [q, setQ] = useState("");
   const [categories, setCategories] = useState<CategoryNode[]>([]);
@@ -721,7 +749,12 @@ export function QuoteCatalogSidebar({
         "flex min-h-0 w-full flex-col overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--panel)]",
         embedded
           ? "h-full max-h-none"
-          : "max-h-[46vh] lg:sticky lg:top-2 lg:h-[calc(100dvh-5.5rem)] lg:max-h-none lg:w-[280px] lg:shrink-0 xl:w-[300px]",
+          : cn(
+              "max-h-[46vh] lg:sticky lg:top-2 lg:h-[calc(100dvh-5.5rem)] lg:max-h-none lg:shrink-0",
+              resizable
+                ? "lg:w-[var(--quote-catalog-width)]"
+                : "lg:w-[280px] xl:w-[300px]",
+            ),
       )}
     >
       <div className="border-b border-[var(--line)] px-2 py-1.5">

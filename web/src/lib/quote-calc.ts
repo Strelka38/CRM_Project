@@ -7,6 +7,13 @@ import {
 } from "./pricing";
 import type { DayMode } from "./types";
 import { zoneDurationDays } from "./quote-assignment-days";
+import {
+  kindMultiplier,
+  parseZonePricing,
+  sheetTaxLines,
+  type SheetTaxLine,
+  type ZonePricing,
+} from "./zone-pricing";
 
 export type CostKind = "equipment" | "service" | "consumable";
 
@@ -125,15 +132,31 @@ export function calcBlock(
   };
 }
 
+function withSheetPricing(block: CalcBlock, pricing?: ZonePricing | null): CalcBlock {
+  if (block.type !== "ITEM" || !pricing) return block;
+  const factor = kindMultiplier(pricing, costKindOf(block));
+  if (factor === 1) return block;
+  return {
+    ...block,
+    displayUnitPrice: block.displayUnitPrice * factor,
+    lineTotal: block.lineTotal * factor,
+    lineTotalCash: block.lineTotalCash * factor,
+    lineTotalCashless: block.lineTotalCashless * factor,
+  };
+}
+
 export function calcDocument(
   blocks: QuoteBlockInput[],
   cashless: boolean,
   durationDays: number,
   cashlessPercent: number = DEFAULT_CASHLESS_PERCENT,
+  pricing?: ZonePricing | null,
 ) {
   const calculated = [...blocks]
     .sort((a, b) => a.sortOrder - b.sortOrder)
-    .map((b) => calcBlock(b, cashless, durationDays, cashlessPercent));
+    .map((b) =>
+      withSheetPricing(calcBlock(b, cashless, durationDays, cashlessPercent), pricing),
+    );
 
   let totalCash = 0;
   let totalCashless = 0;
@@ -200,6 +223,8 @@ export type ZoneInput = {
   /** false = выключена: не в сумме и не в резерве */
   active?: boolean;
   workingDayIndexes?: number[] | null;
+  /** Сырой JSON листа. Нормализуется в calcByZones. */
+  pricing?: unknown;
 };
 
 export function isZoneActive(zone: { active?: boolean | null }): boolean {
@@ -228,6 +253,8 @@ export type ZoneTotals = {
   subtotal: number;
   discount: number;
   payable: number;
+  tax: number;
+  taxLines: SheetTaxLine[];
   itemCount: number;
   doc: ReturnType<typeof calcDocument>;
 };
@@ -248,6 +275,7 @@ export function calcByZones(
   discount: number;
   payable: number;
   itemCount: number;
+  tax: number;
 } {
   const discountRate = Math.max(0, Number(discountPercent) || 0) / 100;
   const percent = normalizeCashlessPercent(cashlessPercent);
@@ -258,11 +286,13 @@ export function calcByZones(
     const zoneBlocks = blocks
       .filter((b) => b.zoneId === z.id)
       .sort((a, b) => a.sortOrder - b.sortOrder);
+    const pricing = parseZonePricing(z.pricing);
     const doc = calcDocument(
       zoneBlocks,
       cashless,
       zoneDurationDays(z.id, durationDays, zones),
       percent,
+      pricing,
     );
 
     let equipmentTotal = 0;
@@ -280,6 +310,9 @@ export function calcByZones(
 
     const subtotal = equipmentTotal + servicesTotal + consumablesTotal;
     const discount = subtotal * discountRate;
+    const taxBase = Math.max(0, subtotal - discount);
+    const taxLines = active ? sheetTaxLines(pricing, taxBase) : [];
+    const tax = taxLines.reduce((s, line) => s + line.amount, 0);
     return {
       zoneId: z.id,
       name: z.name,
@@ -290,7 +323,9 @@ export function calcByZones(
       consumablesTotal,
       subtotal,
       discount,
-      payable: Math.max(0, subtotal - discount),
+      tax,
+      taxLines,
+      payable: Math.max(0, taxBase + tax),
       itemCount: active ? doc.itemCount : 0,
       doc,
     };
@@ -302,6 +337,7 @@ export function calcByZones(
   const consumablesTotal = live.reduce((s, z) => s + z.consumablesTotal, 0);
   const subtotal = equipmentTotal + servicesTotal + consumablesTotal;
   const discount = subtotal * discountRate;
+  const tax = live.reduce((s, z) => s + z.tax, 0);
 
   return {
     zones: zoneRows,
@@ -310,7 +346,8 @@ export function calcByZones(
     consumablesTotal,
     subtotal,
     discount,
-    payable: Math.max(0, subtotal - discount),
+    tax,
+    payable: Math.max(0, subtotal - discount + tax),
     itemCount: live.reduce((s, z) => s + z.itemCount, 0),
   };
 }

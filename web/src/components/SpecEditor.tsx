@@ -13,6 +13,14 @@ import { useRouter } from "next/navigation";
 import { type PickedCatalogItem } from "@/components/CatalogPicker";
 import { CatalogReplaceDropTarget } from "@/components/CatalogReplaceDropTarget";
 import { QuoteCatalogSidebar } from "@/components/QuoteCatalogSidebar";
+import {
+  QUOTE_CATALOG_WIDTH_DEFAULT,
+  QUOTE_CATALOG_WIDTH_KEY,
+  QuoteCatalogSplit,
+  clampQuoteCatalogWidth,
+  quoteCatalogWidthStyle,
+  readQuoteCatalogWidth,
+} from "@/components/QuoteCatalogSplit";
 import { QuoteZoneTabs, type ZoneTab } from "@/components/QuoteZoneTabs";
 import { SpecCards, type SpecCardPatch } from "@/components/SpecCards";
 import { moveBlockInGroups } from "@/lib/quote-block-groups";
@@ -254,6 +262,9 @@ export function SpecEditor({
   const dirtyRef = useRef(false);
   const lineOrderRef = useRef<string[]>([]);
   const tableRef = useRef<HTMLDivElement>(null);
+  const specSplitRef = useRef<HTMLDivElement>(null);
+  const catalogWidthReady = useRef(false);
+  const [catalogWidth, setCatalogWidth] = useState(QUOTE_CATALOG_WIDTH_DEFAULT);
   const specUndoRef = useRef(
     createEditorUndo<{
       derived: SpecLine[];
@@ -263,6 +274,32 @@ export function SpecEditor({
     }>(),
   );
   lineOrderRef.current = lineOrder;
+
+  useEffect(() => {
+    if (loading || !canEdit || !editMode) return;
+    const parent = specSplitRef.current;
+    if (!parent) return;
+    setCatalogWidth((current) => {
+      const base = catalogWidthReady.current ? current : readQuoteCatalogWidth();
+      catalogWidthReady.current = true;
+      return clampQuoteCatalogWidth(base, parent.getBoundingClientRect().width);
+    });
+    function onResize() {
+      const node = specSplitRef.current;
+      if (!node) return;
+      setCatalogWidth((current) =>
+        clampQuoteCatalogWidth(current, node.getBoundingClientRect().width),
+      );
+    }
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [loading, canEdit, editMode]);
+
+  function setCatalogWidthPersisted(next: number) {
+    catalogWidthReady.current = true;
+    setCatalogWidth(next);
+    localStorage.setItem(QUOTE_CATALOG_WIDTH_KEY, String(next));
+  }
 
   const applyPayload = useCallback((data: Record<string, unknown>) => {
     setMeta({
@@ -1205,7 +1242,7 @@ export function SpecEditor({
   }
 
   return (
-    <div className={embedded ? "flex flex-col gap-2" : "mx-auto flex max-w-[1680px] flex-col gap-6 px-4 py-6 md:px-6"}>
+    <div className={embedded ? "flex flex-col gap-2" : "flex w-full min-w-0 flex-col gap-6 px-3 py-4 md:px-4"}>
       {!embedded && (
       <header className="flex flex-wrap items-end justify-between gap-4 border-b border-[var(--line)] pb-4">
         <div>
@@ -1237,24 +1274,35 @@ export function SpecEditor({
       )}
 
       <div
+        ref={specSplitRef}
         className={cn(
           "min-w-0",
           isEditing &&
-            "grid items-start gap-2 lg:grid-cols-[280px_minmax(0,1fr)] xl:grid-cols-[300px_minmax(0,1fr)]",
+            "flex flex-col gap-2 lg:flex-row lg:items-stretch",
         )}
+        style={isEditing ? quoteCatalogWidthStyle(catalogWidth) : undefined}
       >
         {isEditing ? (
-          <div className="hidden min-w-0 lg:block">
-            <QuoteCatalogSidebar
-              onPickItem={onPickFromSidebar}
-              eventDate={meta.date || undefined}
-              durationDays={meta.durationDays}
-              zoneName={insertZone?.name || "спецификацию"}
-              addTargetLabel="спецификацию"
-              includeHidden
-              currentQtyByItem={neededByItem}
+          <>
+            <div className="hidden min-w-0 shrink-0 lg:block">
+              <QuoteCatalogSidebar
+                resizable
+                onPickItem={onPickFromSidebar}
+                eventDate={meta.date || undefined}
+                durationDays={meta.durationDays}
+                zoneName={insertZone?.name || "спецификацию"}
+                addTargetLabel="спецификацию"
+                includeHidden
+                currentQtyByItem={neededByItem}
+              />
+            </div>
+            <QuoteCatalogSplit
+              containerRef={specSplitRef}
+              width={catalogWidth}
+              onWidth={setCatalogWidthPersisted}
+              title="Потяните, чтобы изменить ширину каталога и спецификации"
             />
-          </div>
+          </>
         ) : null}
 
         <div className="flex min-w-0 flex-1 flex-col gap-2">

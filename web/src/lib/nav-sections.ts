@@ -108,17 +108,23 @@ export const NAV_SECTIONS: NavSection[] = [
   },
   { href: "/rates", label: "Ставки", group: "database", access: "database" },
   {
-    href: "/backup",
-    label: "Экспорт / импорт",
-    group: "database",
-    access: "admin",
-    inMobileMenu: false,
-  },
-  {
     href: "/settings/access",
     label: "Права и доступы",
     group: "settings",
     access: "admin",
+  },
+  {
+    href: "/settings/brand",
+    label: "Логотип и название",
+    group: "settings",
+    access: "admin",
+  },
+  {
+    href: "/backup",
+    label: "Экспорт / импорт",
+    group: "settings",
+    access: "admin",
+    inMobileMenu: false,
   },
 ];
 

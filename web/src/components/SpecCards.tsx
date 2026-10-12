@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { SideDrawer } from "@/components/ui/SideDrawer";
+import { AutoTextarea } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { CATALOG_OWNERS } from "@/lib/catalog-owner";
 
@@ -297,9 +298,8 @@ function SpecLineSheet({
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-4 py-3">
         <label className="block text-sm">
           <span className="text-[var(--muted)]">Наименование</span>
-          <textarea
-            rows={2}
-            className="field mt-1 resize-none"
+          <AutoTextarea
+            className="field mt-1"
             value={line.name || ""}
             onChange={(e) => onUpdate({ name: e.target.value })}
           />

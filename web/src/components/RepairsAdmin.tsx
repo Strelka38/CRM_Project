@@ -11,6 +11,7 @@ import {
   PageHeader,
   SortableTh,
   TableSkeleton,
+  AutoTextarea,
   useTableSort,
 } from "@/components/ui";
 import { EquipmentRepairFormModal } from "@/components/EquipmentRepairFormModal";
@@ -542,8 +543,8 @@ export function RepairsAdmin() {
         </p>
         <label className="mt-4 block text-sm">
           <span className="text-[var(--muted)]">Заключение сервиса</span>
-          <textarea
-            className="field mt-1 min-h-28"
+          <AutoTextarea
+            className="field mt-1"
             placeholder="Что сделали, чем закончилось, можно ли выдавать…"
             value={resolutionComment}
             onChange={(e) => setResolutionComment(e.target.value)}

@@ -37,7 +37,7 @@ import {
   groupRosterByKind,
   itemsOnRosterDay,
   packRosterGroupSkyline,
-  placeRosterSegOnSkyline,
+  solidRosterColumnHeights,
   isRosterFringeItem,
   personHasRosterRole,
   personMatchesRosterOwners,
@@ -346,13 +346,15 @@ function appendGroupedLanes(
   for (const [, group] of ordered) {
     const core = group.filter((s) => !isRosterFringeItem(s.item));
     const fringe = group.filter((s) => isRosterFringeItem(s.item));
-    // Шапка + слоты — одна горизонтальная плоскость (общий offset).
-    // Монтаж/демонтаж — бахрома, не расширяет прямоугольник.
+    const { startCol, endExclusive } = colRangeOf(group);
+    const width = Math.max(0, endExclusive - startCol);
+    const columnHeights = Array.from({ length: width }, () => 0);
+    const laid = core.length > 0 ? assignLanes(core) : [];
+
+    if (core.length > 0 || fringe.length > 0) {
+      for (let i = 0; i < width; i++) columnHeights[i] = 1;
+    }
     if (core.length > 0) {
-      const { startCol, endExclusive } = colRangeOf(core);
-      const laid = assignLanes(core);
-      const width = Math.max(0, endExclusive - startCol);
-      const columnHeights = Array.from({ length: width }, () => 1);
       for (const s of laid) {
         for (let c = s.startCol; c < s.startCol + s.span; c++) {
           const idx = c - startCol;
@@ -360,60 +362,6 @@ function appendGroupedLanes(
           columnHeights[idx] = Math.max(columnHeights[idx]!, 2 + s.lane);
         }
       }
-      const offset = packRosterGroupSkyline(
-        { startCol, endExclusive, columnHeights },
-        colHeight,
-      );
-      const sample = core[0]!;
-      out.push({
-        item: {
-          ...sample.item,
-          id: `hdr:${groupKey(sample.item)}`,
-          vacant: false,
-          resizable: false,
-          name: "",
-          role: "",
-          assignmentIds: [],
-        },
-        startCol,
-        span: endExclusive - startCol,
-        continuesLeft: core.some((s) => s.continuesLeft && s.startCol === startCol),
-        continuesRight: core.some(
-          (s) => s.continuesRight && s.startCol + s.span === endExclusive,
-        ),
-        lane: offset,
-        header: true,
-      });
-      for (const s of laid) {
-        out.push({ ...s, lane: s.lane + offset + 1 });
-      }
-    } else if (fringe.length > 0) {
-      // Только монтаж/демонтаж — шапка в те же дни, общим offset по бахроме.
-      const { startCol, endExclusive } = colRangeOf(fringe);
-      const width = Math.max(0, endExclusive - startCol);
-      const columnHeights = Array.from({ length: width }, () => 1);
-      const offset = packRosterGroupSkyline(
-        { startCol, endExclusive, columnHeights },
-        colHeight,
-      );
-      const sample = fringe[0]!;
-      out.push({
-        item: {
-          ...sample.item,
-          id: `hdr:${groupKey(sample.item)}`,
-          vacant: false,
-          resizable: false,
-          name: "",
-          role: "",
-          assignmentIds: [],
-        },
-        startCol,
-        span: endExclusive - startCol,
-        continuesLeft: false,
-        continuesRight: false,
-        lane: offset,
-        header: true,
-      });
     }
 
     const fringeLaid = [...fringe].sort((a, b) => {
@@ -421,13 +369,59 @@ function appendGroupedLanes(
       if (a.span !== b.span) return b.span - a.span;
       return (a.item.role || "").localeCompare(b.item.role || "", "ru");
     });
+    const fringeLanes: number[] = [];
     for (const seg of fringeLaid) {
-      const lane = placeRosterSegOnSkyline(
-        { startCol: seg.startCol, span: seg.span },
-        colHeight,
-      );
-      out.push({ ...seg, lane });
+      let lane = 0;
+      const end = seg.startCol + seg.span;
+      for (let c = seg.startCol; c < end; c++) {
+        const idx = c - startCol;
+        if (idx < 0 || idx >= width) continue;
+        lane = Math.max(lane, columnHeights[idx] ?? 0);
+      }
+      for (let c = seg.startCol; c < end; c++) {
+        const idx = c - startCol;
+        if (idx < 0 || idx >= width) continue;
+        columnHeights[idx] = lane + 1;
+      }
+      fringeLanes.push(lane);
     }
+
+    const offset = packRosterGroupSkyline(
+      {
+        startCol,
+        endExclusive,
+        columnHeights: solidRosterColumnHeights(columnHeights),
+      },
+      colHeight,
+    );
+
+    const sample = (core[0] ?? fringe[0])!;
+    out.push({
+      item: {
+        ...sample.item,
+        id: `hdr:${groupKey(sample.item)}`,
+        vacant: false,
+        resizable: false,
+        name: "",
+        role: "",
+        assignmentIds: [],
+      },
+      startCol,
+      span: width,
+      continuesLeft: group.some((s) => s.continuesLeft && s.startCol === startCol),
+      continuesRight: group.some(
+        (s) => s.continuesRight && s.startCol + s.span === endExclusive,
+      ),
+      lane: offset,
+      header: true,
+    });
+    for (const s of laid) {
+      out.push({ ...s, lane: s.lane + offset + 1 });
+    }
+
+    fringeLaid.forEach((seg, i) => {
+      out.push({ ...seg, lane: offset + (fringeLanes[i] ?? 0) });
+    });
   }
 }
 

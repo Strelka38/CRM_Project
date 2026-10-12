@@ -18,6 +18,7 @@ assert.equal(navGateForPath("/statistics"), "stats");
 assert.equal(navGateForPath("/roster"), "roster");
 assert.equal(navGateForPath("/unpaid"), "manager");
 assert.equal(navGateForPath("/settings/access"), "admin");
+assert.equal(navGateForPath("/settings/brand"), "admin");
 assert.equal(navGateForPath("/login"), null);
 assert.equal(navGateForPath("/api/payouts"), null);
 
@@ -35,13 +36,14 @@ assert.deepEqual(
   ["/catalog", "/repairs", "/kits", "/vehicles"],
 );
 
-const dbNoBackup = navMenuItems("database");
 assert.equal(
-  dbNoBackup.some((s) => s.href === "/backup"),
+  navMenuItems("database").some((s) => s.href === "/backup"),
   false,
 );
-const dbBackup = navMenuItems("database", { showBackup: true });
-assert.equal(dbBackup.at(-1)?.href, "/backup");
+assert.equal(
+  navMenuItems("database", { showBackup: true }).at(-1)?.href,
+  "/rates",
+);
 
 const accounting = navMenuItems("accounting", { showPayouts: true });
 assert.equal(
@@ -69,11 +71,11 @@ assert.equal(
   false,
 );
 assert.equal(
-  navMenuItems("database", { showBackup: true }).some((s) => s.href === "/backup"),
+  navMenuItems("settings", { showBackup: true }).some((s) => s.href === "/backup"),
   true,
 );
 assert.equal(
-  navMenuItems("database", { showBackup: true, mobile: true }).some(
+  navMenuItems("settings", { showBackup: true, mobile: true }).some(
     (s) => s.href === "/backup",
   ),
   false,
@@ -94,14 +96,14 @@ assert.equal(navGroupIsActive("/quotes/abc", "accounting"), false);
 assert.equal(navGroupIsActive("/quotes", "accounting"), true);
 assert.deepEqual(
   navMenuItems("settings", { showBackup: true }).map((s) => s.href),
-  ["/settings/access"],
+  ["/settings/access", "/settings/brand", "/backup"],
 );
-assert.equal(
+assert.deepEqual(
   navMenuItems("settings", {
     showBackup: true,
     allowedHrefs: ["/backup"],
-  }).length,
-  0,
+  }).map((s) => s.href),
+  ["/backup"],
 );
 
 console.log("nav-sections.test.ts ok");

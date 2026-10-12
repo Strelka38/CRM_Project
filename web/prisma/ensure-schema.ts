@@ -169,6 +169,16 @@ const statements = [
   `ALTER TABLE "QuoteAssignment" ADD COLUMN IF NOT EXISTS "onMount" BOOLEAN NOT NULL DEFAULT true`,
   `ALTER TABLE "QuoteAssignment" ADD COLUMN IF NOT EXISTS "onDemount" BOOLEAN NOT NULL DEFAULT true`,
   `ALTER TABLE "Quote" ADD COLUMN IF NOT EXISTS "assignmentImportWatermark" JSONB NOT NULL DEFAULT '{}'::jsonb`,
+  `CREATE TABLE IF NOT EXISTS "QuoteShare" (
+    "quoteId" TEXT NOT NULL,
+    "token" TEXT NOT NULL,
+    "filters" JSONB NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "QuoteShare_pkey" PRIMARY KEY ("quoteId")
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "QuoteShare_token_key" ON "QuoteShare"("token")`,
+  `DO $$ BEGIN ALTER TABLE "QuoteShare" ADD CONSTRAINT "QuoteShare_quoteId_fkey" FOREIGN KEY ("quoteId") REFERENCES "Quote"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
   `ALTER TYPE "NotificationType" ADD VALUE IF NOT EXISTS 'MOUNT_CONFIRMED'`,
   `CREATE TABLE IF NOT EXISTS "LegalEntity" (
     "id" TEXT NOT NULL,
@@ -327,6 +337,26 @@ BEGIN
       AND "itemKind" IN ('SERVICE', 'CONSUMABLE', 'PERSONNEL', 'OTHER');
   END IF;
 END $$`,
+  `CREATE TABLE IF NOT EXISTS "ClientLegalEntity" (
+    "id" TEXT NOT NULL,
+    "clientId" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "inn" TEXT NOT NULL DEFAULT '',
+    "legalAddress" TEXT NOT NULL DEFAULT '',
+    "legalDetails" TEXT NOT NULL DEFAULT '',
+    "sortOrder" INTEGER NOT NULL DEFAULT 0,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "ClientLegalEntity_pkey" PRIMARY KEY ("id")
+  )`,
+  `CREATE INDEX IF NOT EXISTS "ClientLegalEntity_clientId_idx" ON "ClientLegalEntity"("clientId")`,
+  `CREATE INDEX IF NOT EXISTS "ClientLegalEntity_inn_idx" ON "ClientLegalEntity"("inn")`,
+  `DO $$ BEGIN ALTER TABLE "ClientLegalEntity" ADD CONSTRAINT "ClientLegalEntity_clientId_fkey" FOREIGN KEY ("clientId") REFERENCES "Client"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+  `INSERT INTO "ClientLegalEntity" ("id", "clientId", "name", "inn", "legalAddress", "legalDetails", "sortOrder", "createdAt", "updatedAt")
+   SELECT 'cle_' || md5(c.id), c.id, c."companyName", c.inn, c."legalAddress", c."legalDetails", 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+   FROM "Client" c
+   WHERE NOT EXISTS (SELECT 1 FROM "ClientLegalEntity" e WHERE e."clientId" = c.id)
+     AND (btrim(c.inn) <> '' OR btrim(c."legalAddress") <> '' OR btrim(c."legalDetails") <> '')`,
 ];
 
 async function main() {

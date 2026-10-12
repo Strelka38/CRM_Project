@@ -4,7 +4,17 @@ import { prisma } from "@/lib/db";
 import { calcAssignmentPay } from "@/lib/payroll";
 import { isStatsLifecycle } from "@/lib/lifecycle";
 import { calcByZones } from "@/lib/quote-calc";
+import { ensureQuoteSchemaColumns } from "@/lib/ensure-schema";
 import { requireDatabaseAccess } from "@/lib/session";
+
+const legalEntitySelect = {
+  id: true,
+  name: true,
+  inn: true,
+  legalAddress: true,
+  legalDetails: true,
+  sortOrder: true,
+} as const;
 
 const clientSelect = {
   id: true,
@@ -19,6 +29,10 @@ const clientSelect = {
   active: true,
   createdAt: true,
   updatedAt: true,
+  legalEntities: {
+    orderBy: [{ sortOrder: "asc" as const }, { createdAt: "asc" as const }],
+    select: legalEntitySelect,
+  },
 };
 
 export async function GET(
@@ -27,6 +41,7 @@ export async function GET(
 ) {
   try {
     await requireDatabaseAccess();
+    await ensureQuoteSchemaColumns();
     const { id } = await params;
 
     const client = await prisma.client.findUnique({

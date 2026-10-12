@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatMoney } from "@/lib/format";
-import { lifecycleLabel, SortableTh, useTableSort } from "@/components/ui";
+import { lifecycleLabel, SortableTh, useTableSort, AutoTextarea } from "@/components/ui";
 import { dateSortValue } from "@/lib/table-sort";
 
 type PayoutRow = {
@@ -250,8 +250,8 @@ export function FreelancerEditor({ freelancerId }: { freelancerId: string }) {
             </label>
             <label className="block text-sm">
               <span className="text-[var(--muted)]">Комментарий</span>
-              <textarea
-                className="field mt-1 min-h-[80px]"
+              <AutoTextarea
+                className="field mt-1"
                 value={freelancer.comment}
                 onChange={(e) =>
                   setFreelancer({ ...freelancer, comment: e.target.value })

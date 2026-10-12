@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ZoneTab } from "@/components/QuoteZoneTabs";
-import { customerWarnings, type LegalDocInput } from "@/lib/legal-docs";
+import { customerWarnings, type LegalDocCustomer, type LegalDocInput } from "@/lib/legal-docs";
 import { formatMoney } from "@/lib/format";
 import { ownerShorts, type CatalogOwnerValue } from "@/lib/catalog-owner";
 import type { QuoteBlockInput } from "@/lib/quote-calc";
@@ -34,14 +34,20 @@ type Entity = {
   bankAccounts: Account[];
 };
 
-type ClientInfo = {
-  companyName: string;
-  contactName: string;
+type ClientLegal = {
+  id: string;
+  name: string;
   inn: string;
   legalAddress: string;
   legalDetails: string;
+};
+
+type ClientInfo = {
+  companyName: string;
+  contactName: string;
   phone: string;
   email: string;
+  legalEntities: ClientLegal[];
 };
 
 type Attachment = {
@@ -157,6 +163,7 @@ export function QuoteDocumentsPanel({
   const [attachPdf, setAttachPdf] = useState(false);
   const [attachXls, setAttachXls] = useState(false);
   const [client, setClient] = useState<ClientInfo | null>(null);
+  const [customerLegalId, setCustomerLegalId] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [files, setFiles] = useState<Attachment[]>([]);
@@ -200,26 +207,43 @@ export function QuoteDocumentsPanel({
         const cr = await fetch(`/api/clients/${clientId}`);
         if (cr.ok) {
           const c = await cr.json();
+          const entities = Array.isArray(c.legalEntities) ? c.legalEntities : [];
           setClient({
             companyName: c.companyName || clientName,
             contactName: c.contactName || "",
-            inn: c.inn || "",
-            legalAddress: c.legalAddress || "",
-            legalDetails: c.legalDetails || "",
             phone: c.phone || "",
             email: c.email || "",
+            legalEntities: entities.map(
+              (e: {
+                id: string;
+                name?: string;
+                inn?: string;
+                legalAddress?: string;
+                legalDetails?: string;
+              }) => ({
+                id: e.id,
+                name: e.name || "",
+                inn: e.inn || "",
+                legalAddress: e.legalAddress || "",
+                legalDetails: e.legalDetails || "",
+              }),
+            ),
           });
+          setCustomerLegalId((current) =>
+            entities.some((e: { id: string }) => e.id === current)
+              ? current
+              : entities[0]?.id || "",
+          );
         }
       } else {
         setClient({
           companyName: clientName,
           contactName: "",
-          inn: "",
-          legalAddress: "",
-          legalDetails: "",
           phone: "",
           email: "",
+          legalEntities: [],
         });
+        setCustomerLegalId("");
       }
     })();
   }, [proposalNumber, amount, eventDate, eventName, clientId, clientName]);
@@ -238,20 +262,50 @@ export function QuoteDocumentsPanel({
     }
   }, [entity, accountId]);
 
+  const customer = useMemo((): LegalDocCustomer | null => {
+    if (!client) return null;
+    const picked =
+      client.legalEntities.find((e) => e.id === customerLegalId) ||
+      client.legalEntities[0];
+    if (!picked) {
+      return {
+        companyName: client.companyName,
+        contactName: client.contactName,
+        inn: "",
+        legalAddress: "",
+        legalDetails: "",
+        phone: client.phone,
+        email: client.email,
+      };
+    }
+    return {
+      companyName: picked.name,
+      contactName: client.contactName,
+      inn: picked.inn,
+      legalAddress: picked.legalAddress,
+      legalDetails: picked.legalDetails,
+      phone: client.phone,
+      email: client.email,
+    };
+  }, [client, customerLegalId]);
+
   const warnings = useMemo(() => {
     const w: string[] = [];
     if (!clientId) w.push("Привяжите клиента в карточке КП");
-    if (client) w.push(...customerWarnings(client));
+    if (client && client.legalEntities.length === 0) {
+      w.push("Добавьте юрлицо в карточке клиента — в договоре нужно юридическое имя");
+    }
+    if (customer) w.push(...customerWarnings(customer));
     if (!entity) w.push("Нет юрлиц — добавьте карточку в База Данных → Юрлица");
     if (entity && !account) w.push("У исполнителя нет расчётного счёта");
     if (!includeContract && !includeInvoice && !includeAct) {
       w.push("Выберите хотя бы один документ");
     }
     return w;
-  }, [clientId, client, entity, account, includeContract, includeInvoice, includeAct]);
+  }, [clientId, client, customer, entity, account, includeContract, includeInvoice, includeAct]);
 
   async function run() {
-    if (!entity || !account || !client) return;
+    if (!entity || !account || !customer) return;
     if (!includeContract && !includeInvoice && !includeAct) return;
     setBusy(true);
     setError("");
@@ -281,7 +335,7 @@ export function QuoteDocumentsPanel({
         corrAccount: account.corrAccount,
         bik: account.bik,
       },
-      customer: client,
+      customer,
     };
     try {
       const { exportLegalDocumentsPdf } = await import("@/lib/legal-docs-pdf");
@@ -474,9 +528,27 @@ export function QuoteDocumentsPanel({
             {eventDate ? `, ${eventDate}` : ""}
             {venue ? `, ${venue}` : ""} · по смете {formatMoney(amount)}
           </p>
+          {(client?.legalEntities.length ?? 0) > 1 ? (
+            <label>
+              <span className="text-[var(--muted)]">Юрлицо заказчика</span>
+              <select
+                className="field mt-1"
+                value={customerLegalId}
+                disabled={!canEdit}
+                onChange={(e) => setCustomerLegalId(e.target.value)}
+              >
+                {client?.legalEntities.map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {e.name}
+                    {e.inn ? ` · ИНН ${e.inn}` : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
           <p className="text-xs text-[var(--muted)]">
-            Заказчик: {client?.companyName || clientName || "—"}
-            {client?.inn ? ` · ИНН ${client.inn}` : ""}
+            Заказчик: {customer?.companyName || clientName || "—"}
+            {customer?.inn ? ` · ИНН ${customer.inn}` : ""}
           </p>
           <div className="grid grid-cols-2 gap-2">
             <label className="flex items-center gap-2">

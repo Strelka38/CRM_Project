@@ -12,6 +12,7 @@ import {
   ownerLabels,
   type CatalogOwnerValue,
 } from "@/lib/catalog-owner";
+import { AutoTextarea } from "@/components/ui";
 import { formatMoney } from "@/lib/format";
 import { SideDrawer } from "@/components/ui/SideDrawer";
 
@@ -484,8 +485,8 @@ export function ItemDrawer({
                 <span className="mb-1 block text-caption uppercase text-[var(--muted)]">
                   Комментарий
                 </span>
-                <textarea
-                  className="field min-h-[88px] w-full resize-y"
+                <AutoTextarea
+                  className="field w-full"
                   value={draft.comment}
                   onChange={(e) => setField("comment", e.target.value)}
                 />

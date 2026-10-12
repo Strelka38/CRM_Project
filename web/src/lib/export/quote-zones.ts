@@ -19,12 +19,87 @@ import {
   shouldStartNewPage,
 } from "./estimate-layout";
 import {
+  BRAND_LOGO_URL,
   BRAND_NAME,
   BRAND_SITE,
   buildKpHeader,
   loadPrintBrandMark,
 } from "./kp-header";
+import { quoteSheetShowsIdentity } from "../quote-sheet-chrome";
+import { buildPrintGroups } from "./print-layout";
+import {
+  buildPrintHeader,
+  cashlessTaxSeparate,
+  printColumnTitle,
+  printColumns,
+  type PrintColumn,
+  type QuotePrintOptions,
+} from "./print-options";
 import { loadSansFonts, registerPdfFont } from "./pdf-fonts";
+import { formatNumber } from "../format";
+
+type PrintBrand = {
+  name: string;
+  site: string;
+  logo: string | null;
+  logoRaw: string | null;
+  logoUrl: string;
+  invert: boolean;
+};
+
+function absoluteAssetUrl(origin: string, path: string) {
+  if (!origin || /^https?:\/\//i.test(path)) return path;
+  return `${origin}${path.startsWith("/") ? path : `/${path}`}`;
+}
+
+async function loadPrintBrand(origin = ""): Promise<PrintBrand> {
+  const logoPath = (path: string) => absoluteAssetUrl(origin, path);
+  const fallback: PrintBrand = {
+    name: BRAND_NAME,
+    site: BRAND_SITE,
+    logo: null,
+    logoRaw: null,
+    logoUrl: BRAND_LOGO_URL,
+    invert: true,
+  };
+  let remote: {
+    kpName?: string;
+    kpSite?: string;
+    kpLogoUrl?: string;
+    kpLogoInvert?: boolean;
+  } | null = null;
+  try {
+    const res = await fetch(logoPath("/api/brand"));
+    if (res.ok) remote = (await res.json()) as typeof remote;
+  } catch {
+    /* публичная страница обойдётся адресом логотипа */
+  }
+  const logoUrl = remote?.kpLogoUrl || BRAND_LOGO_URL;
+  const invert = remote?.kpLogoInvert !== false;
+  const brand: PrintBrand = {
+    name: (remote?.kpName || "").trim() || fallback.name,
+    site: (remote?.kpSite || "").trim() || fallback.site,
+    logoUrl,
+    invert,
+    logo: null,
+    logoRaw: null,
+  };
+  try {
+    const [logo, logoRaw] = await Promise.all([
+      loadPrintBrandMark(logoPath(logoUrl), invert),
+      loadPrintBrandMark(logoPath(logoUrl), false),
+    ]);
+    brand.logo = logo;
+    brand.logoRaw = logoRaw;
+  } catch {
+    /* В HTML достаточно logoUrl: инверсия делается стилем в браузере. */
+  }
+  return brand;
+}
+
+function summaryWanted(filters: ExportFilters, zoneCount: number) {
+  return filters.includeSummary && quoteSheetShowsIdentity(zoneCount);
+}
 
 export type ExportFilters = {
   includeSummary: boolean;
@@ -33,6 +108,8 @@ export type ExportFilters = {
   showConsumablePrice: boolean;
   showServicePrice: boolean;
   zoneIds: string[];
+  /** Задано из меню «Экспорт». Без поля документы печатаются как раньше. */
+  print?: QuotePrintOptions;
 };
 
 export type ExportMeta = {
@@ -53,6 +130,13 @@ export type ExportMeta = {
   durationDays: number;
   discountPercent: number;
   notes: string[];
+  /** Контакт заказчика: телефон, Telegram. */
+  clientPhone?: string;
+  /** Адрес площадки, если выбран справочник. */
+  address?: string;
+  /** Комментарий к оплате или примечание сметы. */
+  comment?: string;
+  venueId?: string | null;
 };
 
 const ZONE_COLS = 5;
@@ -70,6 +154,11 @@ function downloadBlob(blob: Blob, filename: string) {
 function cashlessRate(meta: ExportMeta) {
   const n = Number(meta.cashlessPercent);
   return Number.isFinite(n) && n > 0 ? n : 10;
+}
+
+/** Без print — прежний экспорт документов: налог безнала отдельной строкой. */
+function printedTaxSeparate(meta: ExportMeta, filters: ExportFilters) {
+  return cashlessTaxSeparate(meta.cashless, filters.print ?? { showTaxSeparate: true });
 }
 
 function filenameBase(meta: ExportMeta) {
@@ -146,6 +235,93 @@ function prepare(
   return { selectedZones, summary };
 }
 
+function headerForExport(
+  meta: ExportMeta,
+  filters: ExportFilters,
+  brand: PrintBrand,
+) {
+  if (!filters.print) return buildKpHeader(meta);
+  return buildPrintHeader(
+    {
+      proposalNumber: meta.proposalNumber,
+      eventName: meta.eventName,
+      date: meta.date,
+      time: meta.time,
+      place: meta.place,
+      client: meta.client,
+      clientPhone: meta.clientPhone,
+      address: meta.address,
+      formedAt: todayLabel(),
+      firm: brand.name,
+      comment: meta.comment,
+    },
+    filters.print,
+  );
+}
+
+function zoneColumnCount(filters: ExportFilters) {
+  return filters.print ? printColumns(filters.print).length : ZONE_COLS;
+}
+
+function zoneColumnWidths(filters: ExportFilters): Array<{ width: number }> {
+  if (!filters.print) {
+    return [
+      { width: 6 },
+      { width: 56 },
+      { width: 12 },
+      { width: 14 },
+      { width: 16 },
+    ];
+  }
+  const width: Record<PrintColumn, number> = {
+    num: 6,
+    name: 56,
+    qty: 12,
+    coef: 12,
+    price: 14,
+    discount: 14,
+    sum: 16,
+  };
+  return printColumns(filters.print).map((col) => ({ width: width[col] }));
+}
+
+function linePriced(
+  kind: "equipment" | "service" | "consumable",
+  filters: ExportFilters,
+) {
+  if (kind === "service") return filters.showServicePrice;
+  if (kind === "consumable") return filters.showConsumablePrice;
+  return filters.showEquipmentPrice;
+}
+
+function printAlign(col: PrintColumn): "left" | "center" | "right" {
+  if (col === "name") return "left";
+  if (col === "num" || col === "qty") return "center";
+  return "right";
+}
+
+function printedGroupsFor(
+  z: ZoneTotals,
+  meta: ExportMeta,
+  options: QuotePrintOptions,
+) {
+  return buildPrintGroups({
+    docSections: z.doc.sections,
+    blocks: z.doc.blocks,
+    cashless: meta.cashless,
+    durationDays: meta.durationDays,
+    cashlessPercent: meta.cashlessPercent,
+    discountPercent: meta.discountPercent,
+    options,
+  });
+}
+
+function stampExcelPages(ws: ExcelJS.Worksheet, filters: ExportFilters) {
+  if (!filters.print?.showPageNumbers) return;
+  ws.headerFooter.oddFooter = "&C&P";
+  ws.headerFooter.evenFooter = "&C&P";
+}
+
 function moneyAlign(colIndex: number): "left" | "center" | "right" {
   if (colIndex === 1) return "left";
   if (colIndex === 2) return "center";
@@ -208,8 +384,10 @@ function writeExcelKpHeader(
   ws: ExcelJS.Worksheet,
   meta: ExportMeta,
   lastCol: number,
+  brand: PrintBrand,
+  header = buildKpHeader(meta),
+  showFirm = true,
 ) {
-  const header = buildKpHeader(meta);
   ws.mergeCells(1, 1, 2, Math.max(2, lastCol - 2));
   const title = ws.getCell(1, 1);
   title.value = header.title;
@@ -229,11 +407,11 @@ function writeExcelKpHeader(
 
   const brandStart = Math.max(1, lastCol - 1);
   ws.mergeCells(1, brandStart, 1, lastCol);
-  ws.getCell(1, brandStart).value = BRAND_NAME;
+  ws.getCell(1, brandStart).value = brand.name;
   paint(ws.getCell(1, brandStart), { bold: true, size: 11, align: "right" });
   ws.getCell(1, brandStart).border = {};
   ws.mergeCells(2, brandStart, 2, lastCol);
-  ws.getCell(2, brandStart).value = BRAND_SITE;
+  ws.getCell(2, brandStart).value = brand.site;
   paint(ws.getCell(2, brandStart), {
     size: 9,
     align: "right",
@@ -265,12 +443,14 @@ function writeBand(
   text: string,
   fill: string,
   size: number,
+  colCount = ZONE_COLS,
 ) {
-  ws.mergeCells(row, 1, row, ZONE_COLS);
+  const last = Math.max(1, colCount);
+  ws.mergeCells(row, 1, row, last);
   const cell = ws.getCell(row, 1);
   cell.value = text;
   paint(cell, { fill, bold: true, size });
-  for (let c = 2; c <= ZONE_COLS; c += 1) paint(ws.getCell(row, c), { fill });
+  for (let c = 2; c <= last; c += 1) paint(ws.getCell(row, c), { fill });
 }
 
 function writeTotal(
@@ -279,21 +459,143 @@ function writeTotal(
   label: string,
   value: number,
   bold = false,
+  colCount = ZONE_COLS,
 ) {
-  ws.mergeCells(row, 1, row, ZONE_COLS - 1);
+  const last = Math.max(2, colCount);
+  ws.mergeCells(row, 1, row, last - 1);
   paint(ws.getCell(row, 1), {
     bold,
     align: "right",
     fill: ESTIMATE_COLORS.totalArgb,
   });
   ws.getCell(row, 1).value = label;
-  for (let c = 2; c <= ZONE_COLS - 1; c += 1) {
+  for (let c = 2; c <= last - 1; c += 1) {
     paint(ws.getCell(row, c), { fill: ESTIMATE_COLORS.totalArgb });
   }
-  const sum = ws.getCell(row, ZONE_COLS);
+  const sum = ws.getCell(row, last);
   sum.value = value;
   sum.numFmt = "#,##0.00";
   paint(sum, { bold, align: "right", fill: ESTIMATE_COLORS.totalArgb });
+}
+
+function appendPrintedZoneExcel(
+  ws: ExcelJS.Worksheet,
+  z: ZoneTotals,
+  meta: ExportMeta,
+  filters: ExportFilters,
+  startRow: number,
+  showName: boolean,
+) {
+  const options = filters.print!;
+  const cols = printColumns(options);
+  const colCount = cols.length;
+  let r = startRow;
+  if (showName) {
+    writeBand(ws, r, z.name.toUpperCase(), ESTIMATE_COLORS.zoneArgb, 12, colCount);
+    r += 1;
+  }
+  const groups = printedGroupsFor(z, meta, options);
+  for (const group of groups) {
+    if (options.showSectionHeader) {
+      writeBand(ws, r, group.title, ESTIMATE_COLORS.categoryArgb, 10, colCount);
+      r += 1;
+    }
+    cols.forEach((col, i) => {
+      const cell = ws.getCell(r, i + 1);
+      cell.value = printColumnTitle(col, group.nameHeader);
+      paint(cell, {
+        fill: ESTIMATE_COLORS.headerArgb,
+        bold: true,
+        align: printAlign(col),
+        color: ESTIMATE_COLORS.mutedArgb,
+        size: 8,
+      });
+    });
+    r += 1;
+    for (const row of group.rows) {
+      if (row.kind !== "item") {
+        ws.mergeCells(r, 1, r, colCount);
+        const cell = ws.getCell(r, 1);
+        cell.value = row.text;
+        paint(cell, {
+          size: row.kind === "subhead" ? 9 : 8,
+          bold: row.kind === "subhead",
+          color: row.kind === "note" ? ESTIMATE_COLORS.mutedArgb : undefined,
+        });
+        r += 1;
+        continue;
+      }
+      const priced = linePriced(row.costKind, filters);
+      cols.forEach((col, i) => {
+        const cell = ws.getCell(r, i + 1);
+        if (col === "num") cell.value = row.num;
+        else if (col === "name") cell.value = row.name;
+        else if (col === "qty") cell.value = row.qty;
+        else if (col === "coef") cell.value = row.coef;
+        else if (col === "price") cell.value = priced ? row.price : null;
+        else if (col === "discount") cell.value = priced ? row.discount : null;
+        else cell.value = priced ? row.sum : null;
+        paint(cell, { align: printAlign(col) });
+        if (
+          (col === "price" || col === "discount" || col === "sum") &&
+          typeof cell.value === "number"
+        ) {
+          cell.numFmt = "#,##0.00";
+        }
+      });
+      r += 1;
+    }
+    if (group.total != null) {
+      writeTotal(ws, r, `Итого ${group.title}:`, group.total, false, colCount);
+      r += 1;
+    }
+  }
+  if (options.showQuoteTotal) {
+    const cash = zoneCash(z);
+    const separate = printedTaxSeparate(meta, filters);
+    writeTotal(
+      ws,
+      r,
+      "ИТОГО — АРЕНДА:",
+      separate ? cash.rental : z.equipmentTotal + z.consumablesTotal,
+      true,
+      colCount,
+    );
+    r += 1;
+    writeTotal(
+      ws,
+      r,
+      "ИТОГО — УСЛУГИ:",
+      separate ? cash.services : z.servicesTotal,
+      true,
+      colCount,
+    );
+    r += 1;
+    writeTotal(ws, r, "ИТОГО:", separate ? cash.total : z.subtotal, true, colCount);
+    r += 1;
+    if (separate) {
+      writeTotal(
+        ws,
+        r,
+        `Налоги, банк ${cashlessRate(meta).toFixed(2)}%:`,
+        z.subtotal - cash.total,
+        false,
+        colCount,
+      );
+      r += 1;
+    }
+    if (hasDiscount(meta)) {
+      writeTotal(ws, r, `Скидка ${meta.discountPercent}%:`, z.discount, false, colCount);
+      r += 1;
+    }
+    for (const tax of z.taxLines) {
+      writeTotal(ws, r, `${tax.label}:`, tax.amount, false, colCount);
+      r += 1;
+    }
+    writeTotal(ws, r, "К ОПЛАТЕ:", z.payable, true, colCount);
+    r += 1;
+  }
+  return r + 1;
 }
 
 function appendZoneExcel(
@@ -302,12 +604,18 @@ function appendZoneExcel(
   meta: ExportMeta,
   filters: ExportFilters,
   startRow: number,
+  showName: boolean,
 ) {
+  if (filters.print) {
+    return appendPrintedZoneExcel(ws, z, meta, filters, startRow, showName);
+  }
   let r = startRow;
   const cashless = meta.cashless;
   const cash = zoneCash(z);
-  writeBand(ws, r, z.name.toUpperCase(), ESTIMATE_COLORS.zoneArgb, 12);
-  r += 1;
+  if (showName) {
+    writeBand(ws, r, z.name.toUpperCase(), ESTIMATE_COLORS.zoneArgb, 12);
+    r += 1;
+  }
 
   const writeGroup = (
     sections: Array<{ title: string; items: CalcBlock[] }>,
@@ -390,12 +698,16 @@ function appendZoneExcel(
     writeTotal(ws, r, `Скидка ${meta.discountPercent}%:`, z.discount);
     r += 1;
   }
+  for (const tax of z.taxLines) {
+    writeTotal(ws, r, `${tax.label}:`, tax.amount);
+    r += 1;
+  }
   writeTotal(ws, r, "К ОПЛАТЕ:", z.payable, true);
   return r + 2;
 }
 
-function writeExcelDisclaimer(ws: ExcelJS.Worksheet, row: number) {
-  ws.mergeCells(row, 1, row, ZONE_COLS);
+function writeExcelDisclaimer(ws: ExcelJS.Worksheet, row: number, colCount = ZONE_COLS) {
+  ws.mergeCells(row, 1, row, Math.max(1, colCount));
   const note = ws.getCell(row, 1);
   note.value = ESTIMATE_DISCLAIMER;
   note.font = {
@@ -435,17 +747,20 @@ function previewCss() {
   `;
 }
 
-export function buildExportPreviewHtml(
+export async function buildExportPreviewHtml(
   meta: ExportMeta,
   zones: ZoneInput[],
   blocks: QuoteBlockInput[],
   filters: ExportFilters,
-  logoDataUrl?: string | null,
-): string {
+  origin = "",
+): Promise<string> {
   const { summary } = prepare(meta, zones, blocks, filters);
+  const brand = await loadPrintBrand(origin);
+  const showSummary = summaryWanted(filters, summary.zones.length);
+  const showName = quoteSheetShowsIdentity(summary.zones.length);
   const cashless = meta.cashless;
-  const header = buildKpHeader(meta);
-  let html = `<!doctype html><html><head><meta charset="utf-8"><style>${previewCss()}</style></head><body><div class="sheet">`;
+  const header = headerForExport(meta, filters, brand);
+  let html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(header.title)}</title><style>${previewCss()}</style></head><body><div class="sheet">`;
   html += `<div class="head"><div class="meta">`;
   html += `<h1 class="title">${escapeHtml(header.title)}</h1>`;
   for (const row of header.rows) {
@@ -453,10 +768,10 @@ export function buildExportPreviewHtml(
   }
   html += `</div>`;
   html += `<div class="brand">`;
-  html += `<img src="${logoDataUrl || "/brand/bsg-logo.png"}" alt="">`;
-  html += `<strong>${BRAND_NAME}</strong><div><a href="https://${BRAND_SITE}">${BRAND_SITE}</a></div></div></div>`;
+  html += `<img src="${brand.logoRaw || brand.logoUrl}" alt=""${brand.invert ? "" : ` style="filter:none"`}>`;
+  html += `<strong>${escapeHtml(brand.name)}</strong><div><a href="https://${escapeHtml(brand.site)}">${escapeHtml(brand.site)}</a></div></div></div>`;
 
-  if (filters.includeSummary) {
+  if (showSummary) {
     html += `<table><thead><tr><th class="num">№</th><th>Коммерческое предложение</th><th class="money">Оборудование</th><th class="money">Услуги</th><th class="money">Итого</th>`;
     if (cashless) html += `<th class="money">Налог</th>`;
     html += `<th class="money">К оплате</th></tr></thead><tbody>`;
@@ -475,7 +790,17 @@ export function buildExportPreviewHtml(
   }
 
   for (const z of summary.zones) {
-    html += `<table><tbody><tr class="zone"><td colspan="5">${escapeHtml(z.name)}</td></tr></tbody></table>`;
+    if (filters.print) {
+      const span = printColumns(filters.print).length;
+      if (showName) {
+        html += `<table><tbody><tr class="zone"><td colspan="${span}">${escapeHtml(z.name)}</td></tr></tbody></table>`;
+      }
+      html += printedZoneHtml(z, meta, filters);
+      continue;
+    }
+    if (showName) {
+      html += `<table><tbody><tr class="zone"><td colspan="5">${escapeHtml(z.name)}</td></tr></tbody></table>`;
+    }
     for (const pick of ["rental", "services"] as const) {
       const label = pick === "rental" ? "Оборудование" : "Услуги";
       for (const section of z.doc.sections) {
@@ -490,7 +815,13 @@ export function buildExportPreviewHtml(
         html += `</tbody></table>`;
       }
     }
+    for (const tax of z.taxLines) {
+      html += `<table><tr><td colspan="4">${escapeHtml(tax.label)}</td><td class="money">${formatMoney(tax.amount)}</td></tr></table>`;
+    }
     html += `<table><tr class="total"><td colspan="4">К ОПЛАТЕ</td><td class="money">${formatMoney(z.payable)}</td></tr></table>`;
+  }
+  if (filters.print?.showPageNumbers) {
+    html += `<p class="note" style="text-align:center">1</p>`;
   }
   html += `<p class="note">${escapeHtml(ESTIMATE_DISCLAIMER)}</p></div></body></html>`;
   return html;
@@ -504,6 +835,82 @@ function escapeHtml(value: string) {
     .replace(/"/g, "&quot;");
 }
 
+function printedZoneHtml(
+  z: ZoneTotals,
+  meta: ExportMeta,
+  filters: ExportFilters,
+) {
+  const options = filters.print!;
+  const cols = printColumns(options);
+  const span = Math.max(1, cols.length);
+  const groups = printedGroupsFor(z, meta, options);
+  let html = "";
+  for (const group of groups) {
+    html += `<table>`;
+    if (options.showSectionHeader) {
+      html += `<thead><tr class="section"><th colspan="${span}">${escapeHtml(group.title)}</th></tr><tr>`;
+    } else {
+      html += `<thead><tr>`;
+    }
+    for (const col of cols) {
+      const align = printAlign(col);
+      const cls = align === "right" ? "money" : align === "center" ? "num" : "";
+      html += `<th class="${cls}">${escapeHtml(printColumnTitle(col, group.nameHeader))}</th>`;
+    }
+    html += `</tr></thead><tbody>`;
+    for (const row of group.rows) {
+      if (row.kind !== "item") {
+        html += `<tr><td colspan="${span}" class="${row.kind === "subhead" ? "section" : "note"}">${escapeHtml(row.text)}</td></tr>`;
+        continue;
+      }
+      const priced = linePriced(row.costKind, filters);
+      html += `<tr>`;
+      for (const col of cols) {
+        const align = printAlign(col);
+        const cls = align === "right" ? "money" : align === "center" ? "num" : "";
+        let text = "";
+        if (col === "num") text = String(row.num);
+        else if (col === "name") text = row.name;
+        else if (col === "qty") text = String(row.qty);
+        else if (col === "coef") text = String(row.coef);
+        else if (col === "price") text = priced ? formatMoney(row.price) : "—";
+        else if (col === "discount") text = priced ? formatMoney(row.discount) : "—";
+        else text = priced ? formatMoney(row.sum) : "—";
+        html += `<td class="${cls}">${escapeHtml(text)}</td>`;
+      }
+      html += `</tr>`;
+    }
+    if (group.total != null) {
+      html += `<tr class="total"><td colspan="${Math.max(1, span - 1)}">Итого ${escapeHtml(group.title)}</td><td class="money">${formatMoney(group.total)}</td></tr>`;
+    }
+    html += `</tbody></table>`;
+  }
+  if (options.showQuoteTotal) {
+    const cash = zoneCash(z);
+    const separate = printedTaxSeparate(meta, filters);
+    const lines: Array<[string, number]> = [
+      ["ИТОГО — АРЕНДА", separate ? cash.rental : z.equipmentTotal + z.consumablesTotal],
+      ["ИТОГО — УСЛУГИ", separate ? cash.services : z.servicesTotal],
+      ["ИТОГО", separate ? cash.total : z.subtotal],
+    ];
+    if (separate) {
+      lines.push([
+        `Налоги, банк ${cashlessRate(meta).toFixed(2)}%`,
+        z.subtotal - cash.total,
+      ]);
+    }
+    if (hasDiscount(meta)) lines.push([`Скидка ${meta.discountPercent}%`, z.discount]);
+    for (const tax of z.taxLines) lines.push([tax.label, tax.amount]);
+    lines.push(["К ОПЛАТЕ", z.payable]);
+    html += `<table>`;
+    for (const [label, value] of lines) {
+      html += `<tr class="total"><td colspan="${Math.max(1, span - 1)}">${escapeHtml(label)}</td><td class="money">${formatMoney(value)}</td></tr>`;
+    }
+    html += `</table>`;
+  }
+  return html;
+}
+
 export async function exportQuoteZonesExcel(
   meta: ExportMeta,
   zones: ZoneInput[],
@@ -512,11 +919,15 @@ export async function exportQuoteZonesExcel(
   opts?: { download?: boolean },
 ) {
   const { selectedZones, summary } = prepare(meta, zones, blocks, filters);
+  const brand = await loadPrintBrand();
   const wb = new ExcelJS.Workbook();
   wb.creator = "BaikalStageGroup CRM";
   const cashless = meta.cashless;
+  const showSummary = summaryWanted(filters, summary.zones.length);
+  const showName = quoteSheetShowsIdentity(summary.zones.length);
+  const docHeader = headerForExport(meta, filters, brand);
 
-  if (filters.includeSummary) {
+  if (showSummary) {
     const ws = wb.addWorksheet("Общая информация");
     landscape(ws);
     const colCount = cashless ? 7 : 6;
@@ -529,7 +940,8 @@ export async function exportQuoteZonesExcel(
       { width: cashless ? 28 : 16 },
       ...(cashless ? [{ width: 16 }] : []),
     ];
-    let r = writeExcelKpHeader(ws, meta, colCount);
+    let r = writeExcelKpHeader(ws, meta, colCount, brand, docHeader);
+    stampExcelPages(ws, filters);
     const headers = cashless
       ? ["№", "Коммерческое предложение", "Оборудование", "Услуги", "Итого", "Налог", "К оплате"]
       : ["№", "Коммерческое предложение", "Оборудование", "Услуги", "Итого", "К оплате"];
@@ -597,35 +1009,34 @@ export async function exportQuoteZonesExcel(
     });
   }
 
-  const zoneCols = [
-    { width: 6 },
-    { width: 56 },
-    { width: 12 },
-    { width: 14 },
-    { width: 16 },
-  ];
+  const zoneCols = zoneColumnWidths(filters);
+  const zoneColsN = zoneColumnCount(filters);
 
   if (filters.allTabsOneSheet) {
     const ws = wb.addWorksheet("Все вкладки на одном листе");
     ws.columns = zoneCols;
     landscape(ws);
-    let r = writeExcelKpHeader(ws, meta, ZONE_COLS);
+    stampExcelPages(ws, filters);
+    let r = writeExcelKpHeader(ws, meta, zoneColsN, brand, docHeader);
     for (const z of selectedZones) {
       const zoneCalc = summary.zones.find((x) => x.zoneId === z.id);
       if (!zoneCalc) continue;
-      r = appendZoneExcel(ws, zoneCalc, meta, filters, r);
+      r = appendZoneExcel(ws, zoneCalc, meta, filters, r, showName);
     }
-    writeExcelDisclaimer(ws, r);
+    writeExcelDisclaimer(ws, r, zoneColsN);
   } else {
     for (const z of selectedZones) {
       const zoneCalc = summary.zones.find((x) => x.zoneId === z.id);
       if (!zoneCalc) continue;
-      const ws = wb.addWorksheet(z.name.slice(0, 28) || "Зона");
+      const ws = wb.addWorksheet(
+        (showName ? z.name.slice(0, 28) : "Смета") || "Зона",
+      );
       ws.columns = zoneCols;
       landscape(ws);
-      const start = writeExcelKpHeader(ws, meta, ZONE_COLS);
-      const end = appendZoneExcel(ws, zoneCalc, meta, filters, start);
-      writeExcelDisclaimer(ws, end);
+      stampExcelPages(ws, filters);
+      const start = writeExcelKpHeader(ws, meta, zoneColsN, brand, docHeader);
+      const end = appendZoneExcel(ws, zoneCalc, meta, filters, start, showName);
+      writeExcelDisclaimer(ws, end, zoneColsN);
     }
   }
 
@@ -660,7 +1071,10 @@ export async function exportQuoteZonesPdf(
 ) {
   const { summary } = prepare(meta, zones, blocks, filters);
   const fonts = await loadSansFonts();
-  const logo = await loadPrintBrandMark();
+  const brand = await loadPrintBrand();
+  const logo = brand.logo;
+  const showSummary = summaryWanted(filters, summary.zones.length);
+  const showName = quoteSheetShowsIdentity(summary.zones.length);
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   const font = registerPdfFont(doc, fonts);
   const margin = 12;
@@ -686,16 +1100,16 @@ export async function exportQuoteZonesPdf(
     doc.setFontSize(compact ? 7.5 : 9);
     doc.setTextColor(...ESTIMATE_COLORS.ink);
     const textY = y + logoSize + (compact ? 2.8 : 4);
-    doc.text(BRAND_NAME, x, textY, { align: "right" });
+    doc.text(brand.name, x, textY, { align: "right" });
     doc.setFont(font, "normal");
     doc.setFontSize(compact ? 6.5 : 7.5);
     doc.setTextColor(...ESTIMATE_COLORS.muted);
-    doc.text(BRAND_SITE, x, textY + (compact ? 3.2 : 4), { align: "right" });
+    doc.text(brand.site, x, textY + (compact ? 3.2 : 4), { align: "right" });
     doc.setTextColor(...ESTIMATE_COLORS.ink);
   };
 
   const drawFullHeader = () => {
-    const header = buildKpHeader(meta);
+    const header = headerForExport(meta, filters, brand);
     drawBrand(false);
     const leftW = innerW - 52;
     let y = 14;
@@ -775,7 +1189,7 @@ export async function exportQuoteZonesPdf(
     4: { cellWidth: 32, halign: "right" as const },
   };
 
-  if (filters.includeSummary) {
+  if (showSummary) {
     autoTable(doc, {
       ...tableBase,
       startY: headerBottom,
@@ -869,18 +1283,19 @@ export async function exportQuoteZonesPdf(
 
   const drawTotals = (z: ZoneTotals, y0: number) => {
     const cash = zoneCash(z);
+    const separate = printedTaxSeparate(meta, filters);
     const lines: Array<[string, string]> = [
       [
         "ИТОГО — АРЕНДА",
-        formatEstimateNumber(cashless ? cash.rental : z.equipmentTotal + z.consumablesTotal),
+        formatEstimateNumber(separate ? cash.rental : z.equipmentTotal + z.consumablesTotal),
       ],
       [
         "ИТОГО — УСЛУГИ",
-        formatEstimateNumber(cashless ? cash.services : z.servicesTotal),
+        formatEstimateNumber(separate ? cash.services : z.servicesTotal),
       ],
-      ["ИТОГО", formatEstimateNumber(cashless ? cash.total : z.subtotal)],
+      ["ИТОГО", formatEstimateNumber(separate ? cash.total : z.subtotal)],
     ];
-    if (cashless) {
+    if (separate) {
       lines.push([
         `Налоги, банк ${cashlessRate(meta).toFixed(2)}%`,
         formatEstimateNumber(z.subtotal - cash.total),
@@ -888,6 +1303,9 @@ export async function exportQuoteZonesPdf(
     }
     if (showDisc) {
       lines.push([`Скидка ${meta.discountPercent}%`, formatEstimateNumber(z.discount)]);
+    }
+    for (const tax of z.taxLines) {
+      lines.push([tax.label, formatEstimateNumber(tax.amount)]);
     }
     lines.push(["К ОПЛАТЕ", formatEstimateNumber(z.payable)]);
     let y = y0;
@@ -991,27 +1409,145 @@ export async function exportQuoteZonesPdf(
     return y;
   };
 
-  let started = filters.includeSummary;
+  const drawPrintedZone = (startY: number, z: ZoneTotals) => {
+    const options = filters.print!;
+    const cols = printColumns(options);
+    const groups = printedGroupsFor(z, meta, options);
+    let y = startY;
+    const fixed: Record<Exclude<PrintColumn, "name">, number> = {
+      num: 10,
+      qty: 14,
+      coef: 14,
+      price: 22,
+      discount: 22,
+      sum: 24,
+    };
+    let used = 0;
+    for (const col of cols) if (col !== "name") used += fixed[col];
+    const nameW = Math.max(36, innerW - used);
+    const colStyles: Record<
+      number,
+      { cellWidth: number; halign: "left" | "center" | "right" }
+    > = {};
+    cols.forEach((col, i) => {
+      colStyles[i] = {
+        cellWidth: col === "name" ? nameW : fixed[col],
+        halign: printAlign(col),
+      };
+    });
+
+    for (const group of groups) {
+      if (shouldStartNewPage(remainingPageMm(pageH, y, bottom), 28)) {
+        y = freshPageY();
+      }
+      if (options.showSectionHeader) {
+        autoTable(doc, {
+          ...tableBase,
+          startY: y,
+          showHead: "never",
+          body: [[group.title]],
+          styles: {
+            ...tableBase.styles,
+            fillColor: ESTIMATE_COLORS.category,
+            fontStyle: "bold",
+            fontSize: 9,
+            halign: "left",
+          },
+          columnStyles: { 0: { cellWidth: innerW, halign: "left" } },
+        });
+        y = lastY() + 0.2;
+      }
+      const body: string[][] = [];
+      const bandRows = new Set<number>();
+      for (const row of group.rows) {
+        if (row.kind !== "item") {
+          bandRows.add(body.length);
+          body.push(cols.map((col) => (col === "name" ? row.text : "")));
+          continue;
+        }
+        const priced = linePriced(row.costKind, filters);
+        body.push(
+          cols.map((col) => {
+            if (col === "num") return String(row.num);
+            if (col === "name") return row.name;
+            if (col === "qty") return String(row.qty);
+            if (col === "coef") return String(row.coef);
+            if (col === "price") return priced ? formatEstimateNumber(row.price) : "—";
+            if (col === "discount") {
+              return priced ? formatEstimateNumber(row.discount) : "—";
+            }
+            return priced ? formatEstimateNumber(row.sum) : "—";
+          }),
+        );
+      }
+      const totalIndex = group.total != null ? body.length : -1;
+      if (group.total != null) {
+        body.push(
+          cols.map((col) => {
+            if (col === "name") return `Итого ${group.title}:`;
+            if (col === "sum") return formatEstimateNumber(group.total ?? 0);
+            return "";
+          }),
+        );
+      }
+      if (body.length === 0) continue;
+      autoTable(doc, {
+        ...tableBase,
+        startY: y,
+        head: [cols.map((col) => printColumnTitle(col, group.nameHeader))],
+        body,
+        columnStyles: colStyles,
+        didParseCell: (data) => {
+          if (data.section === "head") {
+            const col = cols[data.column.index];
+            if (col) data.cell.styles.halign = printAlign(col);
+          }
+          if (data.section === "body" && bandRows.has(data.row.index)) {
+            data.cell.styles.textColor = ESTIMATE_COLORS.muted;
+            data.cell.styles.fontStyle = "italic";
+          }
+          if (data.section === "body" && data.row.index === totalIndex) {
+            data.cell.styles.fontStyle = "bold";
+            data.cell.styles.fillColor = ESTIMATE_COLORS.total;
+            if (cols[data.column.index] !== "sum") data.cell.styles.halign = "right";
+          }
+        },
+      });
+      y = lastY() + 2;
+    }
+    if (options.showQuoteTotal) {
+      drawTotals(z, groups.length ? lastY() + 4 : y);
+    }
+  };
+
+  let started = showSummary;
   for (const z of summary.zones) {
     let y = started ? lastY() + 8 : headerBottom;
     started = true;
     if (shouldStartNewPage(remainingPageMm(pageH, y, bottom))) {
       y = freshPageY();
     }
-    autoTable(doc, {
-      ...tableBase,
-      startY: y,
-      showHead: "never",
-      body: [[z.name.toUpperCase()]],
-      styles: {
-        ...tableBase.styles,
-        fillColor: ESTIMATE_COLORS.zone,
-        fontStyle: "bold",
-        fontSize: 10,
-        halign: "left",
-      },
-      columnStyles: { 0: { cellWidth: innerW, halign: "left" } },
-    });
+    if (showName) {
+      autoTable(doc, {
+        ...tableBase,
+        startY: y,
+        showHead: "never",
+        body: [[z.name.toUpperCase()]],
+        styles: {
+          ...tableBase.styles,
+          fillColor: ESTIMATE_COLORS.zone,
+          fontStyle: "bold",
+          fontSize: 10,
+          halign: "left",
+        },
+        columnStyles: { 0: { cellWidth: innerW, halign: "left" } },
+      });
+    }
+    const afterName = showName ? lastY() + 1 : y;
+    if (filters.print) {
+      drawPrintedZone(afterName, z);
+      continue;
+    }
     const rentalSections = z.doc.sections
       .map((section) => ({
         title: section.title,
@@ -1024,12 +1560,31 @@ export async function exportQuoteZonesPdf(
         items: partitionByKind(section.items, costKindOf).services,
       }))
       .filter((s) => s.items.length > 0);
-    if (rentalSections.length) drawGroup(lastY() + 1, rentalSections, "Оборудование");
-    if (serviceSections.length) drawGroup(lastY() + 2, serviceSections, "Услуги");
-    drawTotals(z, lastY() + 4);
+    if (rentalSections.length) drawGroup(afterName, rentalSections, "Оборудование");
+    if (serviceSections.length) {
+      drawGroup(
+        rentalSections.length ? lastY() + 2 : afterName,
+        serviceSections,
+        "Услуги",
+      );
+    }
+    const totalsAnchor =
+      rentalSections.length || serviceSections.length ? lastY() + 4 : afterName;
+    drawTotals(z, totalsAnchor);
   }
 
   drawDisclaimer(lastY() + 6);
+
+  if (filters.print?.showPageNumbers) {
+    const pages = doc.getNumberOfPages();
+    for (let i = 1; i <= pages; i += 1) {
+      doc.setPage(i);
+      doc.setFont(font, "normal");
+      doc.setFontSize(8);
+      doc.setTextColor(...ESTIMATE_COLORS.muted);
+      doc.text(String(i), pageW / 2, pageH - 6, { align: "center" });
+    }
+  }
 
   const filename = `${filenameBase(meta)}.pdf`;
   const blob = doc.output("blob");
