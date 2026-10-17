@@ -19,6 +19,9 @@ assert.equal(navGateForPath("/roster"), "roster");
 assert.equal(navGateForPath("/unpaid"), "manager");
 assert.equal(navGateForPath("/settings/access"), "admin");
 assert.equal(navGateForPath("/settings/brand"), "admin");
+assert.equal(navGateForPath("/settings/system"), "admin");
+assert.equal(navGateForPath("/settings/proposal"), "admin");
+assert.equal(navGateForPath("/settings/warehouse"), "admin");
 assert.equal(navGateForPath("/login"), null);
 assert.equal(navGateForPath("/api/payouts"), null);
 
@@ -96,7 +99,14 @@ assert.equal(navGroupIsActive("/quotes/abc", "accounting"), false);
 assert.equal(navGroupIsActive("/quotes", "accounting"), true);
 assert.deepEqual(
   navMenuItems("settings", { showBackup: true }).map((s) => s.href),
-  ["/settings/access", "/settings/brand", "/backup"],
+  [
+    "/settings/access",
+    "/settings/brand",
+    "/settings/system",
+    "/settings/proposal",
+    "/settings/warehouse",
+    "/backup",
+  ],
 );
 assert.deepEqual(
   navMenuItems("settings", {

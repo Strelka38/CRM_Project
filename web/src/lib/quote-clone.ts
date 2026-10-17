@@ -41,6 +41,7 @@ export type CreateQuoteFromStructureInput = {
   cashlessPercent?: number;
   discountPercent?: number;
   notes?: string[];
+  estimateDisclaimer?: string;
   calendarOwners?: string[];
   structure: QuoteStructurePayload;
 };
@@ -136,6 +137,7 @@ export async function createQuoteFromStructure(
       durationDays,
       discountPercent: input.discountPercent ?? 0,
       notes: input.notes?.length ? input.notes : [...DEFAULT_QUOTE_NOTES],
+      estimateDisclaimer: (input.estimateDisclaimer || "").slice(0, 4000),
       ...(input.calendarOwners
         ? {
             calendarOwners: input.calendarOwners.filter(isCatalogOwnerValue),

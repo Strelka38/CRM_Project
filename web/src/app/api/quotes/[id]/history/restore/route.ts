@@ -126,6 +126,9 @@ export async function POST(
           cashlessPercent: patch.cashlessPercent,
           durationDays: patch.durationDays,
           notes: patch.notes,
+          ...(typeof patch.estimateDisclaimer === "string"
+            ? { estimateDisclaimer: patch.estimateDisclaimer }
+            : {}),
           brief: patch.brief,
           discountPercent: patch.discountPercent,
           lifecycle,

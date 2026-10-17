@@ -17,6 +17,7 @@ import {
   requireManager,
   requireSession,
 } from "@/lib/session";
+import { getOrgSettings } from "@/lib/org-settings";
 import { validateQuoteStock } from "@/lib/stock";
 import {
   storedWorkingDayIndexes,
@@ -115,6 +116,7 @@ const patchSchema = z.object({
   cashlessPercent: z.number().min(0).max(99).optional(),
   durationDays: z.number().int().positive().optional(),
   notes: z.array(z.string()).optional(),
+  estimateDisclaimer: z.string().max(4000).optional(),
   brief: z.string().max(8000).optional(),
   discountPercent: z.number().min(0).max(100).optional(),
   lifecycle: quoteLifecycleZod.optional(),
@@ -316,11 +318,13 @@ export async function PATCH(
       (nextLifecycle === "CONFIRMED" || existing.lifecycle === "CONFIRMED") &&
       nextLifecycle !== "CANCELLED"
     ) {
+      const deficitScope = (await getOrgSettings()).deficitScope;
       stockIssues = await validateQuoteStock(
         id,
         blocksForCheck,
         stockSchedule,
         zoneList,
+        { ignoreOtherQuotes: deficitScope === "project" },
       );
     }
 

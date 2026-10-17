@@ -1,6 +1,7 @@
 import { mkdir, writeFile, unlink } from "fs/promises";
 import path from "path";
 import { randomBytes } from "crypto";
+import type { BrandFileKind } from "./brand-public";
 
 export const UPLOAD_ROOT = path.join(process.cwd(), "uploads");
 
@@ -125,7 +126,7 @@ export async function saveEquipmentRepairPhoto(
 }
 
 export async function saveBrandLogo(
-  kind: "crm" | "kp",
+  kind: BrandFileKind,
   mimeType: string,
   data: Buffer,
 ): Promise<{ storagePath: string; absPath: string }> {

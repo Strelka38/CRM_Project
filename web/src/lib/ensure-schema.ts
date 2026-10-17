@@ -174,6 +174,7 @@ export async function ensureQuoteSchemaColumns() {
     `CREATE UNIQUE INDEX IF NOT EXISTS "QuoteAssignment_filled_quote_user_spec_kind_zone_day_key" ON "QuoteAssignment" ("quoteId", "userId", "specialtyId", "kind", "dayIndex", (COALESCE("zoneId", ''))) WHERE "userId" IS NOT NULL AND "dayIndex" IS NOT NULL`,
     `CREATE UNIQUE INDEX IF NOT EXISTS "QuoteAssignment_filled_quote_user_spec_kind_zone_alldays_key" ON "QuoteAssignment" ("quoteId", "userId", "specialtyId", "kind", (COALESCE("zoneId", ''))) WHERE "userId" IS NOT NULL AND "dayIndex" IS NULL`,
     `ALTER TABLE "Quote" ADD COLUMN IF NOT EXISTS "assignmentImportWatermark" JSONB NOT NULL DEFAULT '{}'::jsonb`,
+    `ALTER TABLE "Quote" ADD COLUMN IF NOT EXISTS "estimateDisclaimer" TEXT NOT NULL DEFAULT ''`,
     `CREATE TABLE IF NOT EXISTS "QuoteShare" (
       "quoteId" TEXT NOT NULL,
       "token" TEXT NOT NULL,

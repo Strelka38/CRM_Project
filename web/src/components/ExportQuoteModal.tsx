@@ -3,11 +3,18 @@
 import { useEffect, useMemo, useState, type RefObject } from "react";
 import type { ZoneTab } from "@/components/QuoteZoneTabs";
 import type { QuoteBlockInput } from "@/lib/quote-calc";
+import { resolveEstimateDisclaimer } from "@/lib/commercial-terms";
 import type { ExportFilters, ExportMeta } from "@/lib/export/quote-zones";
 import {
+  LAST_EXPORT_TEMPLATE_KEY,
   NEW_TEMPLATE_VALUE,
+  STANDARD_TEMPLATE_ID,
+  baseTemplateNote,
   parseExportTemplates,
+  readLastExportTemplateId,
+  resolveExportTemplateId,
   templateNameError,
+  writeLastExportTemplateId,
   type ExportTemplate,
   type ExportTemplateSettings,
 } from "@/lib/export/export-templates";
@@ -115,7 +122,7 @@ export function ExportQuoteModal({
   blocks,
 }: Props) {
   const initial = standardFilters();
-  const [templateId, setTemplateId] = useState("standard");
+  const [templateId, setTemplateId] = useState(STANDARD_TEMPLATE_ID);
   const [templates, setTemplates] = useState<ExportTemplate[]>([]);
   const [creating, setCreating] = useState(false);
   const [draftName, setDraftName] = useState("");
@@ -162,6 +169,38 @@ export function ExportQuoteModal({
         const list =
           "templates" in data ? parseExportTemplates(data.templates) : [];
         setTemplates(list);
+        const stored = readLastExportTemplateId();
+        const serverDefault =
+          "defaultTemplateId" in data && typeof data.defaultTemplateId === "string"
+            ? data.defaultTemplateId
+            : stored;
+        const preferred =
+          typeof window !== "undefined" &&
+          window.localStorage.getItem(LAST_EXPORT_TEMPLATE_KEY)
+            ? stored
+            : serverDefault;
+        const next = resolveExportTemplateId(preferred, list);
+        setTemplateId(next);
+        setCreating(false);
+        if (next === STANDARD_TEMPLATE_ID) {
+          const std = standardFilters();
+          setIncludeSummary(std.includeSummary);
+          setAllTabsOneSheet(std.allTabsOneSheet);
+          setShowEquipmentPrice(std.showEquipmentPrice);
+          setShowConsumablePrice(std.showConsumablePrice);
+          setShowServicePrice(std.showServicePrice);
+          setPrint(std.print);
+        } else {
+          const saved = list.find((item) => item.id === next);
+          if (saved) {
+            setIncludeSummary(saved.settings.includeSummary);
+            setAllTabsOneSheet(saved.settings.allTabsOneSheet);
+            setShowEquipmentPrice(saved.settings.showEquipmentPrice);
+            setShowConsumablePrice(saved.settings.showConsumablePrice);
+            setShowServicePrice(saved.settings.showServicePrice);
+            setPrint({ ...saved.settings.print });
+          }
+        }
       })
       .catch(() => undefined);
     return () => {
@@ -323,7 +362,10 @@ export function ExportQuoteModal({
       typeof data.template.id === "string"
         ? data.template.id
         : "";
-    if (id) setTemplateId(id);
+    if (id) {
+      setTemplateId(id);
+      writeLastExportTemplateId(id);
+    }
     setCreating(false);
     setDraftName("");
   }
@@ -353,9 +395,20 @@ export function ExportQuoteModal({
     try {
       const mod = await import("@/lib/export/quote-zones");
       const resolved = await resolveExportMeta(meta);
+      const selectedNote =
+        templateId === STANDARD_TEMPLATE_ID
+          ? baseTemplateNote(templates)
+          : templates.find((item) => item.id === templateId)?.note;
+      const printed = {
+        ...resolved,
+        estimateDisclaimer: resolveEstimateDisclaimer(
+          meta.estimateDisclaimer,
+          selectedNote,
+        ),
+      };
       if (kind === "preview") {
         const html = await mod.buildExportPreviewHtml(
-          resolved,
+          printed,
           zones,
           blocks,
           filters,
@@ -366,9 +419,9 @@ export function ExportQuoteModal({
         const w = window.open(url, "_blank");
         if (!w) URL.revokeObjectURL(url);
       } else if (kind === "pdf") {
-        await mod.exportQuoteZonesPdf(resolved, zones, blocks, filters);
+        await mod.exportQuoteZonesPdf(printed, zones, blocks, filters);
       } else {
-        await mod.exportQuoteZonesExcel(resolved, zones, blocks, filters);
+        await mod.exportQuoteZonesExcel(printed, zones, blocks, filters);
       }
     } finally {
       setBusy(null);
@@ -477,14 +530,15 @@ export function ExportQuoteModal({
               setCreating(false);
               setNameError("");
               setTemplateId(next);
-              if (next === "standard") applyStandard();
+              writeLastExportTemplateId(next);
+              if (next === STANDARD_TEMPLATE_ID) applyStandard();
               else {
                 const saved = templates.find((item) => item.id === next);
                 if (saved) applySettings(saved.settings);
               }
             }}
           >
-            <option value="standard">Стандартный шаблон</option>
+            <option value={STANDARD_TEMPLATE_ID}>Стандартный шаблон</option>
             {templates.map((item) => (
               <option key={item.id} value={item.id}>
                 {item.name}

@@ -120,6 +120,24 @@ export const NAV_SECTIONS: NavSection[] = [
     access: "admin",
   },
   {
+    href: "/settings/system",
+    label: "Общие",
+    group: "settings",
+    access: "admin",
+  },
+  {
+    href: "/settings/proposal",
+    label: "Коммерческое предложение",
+    group: "settings",
+    access: "admin",
+  },
+  {
+    href: "/settings/warehouse",
+    label: "Спецификация и склад",
+    group: "settings",
+    access: "admin",
+  },
+  {
     href: "/backup",
     label: "Экспорт / импорт",
     group: "settings",

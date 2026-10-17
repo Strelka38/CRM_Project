@@ -15,6 +15,7 @@ import {
   useUnreadNotifications,
 } from "@/components/NotificationsBell";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { WhatsNewNote } from "@/components/WhatsNewNote";
 import { NavLink } from "@/components/ui/NavLink";
 import { Button } from "@/components/ui/Button";
 
@@ -392,7 +393,10 @@ export function AppChrome({
         </aside>
       </div>
 
-      <main id="main-content" className="app-main">{children}</main>
+      <main id="main-content" className="app-main">
+        <WhatsNewNote />
+        {children}
+      </main>
 
       <nav className="app-bottombar" aria-label="Нижнее меню">
         <Link

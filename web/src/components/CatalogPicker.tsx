@@ -29,6 +29,7 @@ type CategoryNode = {
   name: string;
   path: string;
   parentId: string | null;
+  sortOrder?: number;
   _count: { items: number; children: number };
 };
 
@@ -154,7 +155,14 @@ export function CatalogPicker({
   }, [open]);
 
   const roots = useMemo(
-    () => categories.filter((c) => !c.parentId).sort((a, b) => a.name.localeCompare(b.name, "ru")),
+    () =>
+      categories
+        .filter((c) => !c.parentId)
+        .sort(
+          (a, b) =>
+            (a.sortOrder ?? 0) - (b.sortOrder ?? 0) ||
+            a.name.localeCompare(b.name, "ru"),
+        ),
     [categories],
   );
 
@@ -166,7 +174,11 @@ export function CatalogPicker({
           c.path.startsWith(parentPath + "/") &&
           c.path.split("/").length === parentPath.split("/").length + 1,
       )
-      .sort((a, b) => a.name.localeCompare(b.name, "ru"));
+      .sort(
+        (a, b) =>
+          (a.sortOrder ?? 0) - (b.sortOrder ?? 0) ||
+          a.name.localeCompare(b.name, "ru"),
+      );
 
   useEffect(() => {
     if (!open) return;

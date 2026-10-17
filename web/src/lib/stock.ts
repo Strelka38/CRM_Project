@@ -158,6 +158,8 @@ export type ReservationRow = {
 export type StockExclude = {
   excludeQuoteId?: string;
   excludeRentalEntryId?: string;
+  /** Дефицит «текущий проект»: чужие сметы за период не занимают склад. */
+  ignoreOtherQuotes?: boolean;
 };
 
 /** Window used for availability: event + optional mount/demount. */
@@ -189,7 +191,9 @@ export async function getReservationDetails(
 
   const opts = toExclude(excludeQuoteIdOrOpts);
 
-  const quotes = await prisma.quote.findMany({
+  const quotes = opts.ignoreOtherQuotes
+    ? []
+    : await prisma.quote.findMany({
     where: {
       lifecycle: { in: [...STATS_LIFECYCLES] },
       eventDate: { not: null },
@@ -396,6 +400,7 @@ export async function validateQuoteStock(
   blocks: StockBlock[],
   schedule: StockSchedule,
   zones?: ZoneWorkingDays[] | null,
+  stockOpts?: StockExclude,
 ): Promise<StockIssue[]> {
   const needed = await expandBlocksToDailyItemQty(
     blocks,
@@ -408,7 +413,10 @@ export async function validateQuoteStock(
 
   const issues: StockIssue[] = [];
   for (const [itemId, { name, byDay }] of needed) {
-    const av = await getAvailability(itemId, schedule, quoteId);
+    const av = await getAvailability(itemId, schedule, {
+      excludeQuoteId: quoteId,
+      ignoreOtherQuotes: stockOpts?.ignoreOtherQuotes,
+    });
     if (!av || av.unlimited) continue;
     const reservations = av.reservations;
     let worst:

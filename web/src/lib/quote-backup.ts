@@ -396,6 +396,7 @@ async function importQuotes(
       cashlessPercent: num(rec.cashlessPercent, DEFAULT_CASHLESS_PERCENT),
       durationDays,
       notes: notesOf(rec.notes),
+      estimateDisclaimer: str(rec.estimateDisclaimer).slice(0, 4000),
       brief: str(rec.brief),
       discountPercent: num(rec.discountPercent, 0),
       lifecycle: parseLifecycleStatus(

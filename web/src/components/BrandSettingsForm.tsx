@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { PublicBrand } from "@/lib/brand-public";
+import { publishBrand } from "@/lib/brand-icon";
+import type { BrandFileKind, PublicBrand } from "@/lib/brand-public";
 
 function LogoSlot({
   src,
@@ -37,7 +38,6 @@ function LogoSlot({
 export function BrandSettingsForm() {
   const [brand, setBrand] = useState<PublicBrand | null>(null);
   const [crmName, setCrmName] = useState("");
-  const [kpName, setKpName] = useState("");
   const [kpSite, setKpSite] = useState("");
   const [kpInvert, setKpInvert] = useState(false);
   const [error, setError] = useState("");
@@ -47,9 +47,9 @@ export function BrandSettingsForm() {
   function apply(next: PublicBrand) {
     setBrand(next);
     setCrmName(next.crmName);
-    setKpName(next.kpName);
     setKpSite(next.kpSite);
     setKpInvert(next.kpLogoInvert);
+    publishBrand(next);
   }
 
   useEffect(() => {
@@ -73,7 +73,6 @@ export function BrandSettingsForm() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         crmName,
-        kpName,
         kpSite,
         kpLogoInvert: kpInvert,
       }),
@@ -87,7 +86,7 @@ export function BrandSettingsForm() {
     setSaved("Сохранено");
   }
 
-  async function upload(kind: "crm" | "kp", file: File | undefined) {
+  async function upload(kind: BrandFileKind, file: File | undefined) {
     if (!file) return;
     setBusy(true);
     setError("");
@@ -103,10 +102,10 @@ export function BrandSettingsForm() {
       return;
     }
     apply(await res.json());
-    setSaved("Логотип обновлён");
+    setSaved(kind === "icon" ? "Мини-иконка обновлена" : "Логотип обновлён");
   }
 
-  async function reset(kind: "crm" | "kp") {
+  async function reset(kind: BrandFileKind) {
     setBusy(true);
     setError("");
     setSaved("");
@@ -133,8 +132,8 @@ export function BrandSettingsForm() {
       <header className="mb-6 border-b border-[var(--line)] pb-4">
         <h1 className="font-display text-2xl">Логотип и название</h1>
         <p className="mt-1 text-sm text-[var(--muted)]">
-          Шапка CRM и шапка коммерческого предложения. Пока файл не загружен,
-          стоит знак Baikal Stage Group.
+          Название в шапке, логотип сайта, значок вкладки и шапка коммерческого
+          предложения. Пока файл не загружен, стоит знак Baikal Stage Group.
         </p>
       </header>
       {error ? <p className="mb-3 text-sm text-[var(--danger)]">{error}</p> : null}
@@ -154,38 +153,90 @@ export function BrandSettingsForm() {
                 onChange={(e) => setCrmName(e.target.value)}
               />
             </label>
-            <div className="flex flex-wrap items-end gap-4">
-              <LogoSlot src={brand.crmLogoUrl} invert={false} plate="dark" label="Тёмная шапка" />
-              <LogoSlot src={brand.crmLogoUrl} invert plate="paper" label="Светлая тема" />
-              <div className="grid gap-2 text-sm">
-                <label className="cursor-pointer rounded-md border border-[var(--line)] px-3 py-1.5">
-                  Загрузить логотип
-                  <input
-                    type="file"
-                    accept="image/png,image/jpeg,image/webp"
-                    className="sr-only"
-                    disabled={busy}
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      e.target.value = "";
-                      void upload("crm", file);
-                    }}
-                  />
-                </label>
-                {brand.crmLogoCustom ? (
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => void reset("crm")}
-                    className="rounded-md border border-[var(--line)] px-3 py-1.5 text-left"
-                  >
-                    Знак по умолчанию
-                  </button>
-                ) : null}
-                <p className="max-w-sm text-xs text-[var(--muted)]">
-                  Светлый знак на прозрачном фоне, PNG или WebP до 2 МБ. На светлой
-                  теме он перекрашивается.
-                </p>
+          </div>
+        </section>
+
+        <section className="rounded-xl border border-[var(--line)] bg-[var(--panel)]">
+          <h2 className="border-b border-[var(--line)] bg-[var(--table-head)] px-4 py-2 text-sm font-medium">
+            Сайт
+          </h2>
+          <div className="grid gap-6 p-4">
+            <div className="grid gap-3">
+              <p className="text-sm text-[var(--muted)]">Логотип</p>
+              <div className="flex flex-wrap items-end gap-4">
+                <LogoSlot src={brand.crmLogoUrl} invert={false} plate="dark" label="Тёмная шапка" />
+                <LogoSlot src={brand.crmLogoUrl} invert plate="paper" label="Светлая тема" />
+                <div className="grid gap-2 text-sm">
+                  <label className="cursor-pointer rounded-md border border-[var(--line)] px-3 py-1.5">
+                    Загрузить логотип
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      className="sr-only"
+                      disabled={busy}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        e.target.value = "";
+                        void upload("crm", file);
+                      }}
+                    />
+                  </label>
+                  {brand.crmLogoCustom ? (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void reset("crm")}
+                      className="rounded-md border border-[var(--line)] px-3 py-1.5 text-left"
+                    >
+                      Знак по умолчанию
+                    </button>
+                  ) : null}
+                  <p className="max-w-sm text-xs text-[var(--muted)]">
+                    Знак в шапке CRM и на странице входа. Светлый PNG или WebP до
+                    2 МБ на прозрачном фоне. На светлой теме он перекрашивается.
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="grid gap-3 border-t border-[var(--line)] pt-4">
+              <p className="text-sm text-[var(--muted)]">Мини-иконка</p>
+              <div className="flex flex-wrap items-end gap-4">
+                <LogoSlot
+                  src={brand.iconUrl}
+                  invert={false}
+                  plate="dark"
+                  label={brand.iconCustom ? "Вкладка браузера" : "Как логотип сайта"}
+                />
+                <div className="grid gap-2 text-sm">
+                  <label className="cursor-pointer rounded-md border border-[var(--line)] px-3 py-1.5">
+                    Загрузить мини-иконку
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      className="sr-only"
+                      disabled={busy}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        e.target.value = "";
+                        void upload("icon", file);
+                      }}
+                    />
+                  </label>
+                  {brand.iconCustom ? (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void reset("icon")}
+                      className="rounded-md border border-[var(--line)] px-3 py-1.5 text-left"
+                    >
+                      Знак по умолчанию
+                    </button>
+                  ) : null}
+                  <p className="max-w-sm text-xs text-[var(--muted)]">
+                    Значок вкладки браузера. Квадратный PNG, JPG или WebP до 2 МБ.
+                    Пока файл не загружен, стоит логотип сайта.
+                  </p>
+                </div>
               </div>
             </div>
           </div>
@@ -196,14 +247,6 @@ export function BrandSettingsForm() {
             Коммерческое предложение
           </h2>
           <div className="grid gap-4 p-4">
-            <label className="block text-sm">
-              <span className="text-[var(--muted)]">Название</span>
-              <input
-                className="field mt-1"
-                value={kpName}
-                onChange={(e) => setKpName(e.target.value)}
-              />
-            </label>
             <label className="block text-sm">
               <span className="text-[var(--muted)]">Сайт</span>
               <input

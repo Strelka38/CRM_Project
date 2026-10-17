@@ -2,6 +2,29 @@ import ExcelJS from "exceljs";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { safeFilename, todayLabel } from "../format";
+import { DEFAULT_SPEC_PRINT, type SpecPrintSettings } from "../spec-print";
+
+function printOf(options?: SpecPrintSettings): SpecPrintSettings {
+  return options ?? DEFAULT_SPEC_PRINT;
+}
+
+function headerRows(meta: SpecExportMeta, print: SpecPrintSettings): Array<[string, string]> {
+  const rows: Array<[string, string]> = [];
+  const push = (on: boolean, label: string, value?: string) => {
+    if (on) rows.push([label, value?.trim() || "—"]);
+  };
+  push(print.header.title, "Мероприятие", meta.eventName);
+  push(print.header.date, "Дата", meta.date);
+  push(print.header.venue, "Место", meta.place);
+  push(print.header.client, "Заказчик", meta.client);
+  return rows;
+}
+
+function keepLine(line: SpecExportLine, print: SpecPrintSettings) {
+  if (line.type !== "SECTION") return true;
+  if (line.isKitHeader) return print.table.kits && print.table.subsectionHeader;
+  return print.table.sectionHeader;
+}
 
 export type SpecExportMeta = {
   proposalNumber: string;
@@ -70,7 +93,9 @@ export async function exportSpecExcel(
   meta: SpecExportMeta,
   lines: SpecExportLine[],
   staff: SpecExportStaff[] = [],
+  options?: SpecPrintSettings,
 ) {
+  const print = printOf(options);
   const wb = new ExcelJS.Workbook();
   wb.creator = "CRM Event Rental";
   const ws = wb.addWorksheet("Спецификация", {
@@ -87,15 +112,16 @@ export async function exportSpecExcel(
   ];
 
   ws.mergeCells("A1:F1");
-  ws.getCell("A1").value = `Спецификация на погрузку №${meta.proposalNumber}`;
-  ws.getCell("A1").font = { bold: true, size: 14 };
+  ws.getCell("A1").value = print.header.project
+    ? `Спецификация на погрузку №${meta.proposalNumber}`
+    : "Спецификация на погрузку";
+  ws.getCell("A1").font = {
+    bold: true,
+    size: print.fontSize > 0 ? print.fontSize : 14,
+    name: print.fontFamily,
+  };
 
-  const fields: [string, string][] = [
-    ["Мероприятие", meta.eventName || "—"],
-    ["Дата", meta.date || "—"],
-    ["Место", meta.place || "—"],
-    ["Заказчик", meta.client || "—"],
-  ];
+  const fields = headerRows(meta, print);
   fields.forEach(([label, value], i) => {
     const row = 3 + i;
     ws.getCell(`A${row}`).value = label;
@@ -143,6 +169,7 @@ export async function exportSpecExcel(
   };
 
   for (const line of visibleLines(lines)) {
+    if (!keepLine(line, print)) continue;
     if (line.type === "SECTION") {
       pushSection(lineLabel(line), Boolean(line.isKitHeader));
       continue;
@@ -151,10 +178,11 @@ export async function exportSpecExcel(
       lineLabel(line),
       line.qty,
       line.kitName ? `из комплекта «${line.kitName}»` : "",
-      (line.comment || "").trim(),
+      print.table.comments ? (line.comment || "").trim() : "",
       (line.ownerLabel || "").trim() === "—" ? "" : (line.ownerLabel || "").trim(),
     );
   }
+  for (let i = 0; i < print.emptyRows; i += 1) pushItem("", "", "");
 
   if (staff.length > 0) {
     pushSection("Технический персонал");
@@ -174,13 +202,15 @@ export async function exportSpecPdf(
   meta: SpecExportMeta,
   lines: SpecExportLine[],
   staff: SpecExportStaff[] = [],
+  options?: SpecPrintSettings,
 ) {
+  const print = printOf(options);
   const [regular, bold] = await Promise.all([
     loadFontBase64("/fonts/NotoSans-Regular.ttf"),
     loadFontBase64("/fonts/NotoSans-Bold.ttf"),
   ]);
 
-  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  const doc = new jsPDF({ orientation: print.orientation, unit: "mm", format: "a4" });
   doc.addFileToVFS("NotoSans-Regular.ttf", regular);
   doc.addFileToVFS("NotoSans-Bold.ttf", bold);
   doc.addFont("NotoSans-Regular.ttf", "NotoSans", "normal");
@@ -191,18 +221,19 @@ export async function exportSpecPdf(
   let y = 14;
 
   doc.setFont("NotoSans", "bold");
-  doc.setFontSize(13);
-  doc.text(`Спецификация на погрузку №${meta.proposalNumber}`, margin, y);
+  doc.setFontSize(print.fontSize > 0 ? print.fontSize : 13);
+  doc.text(
+    print.header.project
+      ? `Спецификация на погрузку №${meta.proposalNumber}`
+      : "Спецификация на погрузку",
+    margin,
+    y,
+  );
   y += 8;
 
   doc.setFont("NotoSans", "normal");
-  doc.setFontSize(10);
-  const info = [
-    `Мероприятие: ${meta.eventName || "—"}`,
-    `Дата: ${meta.date || "—"}`,
-    `Место: ${meta.place || "—"}`,
-    `Заказчик: ${meta.client || "—"}`,
-  ];
+  doc.setFontSize(print.fontSize > 0 ? Math.max(8, print.fontSize - 2) : 10);
+  const info = headerRows(meta, print).map(([label, value]) => `${label}: ${value}`);
   for (const line of info) {
     doc.text(line, margin, y);
     y += 5;
@@ -235,6 +266,7 @@ export async function exportSpecPdf(
   };
 
   for (const line of visibleLines(lines)) {
+    if (!keepLine(line, print)) continue;
     if (line.type === "SECTION") {
       pushSection(lineLabel(line), Boolean(line.isKitHeader));
       continue;
@@ -243,10 +275,11 @@ export async function exportSpecPdf(
       lineLabel(line),
       String(line.qty),
       line.kitName ? `из комплекта «${line.kitName}»` : "",
-      (line.comment || "").trim(),
+      print.table.comments ? (line.comment || "").trim() : "",
       (line.ownerLabel || "").trim() === "—" ? "" : (line.ownerLabel || "").trim(),
     );
   }
+  for (let i = 0; i < print.emptyRows; i += 1) pushItem("", "", "");
 
   if (staff.length > 0) {
     pushSection("Технический персонал");
@@ -261,7 +294,7 @@ export async function exportSpecPdf(
     body: tableBody,
     styles: {
       font: "NotoSans",
-      fontSize: 8,
+      fontSize: print.fontSize > 0 ? print.fontSize : 8,
       cellPadding: 1.5,
       valign: "top",
     },

@@ -20,6 +20,7 @@ type CategoryNode = {
   name: string;
   path: string;
   parentId: string | null;
+  sortOrder?: number;
   _count: { items: number; children: number; kits?: number };
 };
 
@@ -467,7 +468,11 @@ export function QuoteCatalogSidebar({
       map.set(key, list);
     }
     for (const list of map.values()) {
-      list.sort((a, b) => a.name.localeCompare(b.name, "ru"));
+      list.sort(
+        (a, b) =>
+          (a.sortOrder ?? 0) - (b.sortOrder ?? 0) ||
+          a.name.localeCompare(b.name, "ru"),
+      );
     }
     return map;
   }, [categories]);

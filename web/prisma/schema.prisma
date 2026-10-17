@@ -646,6 +646,8 @@ model Quote {
   cashlessPercent Float             @default(10)
   durationDays    Int               @default(1)
   notes           String[]          @default([])
+  /// Текст под итогом «К оплате». Пусто — примечание шаблона КП.
+  estimateDisclaimer String         @default("")
   brief           String            @default("")
   discountPercent Float             @default(0)
   lifecycle       QuoteLifecycle    @default(CALCULATED)

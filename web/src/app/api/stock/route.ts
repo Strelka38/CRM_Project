@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { parseEventDate } from "@/lib/dates";
+import { getOrgSettings } from "@/lib/org-settings";
 import { requireSession } from "@/lib/session";
 import {
   getAvailability,
@@ -35,6 +36,11 @@ export async function GET(req: NextRequest) {
     const schedule = scheduleFromSearch(req.nextUrl.searchParams);
     const excludeQuoteId =
       req.nextUrl.searchParams.get("excludeQuoteId") || undefined;
+    const org = await getOrgSettings();
+    const stockOpts = {
+      excludeQuoteId,
+      ignoreOtherQuotes: org.deficitScope === "project",
+    };
 
     if (ids.length === 0) {
       return NextResponse.json({});
@@ -42,7 +48,7 @@ export async function GET(req: NextRequest) {
 
     const entries = await Promise.all(
       ids.map(async (id) => {
-        const av = await getAvailability(id, schedule, excludeQuoteId);
+        const av = await getAvailability(id, schedule, stockOpts);
         if (!av) return [id, null] as const;
         return [
           id,

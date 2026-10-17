@@ -1,6 +1,14 @@
 import type { Prisma } from "@prisma/client";
+import { resolveEstimateDisclaimer } from "@/lib/commercial-terms";
 import { prisma } from "@/lib/db";
+import {
+  EXPORT_TEMPLATES_KEY,
+  STANDARD_TEMPLATE_ID,
+  baseTemplateNote,
+  parseExportTemplates,
+} from "@/lib/export/export-templates";
 import { buildExportPreviewHtml, type ExportMeta } from "@/lib/export/quote-zones";
+import { getOrgSettings } from "@/lib/org-settings";
 import type { QuoteBlockInput, ZoneInput } from "@/lib/quote-calc";
 import {
   isShareToken,
@@ -59,6 +67,17 @@ export async function renderPublicQuoteHtml(
     itemKind: block.catalogItem?.itemKind ?? null,
   }));
   const notes = quote.notes.map((note) => note.trim()).filter(Boolean);
+  const org = await getOrgSettings();
+  const row = await prisma.appSetting.findUnique({
+    where: { key: EXPORT_TEMPLATES_KEY },
+  });
+  const templates = parseExportTemplates(row?.value);
+  const defaultId = org.kpDefaultTemplateId;
+  const fromDefault =
+    defaultId && defaultId !== STANDARD_TEMPLATE_ID
+      ? templates.find((item) => item.id === defaultId)?.note || ""
+      : "";
+  const templateNote = fromDefault || baseTemplateNote(templates);
   const meta: ExportMeta = {
     proposalNumber: quote.proposalNumber,
     eventName: quote.eventName,
@@ -77,6 +96,7 @@ export async function renderPublicQuoteHtml(
     clientPhone: quote.clientRef?.phone?.trim() || "",
     address: quote.venueRef?.address?.trim() || "",
     comment: quote.paymentComment.trim() || notes.join("\n"),
+    estimateDisclaimer: resolveEstimateDisclaimer(quote.estimateDisclaimer, templateNote),
   };
   const filters = parseShareFilters(
     share.filters,

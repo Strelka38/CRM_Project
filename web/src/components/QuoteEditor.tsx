@@ -54,6 +54,12 @@ import { formatMoney, formatNumber } from "@/lib/format";
 import { PriceInput } from "@/components/ui/PriceInput";
 import { collapseKitBlocks } from "@/lib/kit-blocks";
 import { parseTemplatePayload } from "@/lib/quote-structure";
+import { resolveEstimateDisclaimer } from "@/lib/commercial-terms";
+import {
+  STANDARD_TEMPLATE_ID,
+  baseTemplateNote,
+  parseExportTemplates,
+} from "@/lib/export/export-templates";
 import {
   isPersonnelOrServiceKind,
   SERVICES_SECTION_TITLE,
@@ -147,6 +153,7 @@ type QuoteMeta = {
   cashlessPercent: number;
   durationDays: number;
   notes: string[];
+  estimateDisclaimer: string;
   lifecycle: Lifecycle;
   invoiceRequired: boolean;
   invoiceSent: boolean;
@@ -297,6 +304,7 @@ export function QuoteEditor({
   const catalogInSheet = isMobile;
   const [catalogSheetOpen, setCatalogSheetOpen] = useState(false);
   const [catalogWidth, setCatalogWidth] = useState(QUOTE_CATALOG_WIDTH_DEFAULT);
+  const [templateNote, setTemplateNote] = useState("");
   const [actionsSheetOpen, setActionsSheetOpen] = useState(false);
   const tableRef = useRef<HTMLDivElement>(null);
   const quoteSplitRef = useRef<HTMLDivElement>(null);
@@ -394,6 +402,8 @@ export function QuoteEditor({
             : Number(data.cashlessPercent),
         durationDays: data.durationDays,
         notes: data.notes,
+        estimateDisclaimer:
+          typeof data.estimateDisclaimer === "string" ? data.estimateDisclaimer : "",
         lifecycle: data.lifecycle,
         invoiceRequired: data.invoiceRequired,
         invoiceSent: data.invoiceSent,
@@ -731,6 +741,7 @@ export function QuoteEditor({
             cashlessPercent: nextMeta.cashlessPercent,
             durationDays: nextMeta.durationDays,
             notes: nextMeta.notes,
+            estimateDisclaimer: nextMeta.estimateDisclaimer,
             lifecycle: nextMeta.lifecycle,
             invoiceSent: nextMeta.invoiceSent,
             paid: nextMeta.paid,
@@ -815,6 +826,26 @@ export function QuoteEditor({
   quoteSnapRef.current = meta
     ? { meta, zones, blocks, activeTab }
     : null;
+
+  useEffect(() => {
+    void fetch("/api/export-templates")
+      .then(async (res) => (res.ok ? res.json() : null))
+      .then((data: { templates?: unknown; defaultTemplateId?: string } | null) => {
+        if (!data) return;
+        const list = parseExportTemplates(data.templates);
+        const id = data.defaultTemplateId || STANDARD_TEMPLATE_ID;
+        const found = list.find((item) => item.id === id);
+        const fromDefault =
+          id !== STANDARD_TEMPLATE_ID ? found?.note?.trim() || "" : "";
+        setTemplateNote(fromDefault || baseTemplateNote(list));
+      })
+      .catch(() => {});
+  }, []);
+
+  function commitDisclaimer(value: string) {
+    const inherited = resolveEstimateDisclaimer("", templateNote);
+    updateMeta("estimateDisclaimer", value.trim() === inherited ? "" : value);
+  }
 
   function patchMeta(
     recipe: (prev: QuoteMeta) => QuoteMeta,
@@ -1734,6 +1765,7 @@ export function QuoteEditor({
                     durationDays: meta.durationDays,
                     discountPercent: meta.discountPercent,
                     notes: meta.notes,
+                    estimateDisclaimer: meta.estimateDisclaimer,
                     comment:
                       meta.paymentComment.trim() ||
                       meta.notes.map((note) => note.trim()).filter(Boolean).join("\n"),
@@ -2857,6 +2889,24 @@ export function QuoteEditor({
           </p>
         </div>
       </section>
+      <label className="block text-xs text-[var(--muted)]">
+        Примечание под сметой
+        <textarea
+          className="field mt-1 min-h-20 text-xs leading-snug"
+          value={resolveEstimateDisclaimer(meta.estimateDisclaimer, templateNote)}
+          disabled={!isManager}
+          onChange={(e) => commitDisclaimer(e.target.value)}
+        />
+      </label>
+      {isManager && meta.estimateDisclaimer.trim() ? (
+        <button
+          type="button"
+          className="self-start text-xs text-[var(--muted)] hover:text-[var(--ink)]"
+          onClick={() => updateMeta("estimateDisclaimer", "")}
+        >
+          Вернуть текст шаблона
+        </button>
+      ) : null}
           </div>
         </div>
       ) : null}
@@ -2909,6 +2959,9 @@ export function QuoteEditor({
             onInvoiceSentChange={(sent) =>
               patchMeta((prev) => ({ ...prev, invoiceSent: sent || prev.paid }))
             }
+            estimateDisclaimer={meta.estimateDisclaimer}
+            templateNote={templateNote}
+            onEstimateDisclaimerChange={commitDisclaimer}
             exportMeta={{
               proposalNumber: meta.proposalNumber,
               eventName: meta.eventName,
@@ -2927,6 +2980,10 @@ export function QuoteEditor({
               durationDays: meta.durationDays,
               discountPercent: meta.discountPercent,
               notes: meta.notes,
+              estimateDisclaimer: resolveEstimateDisclaimer(
+                meta.estimateDisclaimer,
+                templateNote,
+              ),
             }}
           />
         </div>

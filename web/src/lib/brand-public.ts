@@ -5,10 +5,20 @@ export const DEFAULT_KP_NAME = "Байкал Стейдж Групп";
 export const DEFAULT_KP_SITE = "baikalstagegroup.ru";
 export const DEFAULT_LOGO_URL = "/brand/bsg-logo.png";
 
+export const BRAND_FILE_KINDS = ["crm", "kp", "icon"] as const;
+export type BrandFileKind = (typeof BRAND_FILE_KINDS)[number];
+
+export function isBrandFileKind(value: unknown): value is BrandFileKind {
+  return value === "crm" || value === "kp" || value === "icon";
+}
+
 export type PublicBrand = {
   crmName: string;
   crmLogoUrl: string;
   crmLogoCustom: boolean;
+  /** Browser-tab mark. Falls back to the site logo. */
+  iconUrl: string;
+  iconCustom: boolean;
   kpName: string;
   kpSite: string;
   kpLogoUrl: string;
@@ -21,6 +31,8 @@ export const DEFAULT_PUBLIC_BRAND: PublicBrand = {
   crmName: DEFAULT_CRM_NAME,
   crmLogoUrl: DEFAULT_LOGO_URL,
   crmLogoCustom: false,
+  iconUrl: DEFAULT_LOGO_URL,
+  iconCustom: false,
   kpName: DEFAULT_KP_NAME,
   kpSite: DEFAULT_KP_SITE,
   kpLogoUrl: DEFAULT_LOGO_URL,

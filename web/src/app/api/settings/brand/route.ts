@@ -8,6 +8,7 @@ import {
   saveBrandText,
 } from "@/lib/brand-settings";
 import { requireAdmin } from "@/lib/session";
+import { isBrandFileKind } from "@/lib/brand-public";
 import {
   deleteUploadFile,
   resolveUploadMime,
@@ -54,7 +55,7 @@ export async function POST(req: NextRequest) {
     await requireAdmin();
     const form = await req.formData();
     const kind = form.get("kind");
-    if (kind !== "crm" && kind !== "kp") {
+    if (!isBrandFileKind(kind)) {
       return NextResponse.json({ error: "Неизвестный логотип" }, { status: 400 });
     }
     const file = form.get("file");
@@ -87,7 +88,7 @@ export async function DELETE(req: NextRequest) {
   try {
     await requireAdmin();
     const kind = req.nextUrl.searchParams.get("kind");
-    if (kind !== "crm" && kind !== "kp") {
+    if (!isBrandFileKind(kind)) {
       return NextResponse.json({ error: "Неизвестный логотип" }, { status: 400 });
     }
     const prev = await getBrandLogoPath(kind);

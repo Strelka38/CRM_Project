@@ -2,20 +2,28 @@ import type { Metadata, Viewport } from "next";
 // Вариативный Golos Text: ось веса 400–900, латиница и кириллица в одном импорте.
 import "@fontsource-variable/golos-text";
 import { Providers } from "@/components/Providers";
+import { getBrandSettings } from "@/lib/brand-settings";
 import { LAYOUT_BOOT_SCRIPT } from "@/lib/layout-density";
 import { THEME_BOOT_SCRIPT } from "@/lib/theme";
 import "./globals.css";
 
-export const metadata: Metadata = {
-  title: "BaikalStageGroup CRM",
-  description: "Сметы и каталог проката ивент-оборудования",
-  appleWebApp: {
-    capable: true,
-    statusBarStyle: "black-translucent",
-    title: "CRM",
-  },
-  formatDetection: { telephone: false },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const brand = await getBrandSettings();
+  return {
+    title: "BaikalStageGroup CRM",
+    description: "Сметы и каталог проката ивент-оборудования",
+    icons: {
+      icon: brand.iconUrl,
+      apple: brand.iconUrl,
+    },
+    appleWebApp: {
+      capable: true,
+      statusBarStyle: "black-translucent",
+      title: "CRM",
+    },
+    formatDetection: { telephone: false },
+  };
+}
 
 export const viewport: Viewport = {
   width: "device-width",

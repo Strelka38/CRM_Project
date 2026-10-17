@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { STANDARD_PRINT_OPTIONS } from "./print-options";
 import {
   parseExportTemplateSettings,
+  baseTemplateNote,
   parseExportTemplates,
+  resolveExportTemplateId,
+  STANDARD_TEMPLATE_ID,
   templateNameError,
 } from "./export-templates";
 
@@ -28,6 +31,7 @@ const parsed = parseExportTemplates(
 
 assert.equal(parsed.length, 1);
 assert.equal(parsed[0]?.name, "Для клиента");
+assert.equal(parsed[0]?.note, "");
 assert.equal(parsed[0]?.settings.includeSummary, true);
 assert.equal(parsed[0]?.settings.allTabsOneSheet, false);
 assert.equal(parsed[0]?.settings.showEquipmentPrice, false);
@@ -54,5 +58,19 @@ assert.equal(
   "Такой шаблон уже есть",
 );
 assert.equal(templateNameError("Свой", [{ name: "Другой" }]), null);
+
+assert.equal(resolveExportTemplateId("standard", [{ id: "a" }]), STANDARD_TEMPLATE_ID);
+assert.equal(resolveExportTemplateId("a", [{ id: "a" }]), "a");
+assert.equal(resolveExportTemplateId("gone", [{ id: "a" }]), STANDARD_TEMPLATE_ID);
+assert.equal(resolveExportTemplateId("__new__", [{ id: "a" }]), STANDARD_TEMPLATE_ID);
+assert.equal(resolveExportTemplateId("  ", []), STANDARD_TEMPLATE_ID);
+assert.equal(
+  baseTemplateNote([
+    { name: "Базовый", note: "  Свой текст  " },
+    { name: "Другой", note: "нет" },
+  ]),
+  "Свой текст",
+);
+assert.equal(baseTemplateNote([{ name: "Другой", note: "нет" }]), "");
 
 console.log("export-templates.test.ts ok");

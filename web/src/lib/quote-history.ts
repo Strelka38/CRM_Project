@@ -25,6 +25,7 @@ export type QuoteSnapshotPayload = {
     cashlessPercent: number;
     durationDays: number;
     notes: string[];
+    estimateDisclaimer?: string;
     brief: string;
     discountPercent: number;
     lifecycle: string;
@@ -74,6 +75,7 @@ type QuoteBody = {
   cashlessPercent: number;
   durationDays: number;
   notes: string[];
+  estimateDisclaimer?: string;
   brief: string;
   discountPercent: number;
   lifecycle: string;
@@ -124,6 +126,7 @@ export function buildQuoteSnapshotPayload(quote: QuoteBody): QuoteSnapshotPayloa
       cashlessPercent: quote.cashlessPercent,
       durationDays: quote.durationDays,
       notes: quote.notes,
+      estimateDisclaimer: quote.estimateDisclaimer || "",
       brief: quote.brief,
       discountPercent: quote.discountPercent,
       lifecycle: quote.lifecycle,
@@ -236,6 +239,7 @@ const META_AUDIT_KEYS = [
   "cashlessPercent",
   "durationDays",
   "notes",
+  "estimateDisclaimer",
   "brief",
   "discountPercent",
   "lifecycle",
@@ -307,6 +311,7 @@ export type QuoteSnapshotPatch = {
   cashlessPercent: number;
   durationDays: number;
   notes: string[];
+  estimateDisclaimer?: string;
   brief: string;
   discountPercent: number;
   lifecycle: string;
@@ -360,6 +365,9 @@ export function snapshotToQuotePatch(
     cashlessPercent: payload.meta.cashlessPercent,
     durationDays: payload.meta.durationDays,
     notes: payload.meta.notes,
+    ...(typeof payload.meta.estimateDisclaimer === "string"
+      ? { estimateDisclaimer: payload.meta.estimateDisclaimer.slice(0, 4000) }
+      : {}),
     brief: payload.meta.brief,
     discountPercent: payload.meta.discountPercent,
     lifecycle: payload.meta.lifecycle,

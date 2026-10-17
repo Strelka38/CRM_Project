@@ -6,6 +6,7 @@ import { customerWarnings, type LegalDocCustomer, type LegalDocInput } from "@/l
 import { formatMoney } from "@/lib/format";
 import { ownerShorts, type CatalogOwnerValue } from "@/lib/catalog-owner";
 import type { QuoteBlockInput } from "@/lib/quote-calc";
+import { resolveEstimateDisclaimer } from "@/lib/commercial-terms";
 import type { ExportMeta } from "@/lib/export/quote-zones";
 
 type Account = {
@@ -73,6 +74,9 @@ export type QuoteDocumentsPanelProps = {
   blocks: QuoteBlockInput[];
   canEdit?: boolean;
   onInvoiceSentChange?: (sent: boolean) => void;
+  estimateDisclaimer?: string;
+  templateNote?: string;
+  onEstimateDisclaimerChange?: (value: string) => void;
   exportMeta: ExportMeta;
 };
 
@@ -147,6 +151,9 @@ export function QuoteDocumentsPanel({
   blocks,
   canEdit = true,
   onInvoiceSentChange,
+  estimateDisclaimer = "",
+  templateNote = "",
+  onEstimateDisclaimerChange,
   exportMeta,
 }: QuoteDocumentsPanelProps) {
   const [entities, setEntities] = useState<Entity[]>([]);
@@ -550,6 +557,28 @@ export function QuoteDocumentsPanel({
             Заказчик: {customer?.companyName || clientName || "—"}
             {customer?.inn ? ` · ИНН ${customer.inn}` : ""}
           </p>
+          <label>
+            <span className="text-[var(--muted)]">Примечание под сметой</span>
+            <textarea
+              className="field mt-1 min-h-28 text-xs leading-snug"
+              value={resolveEstimateDisclaimer(estimateDisclaimer, templateNote)}
+              disabled={!canEdit}
+              onChange={(e) => onEstimateDisclaimerChange?.(e.target.value)}
+            />
+            {canEdit && estimateDisclaimer.trim() ? (
+              <button
+                type="button"
+                className="mt-1 text-xs text-[var(--muted)] hover:text-[var(--ink)]"
+                onClick={() => onEstimateDisclaimerChange?.("")}
+              >
+                Вернуть текст шаблона
+              </button>
+            ) : (
+              <span className="mt-1 block text-xs text-[var(--muted)]">
+                Печатается под итогом «К оплате».
+              </span>
+            )}
+          </label>
           <div className="grid grid-cols-2 gap-2">
             <label className="flex items-center gap-2">
               <input

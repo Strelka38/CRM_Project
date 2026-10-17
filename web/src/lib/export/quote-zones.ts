@@ -13,6 +13,7 @@ import {
 import {
   ESTIMATE_COLORS,
   ESTIMATE_DISCLAIMER,
+  resolveEstimateDisclaimer,
   formatEstimateNumber,
   partitionByKind,
   remainingPageMm,
@@ -37,6 +38,58 @@ import {
 } from "./print-options";
 import { loadSansFonts, registerPdfFont } from "./pdf-fonts";
 import { formatNumber } from "../format";
+
+/** Печатный знак КП крупнее прежнего квадрата 56px / 14 мм. */
+const KP_LOGO_SCALE = 2.5;
+const KP_PREVIEW_LOGO_PX = Math.round(56 * KP_LOGO_SCALE);
+/** Продолжение листа: знак 17.5 мм и строка сайта под ним. */
+const KP_COMPACT_HEADER_MM = 28;
+
+function imagePixelSize(dataUrl: string): { w: number; h: number } | null {
+  const comma = dataUrl.indexOf(",");
+  if (comma < 0 || typeof atob !== "function") return null;
+  let bytes: Uint8Array;
+  try {
+    const binary = atob(dataUrl.slice(comma + 1));
+    bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  } catch {
+    return null;
+  }
+  if (bytes.length >= 24 && bytes[0] === 0x89 && bytes[1] === 0x50) {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    return { w: view.getUint32(16), h: view.getUint32(20) };
+  }
+  if (bytes[0] !== 0xff || bytes[1] !== 0xd8) return null;
+  let i = 2;
+  while (i + 9 < bytes.length) {
+    if (bytes[i] !== 0xff) return null;
+    const marker = bytes[i + 1] ?? 0;
+    if (marker === 0xd8 || marker === 0xd9) {
+      i += 2;
+      continue;
+    }
+    const len = ((bytes[i + 2] ?? 0) << 8) | (bytes[i + 3] ?? 0);
+    if (len < 2) return null;
+    if (marker >= 0xc0 && marker <= 0xc2) {
+      return {
+        h: ((bytes[i + 5] ?? 0) << 8) | (bytes[i + 6] ?? 0),
+        w: ((bytes[i + 7] ?? 0) << 8) | (bytes[i + 8] ?? 0),
+      };
+    }
+    i += 2 + len;
+  }
+  return null;
+}
+
+/** Вписывает знак в квадрат max×max, не растягивая пропорции. */
+function fittedLogoMm(dataUrl: string | null, max: number) {
+  const px = dataUrl ? imagePixelSize(dataUrl) : null;
+  if (!px || px.w <= 0 || px.h <= 0) return { w: max, h: max };
+  const aspect = px.w / px.h;
+  if (aspect >= 1) return { w: max, h: max / aspect };
+  return { w: max * aspect, h: max };
+}
 
 type PrintBrand = {
   name: string;
@@ -130,6 +183,8 @@ export type ExportMeta = {
   durationDays: number;
   discountPercent: number;
   notes: string[];
+  /** Примечание под итогом. Пусто — стандартный текст. */
+  estimateDisclaimer?: string;
   /** Контакт заказчика: телефон, Telegram. */
   clientPhone?: string;
   /** Адрес площадки, если выбран справочник. */
@@ -406,18 +461,14 @@ function writeExcelKpHeader(
   });
 
   const brandStart = Math.max(1, lastCol - 1);
-  ws.mergeCells(1, brandStart, 1, lastCol);
-  ws.getCell(1, brandStart).value = brand.name;
-  paint(ws.getCell(1, brandStart), { bold: true, size: 11, align: "right" });
-  ws.getCell(1, brandStart).border = {};
-  ws.mergeCells(2, brandStart, 2, lastCol);
-  ws.getCell(2, brandStart).value = brand.site;
-  paint(ws.getCell(2, brandStart), {
+  ws.mergeCells(1, brandStart, 2, lastCol);
+  ws.getCell(1, brandStart).value = brand.site;
+  paint(ws.getCell(1, brandStart), {
     size: 9,
     align: "right",
     color: ESTIMATE_COLORS.mutedArgb,
   });
-  ws.getCell(2, brandStart).border = {};
+  ws.getCell(1, brandStart).border = {};
   ws.getRow(1).height = 22;
   ws.getRow(2).height = 16;
   return 3 + header.rows.length + 1;
@@ -706,10 +757,15 @@ function appendZoneExcel(
   return r + 2;
 }
 
-function writeExcelDisclaimer(ws: ExcelJS.Worksheet, row: number, colCount = ZONE_COLS) {
+function writeExcelDisclaimer(
+  ws: ExcelJS.Worksheet,
+  row: number,
+  colCount = ZONE_COLS,
+  text = ESTIMATE_DISCLAIMER,
+) {
   ws.mergeCells(row, 1, row, Math.max(1, colCount));
   const note = ws.getCell(row, 1);
-  note.value = ESTIMATE_DISCLAIMER;
+  note.value = text;
   note.font = {
     name: "Calibri",
     size: 8,
@@ -718,7 +774,8 @@ function writeExcelDisclaimer(ws: ExcelJS.Worksheet, row: number, colCount = ZON
   };
   note.alignment = { wrapText: true, vertical: "top" };
   note.border = {};
-  ws.getRow(row).height = 48;
+  const lines = Math.max(2, Math.ceil(text.length / 95));
+  ws.getRow(row).height = Math.min(140, 12 + lines * 11);
   return row + 1;
 }
 
@@ -731,13 +788,14 @@ function previewCss() {
     .title{margin:0 0 10px;font-size:22px;font-weight:700}
     .row{display:flex;gap:8px;margin:3px 0;font-size:13px}
     .lbl{color:#5a6b82;min-width:140px}
-    .brand{text-align:right;flex:0 0 180px}
-    .brand img{width:56px;height:56px;object-fit:contain;display:block;margin:0 0 6px auto;filter:invert(1)}
-    .brand strong{display:block}
+    .brand{text-align:right;flex:0 0 ${KP_PREVIEW_LOGO_PX + 24}px}
+    .brand img{width:${KP_PREVIEW_LOGO_PX}px;height:${KP_PREVIEW_LOGO_PX}px;object-fit:contain;display:block;margin:0 0 6px auto;filter:invert(1)}
     .brand a{color:#5a6b82;text-decoration:none;font-size:12px}
-    table{width:100%;border-collapse:collapse;margin:0 0 14px}
+    table{width:100%;border-collapse:collapse;border-spacing:0;margin:0 0 10px}
+    table.cols{table-layout:fixed}
+    th,td{box-sizing:border-box}
     th{background:#eef3f8;color:#5a6b82;font-size:11px;letter-spacing:.06em;text-transform:uppercase;font-weight:600;text-align:left;padding:6px 8px;border-bottom:1px solid #d0d9e6}
-    td{padding:5px 8px;border-bottom:1px solid rgba(208,217,230,.72);vertical-align:middle}
+    td{padding:5px 8px;border-bottom:1px solid rgba(208,217,230,.72);vertical-align:middle;overflow-wrap:anywhere}
     .num,.qty{text-align:center}
     .money{text-align:right;font-variant-numeric:tabular-nums}
     .zone{background:#ebf7fc;font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase}
@@ -745,6 +803,35 @@ function previewCss() {
     .total td{background:#f0f9fd;font-weight:600;border-top:2px solid rgba(15,23,41,.2);border-bottom:0;text-align:right}
     .note{font-size:11px;color:#5a6b82}
   `;
+}
+
+/** Те же доли, что у PDF: имя забирает остаток листа, числовые столбцы фиксированы. */
+const PREVIEW_FIXED_MM: Record<Exclude<PrintColumn, "name">, number> = {
+  num: 10,
+  qty: 14,
+  coef: 14,
+  price: 22,
+  discount: 22,
+  sum: 24,
+};
+
+const BASIC_PREVIEW_COLS: PrintColumn[] = ["num", "name", "qty", "price", "sum"];
+
+function previewColumnWeights(cols: readonly PrintColumn[]): number[] {
+  let used = 0;
+  for (const col of cols) {
+    if (col !== "name") used += PREVIEW_FIXED_MM[col];
+  }
+  const nameW = Math.max(36, 186 - used);
+  return cols.map((col) => (col === "name" ? nameW : PREVIEW_FIXED_MM[col]));
+}
+
+function previewColgroup(cols: readonly PrintColumn[]): string {
+  const weights = previewColumnWeights(cols);
+  const sum = weights.reduce((total, weight) => total + weight, 0) || 1;
+  return `<colgroup>${weights
+    .map((weight) => `<col style="width:${((weight / sum) * 100).toFixed(4)}%">`)
+    .join("")}</colgroup>`;
 }
 
 export async function buildExportPreviewHtml(
@@ -769,7 +856,7 @@ export async function buildExportPreviewHtml(
   html += `</div>`;
   html += `<div class="brand">`;
   html += `<img src="${brand.logoRaw || brand.logoUrl}" alt=""${brand.invert ? "" : ` style="filter:none"`}>`;
-  html += `<strong>${escapeHtml(brand.name)}</strong><div><a href="https://${escapeHtml(brand.site)}">${escapeHtml(brand.site)}</a></div></div></div>`;
+  html += `<div><a href="https://${escapeHtml(brand.site)}">${escapeHtml(brand.site)}</a></div></div></div>`;
 
   if (showSummary) {
     html += `<table><thead><tr><th class="num">№</th><th>Коммерческое предложение</th><th class="money">Оборудование</th><th class="money">Услуги</th><th class="money">Итого</th>`;
@@ -806,7 +893,7 @@ export async function buildExportPreviewHtml(
       for (const section of z.doc.sections) {
         const items = partitionByKind(section.items, costKindOf)[pick];
         if (!items.length) continue;
-        html += `<table><thead><tr class="section"><th colspan="5">${escapeHtml(section.title)}</th></tr>`;
+        html += `<table class="cols">${previewColgroup(BASIC_PREVIEW_COLS)}<thead><tr class="section"><th colspan="5">${escapeHtml(section.title)}</th></tr>`;
         html += `<tr><th class="num">№</th><th>${label}</th><th class="qty">Кол-во</th><th class="money">Цена</th><th class="money">Сумма</th></tr></thead><tbody>`;
         items.forEach((item, idx) => {
           const priced = showPriceFor(item, filters);
@@ -816,14 +903,14 @@ export async function buildExportPreviewHtml(
       }
     }
     for (const tax of z.taxLines) {
-      html += `<table><tr><td colspan="4">${escapeHtml(tax.label)}</td><td class="money">${formatMoney(tax.amount)}</td></tr></table>`;
+      html += `<table class="cols">${previewColgroup(BASIC_PREVIEW_COLS)}<tr><td colspan="4">${escapeHtml(tax.label)}</td><td class="money">${formatMoney(tax.amount)}</td></tr></table>`;
     }
-    html += `<table><tr class="total"><td colspan="4">К ОПЛАТЕ</td><td class="money">${formatMoney(z.payable)}</td></tr></table>`;
+    html += `<table class="cols">${previewColgroup(BASIC_PREVIEW_COLS)}<tr class="total"><td colspan="4">К ОПЛАТЕ</td><td class="money">${formatMoney(z.payable)}</td></tr></table>`;
   }
   if (filters.print?.showPageNumbers) {
     html += `<p class="note" style="text-align:center">1</p>`;
   }
-  html += `<p class="note">${escapeHtml(ESTIMATE_DISCLAIMER)}</p></div></body></html>`;
+  html += `<p class="note">${escapeHtml(resolveEstimateDisclaimer(meta.estimateDisclaimer))}</p></div></body></html>`;
   return html;
 }
 
@@ -844,9 +931,10 @@ function printedZoneHtml(
   const cols = printColumns(options);
   const span = Math.max(1, cols.length);
   const groups = printedGroupsFor(z, meta, options);
+  const columns = previewColgroup(cols);
   let html = "";
   for (const group of groups) {
-    html += `<table>`;
+    html += `<table class="cols">${columns}`;
     if (options.showSectionHeader) {
       html += `<thead><tr class="section"><th colspan="${span}">${escapeHtml(group.title)}</th></tr><tr>`;
     } else {
@@ -902,7 +990,7 @@ function printedZoneHtml(
     if (hasDiscount(meta)) lines.push([`Скидка ${meta.discountPercent}%`, z.discount]);
     for (const tax of z.taxLines) lines.push([tax.label, tax.amount]);
     lines.push(["К ОПЛАТЕ", z.payable]);
-    html += `<table>`;
+    html += `<table class="cols">${columns}`;
     for (const [label, value] of lines) {
       html += `<tr class="total"><td colspan="${Math.max(1, span - 1)}">${escapeHtml(label)}</td><td class="money">${formatMoney(value)}</td></tr>`;
     }
@@ -926,6 +1014,7 @@ export async function exportQuoteZonesExcel(
   const showSummary = summaryWanted(filters, summary.zones.length);
   const showName = quoteSheetShowsIdentity(summary.zones.length);
   const docHeader = headerForExport(meta, filters, brand);
+  const disclaimer = resolveEstimateDisclaimer(meta.estimateDisclaimer);
 
   if (showSummary) {
     const ws = wb.addWorksheet("Общая информация");
@@ -1023,7 +1112,7 @@ export async function exportQuoteZonesExcel(
       if (!zoneCalc) continue;
       r = appendZoneExcel(ws, zoneCalc, meta, filters, r, showName);
     }
-    writeExcelDisclaimer(ws, r, zoneColsN);
+    writeExcelDisclaimer(ws, r, zoneColsN, disclaimer);
   } else {
     for (const z of selectedZones) {
       const zoneCalc = summary.zones.find((x) => x.zoneId === z.id);
@@ -1036,7 +1125,7 @@ export async function exportQuoteZonesExcel(
       stampExcelPages(ws, filters);
       const start = writeExcelKpHeader(ws, meta, zoneColsN, brand, docHeader);
       const end = appendZoneExcel(ws, zoneCalc, meta, filters, start, showName);
-      writeExcelDisclaimer(ws, end, zoneColsN);
+      writeExcelDisclaimer(ws, end, zoneColsN, disclaimer);
     }
   }
 
@@ -1082,35 +1171,34 @@ export async function exportQuoteZonesPdf(
   const pageW = doc.internal.pageSize.getWidth();
   const bottom = 12;
   const cashless = meta.cashless;
+  const disclaimer = resolveEstimateDisclaimer(meta.estimateDisclaimer);
   const showDisc = hasDiscount(meta);
   const innerW = pageW - margin * 2;
 
   const drawBrand = (compact: boolean) => {
-    const logoSize = compact ? 7 : 14;
+    const logoSize = (compact ? 7 : 14) * KP_LOGO_SCALE;
+    const fitted = fittedLogoMm(logo, logoSize);
     const x = pageW - margin;
     const y = compact ? 3 : 8;
     if (logo) {
       try {
-        doc.addImage(logo, "PNG", x - logoSize, y, logoSize, logoSize);
+        doc.addImage(logo, "PNG", x - fitted.w, y, fitted.w, fitted.h);
       } catch {
         /* ignore */
       }
     }
-    doc.setFont(font, "bold");
-    doc.setFontSize(compact ? 7.5 : 9);
-    doc.setTextColor(...ESTIMATE_COLORS.ink);
-    const textY = y + logoSize + (compact ? 2.8 : 4);
-    doc.text(brand.name, x, textY, { align: "right" });
+    const textY = y + fitted.h + (compact ? 2.8 : 4);
     doc.setFont(font, "normal");
     doc.setFontSize(compact ? 6.5 : 7.5);
     doc.setTextColor(...ESTIMATE_COLORS.muted);
-    doc.text(brand.site, x, textY + (compact ? 3.2 : 4), { align: "right" });
+    doc.text(brand.site, x, textY, { align: "right" });
     doc.setTextColor(...ESTIMATE_COLORS.ink);
+    return textY + (compact ? 2.4 : 3.2);
   };
 
   const drawFullHeader = () => {
     const header = headerForExport(meta, filters, brand);
-    drawBrand(false);
+    const brandBottom = drawBrand(false);
     const leftW = innerW - 52;
     let y = 14;
     doc.setFont(font, "bold");
@@ -1131,20 +1219,22 @@ export async function exportQuoteZonesPdf(
       doc.text(valueLines, margin + lw, y);
       y += Math.max(4.8, valueLines.length * 4.2);
     }
-    return Math.max(y + 4, 42);
+    return Math.max(y + 4, brandBottom + 4);
   };
 
   const drawMiniHeader = () => {
-    drawBrand(true);
+    const brandBottom = drawBrand(true);
     doc.setFont(font, "normal");
     doc.setFontSize(8);
     doc.setTextColor(...ESTIMATE_COLORS.muted);
     const bits = [`КП №${meta.proposalNumber || "—"}`, meta.eventName || ""]
       .filter(Boolean)
       .join("  ·  ");
-    doc.text(bits, margin, 9);
+    const bitsWidth = pageW - margin * 2 - 7 * KP_LOGO_SCALE - 4;
+    const line = (doc.splitTextToSize(bits, Math.max(40, bitsWidth)) as string[])[0] || "";
+    doc.text(line, margin, 9);
     doc.setTextColor(...ESTIMATE_COLORS.ink);
-    return 20;
+    return Math.max(KP_COMPACT_HEADER_MM, brandBottom + 2);
   };
 
   const headerBottom = drawFullHeader();
@@ -1168,7 +1258,7 @@ export async function exportQuoteZonesPdf(
       fontSize: 7,
       halign: "left" as const,
     },
-    margin: { left: margin, right: margin, top: 20, bottom },
+    margin: { left: margin, right: margin, top: KP_COMPACT_HEADER_MM, bottom },
     theme: "plain" as const,
     didDrawPage: (data: { pageNumber: number }) => {
       if (doc.getNumberOfPages() > 1 && data.pageNumber > 1) {
@@ -1332,7 +1422,7 @@ export async function exportQuoteZonesPdf(
 
   const drawDisclaimer = (y0: number) => {
     let y = y0;
-    const disc = doc.splitTextToSize(ESTIMATE_DISCLAIMER, innerW) as string[];
+    const disc = doc.splitTextToSize(disclaimer, innerW) as string[];
     const need = disc.length * 3.2 + 4;
     if (shouldStartNewPage(remainingPageMm(pageH, y, bottom), need)) {
       y = freshPageY();

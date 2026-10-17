@@ -175,7 +175,10 @@ const DENSITY_TIMETREE_DESKTOP: CalendarDensity = {
   overflowRow: 18,
 };
 
-const LIFE_FILTERS = ["CALCULATED"] as const satisfies readonly LifecycleStatus[];
+const LIFE_FILTERS = ["CALCULATED", "CANCELLED"] as const satisfies readonly LifecycleStatus[];
+
+/** Старые сохранения прятали отмену без чипа. Читаем выбор только с этой версии. */
+const FILTERS_VERSION = 2;
 
 const KIND_FILTERS = ["RENTAL", "TASK", "DAY_OFF"] as const satisfies readonly CalendarEntryKind[];
 
@@ -198,7 +201,7 @@ function defaultFilters(hideDayOffs = false): CalendarFilters {
     lifecycles: {
       CALCULATED: true,
       CONFIRMED: true,
-      CANCELLED: false,
+      CANCELLED: true,
       COMPLETED: false,
     },
     kinds: {
@@ -220,6 +223,7 @@ function readStoredFilters(): CalendarFilters {
     const raw = localStorage.getItem(FILTERS_STORAGE_KEY);
     if (!raw) return defaultFilters(hideDayOffs);
     const data = JSON.parse(raw) as {
+      v?: number;
       lifecycles?: Partial<Record<LifecycleStatus, boolean>>;
       kinds?: Partial<Record<CalendarEntryKind, boolean>>;
       companies?: Partial<Record<CatalogOwnerValue, boolean>>;
@@ -230,6 +234,7 @@ function readStoredFilters(): CalendarFilters {
     const companies = { ...base.companies };
     if (data.lifecycles && typeof data.lifecycles === "object") {
       for (const k of LIFE_FILTERS) {
+        if (k === "CANCELLED" && data.v !== FILTERS_VERSION) continue;
         if (typeof data.lifecycles[k] === "boolean") lifecycles[k] = data.lifecycles[k];
       }
     }
@@ -251,7 +256,10 @@ function readStoredFilters(): CalendarFilters {
 
 function persistFilters(next: CalendarFilters) {
   try {
-    localStorage.setItem(FILTERS_STORAGE_KEY, JSON.stringify(next));
+    localStorage.setItem(
+      FILTERS_STORAGE_KEY,
+      JSON.stringify({ ...next, v: FILTERS_VERSION }),
+    );
     localStorage.setItem(
       "calendar.hideDayOffs",
       next.kinds.DAY_OFF ? "0" : "1",
@@ -362,8 +370,9 @@ function quoteEventPaint(
   border?: string;
   boxShadow?: string;
 } {
-  const calculated = calendarQuoteStatus(item.quote) === "CALCULATED";
-  if (calculated) {
+  const status = calendarQuoteStatus(item.quote);
+  const outlined = status === "CALCULATED" || status === "CANCELLED";
+  if (outlined) {
     return {
       background: "var(--panel)",
       color: "var(--ink)",
@@ -380,7 +389,9 @@ function quoteEventPaint(
 }
 
 function quoteLabel(q: Quote) {
-  return `№${q.proposalNumber} ${q.eventName || q.client || "КП"}`;
+  const title = `№${q.proposalNumber} ${q.eventName || q.client || "КП"}`;
+  if (q.lifecycle === "CANCELLED") return `ОТМЕНА ${title}`;
+  return title;
 }
 
 function quoteStaffHint(q: Quote) {
@@ -698,7 +709,8 @@ function DayAgendaPage({
             const quoteStatus =
               item.type === "quote" ? calendarQuoteStatus(item.quote) : null;
             const stripeKind = calendarItemBarKind(item);
-            const calculated = quoteStatus === "CALCULATED";
+            const outlined =
+              quoteStatus === "CALCULATED" || quoteStatus === "CANCELLED";
             const statusLabel =
               item.type === "quote"
                 ? LIFECYCLE_LABELS[quoteStatus ?? item.quote.lifecycle]
@@ -722,7 +734,7 @@ function DayAgendaPage({
                     )}
                     style={
                       item.type === "quote"
-                        ? calculated
+                        ? outlined
                           ? {
                               background: "var(--panel)",
                               boxShadow: `inset 0 0 0 1.5px ${item.color}`,
@@ -1393,8 +1405,12 @@ export function CalendarView() {
     const list: CalItem[] = [];
     for (const q of quotes) {
       const status = calendarQuoteStatus(q);
-      if (status === "CANCELLED" || status === "COMPLETED") continue;
-      if (status === "CALCULATED" && !filters.lifecycles.CALCULATED) continue;
+      if (
+        (status === "CALCULATED" || status === "CANCELLED") &&
+        !filters.lifecycles[status]
+      ) {
+        continue;
+      }
       const companies = quoteCalendarCompanies(
         q.calendarOwners,
         q.owner?.owners,
@@ -1879,7 +1895,7 @@ export function CalendarView() {
             active={filters.lifecycles[status]}
             onToggle={() => toggleLifecycle(status)}
             showLabel={showingDesktop}
-            outlined={status === "CALCULATED"}
+            outlined={status === "CALCULATED" || status === "CANCELLED"}
           />
         ))}
         <span className="mx-0.5 h-3 w-px shrink-0 bg-[var(--line)]" aria-hidden />

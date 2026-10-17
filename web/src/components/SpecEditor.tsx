@@ -22,6 +22,7 @@ import {
   readQuoteCatalogWidth,
 } from "@/components/QuoteCatalogSplit";
 import { QuoteZoneTabs, type ZoneTab } from "@/components/QuoteZoneTabs";
+import type { SpecPrintSettings } from "@/lib/spec-print";
 import { SpecCards, type SpecCardPatch } from "@/components/SpecCards";
 import { moveBlockInGroups } from "@/lib/quote-block-groups";
 import {
@@ -1180,8 +1181,13 @@ export function SpecEditor({
             ? "монтаж"
             : line.role,
       }));
-      if (kind === "excel") await exportSpecExcel(meta, lines, staff);
-      else await exportSpecPdf(meta, lines, staff);
+      const settingsRes = await fetch("/api/settings");
+      const settings = settingsRes.ok
+        ? ((await settingsRes.json()) as { specPrint?: SpecPrintSettings })
+        : null;
+      const print = settings?.specPrint;
+      if (kind === "excel") await exportSpecExcel(meta, lines, staff, print);
+      else await exportSpecPdf(meta, lines, staff, print);
     } finally {
       setExporting(null);
     }

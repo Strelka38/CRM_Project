@@ -16,7 +16,7 @@ export const ESTIMATE_COLORS = {
   totalArgb: "FFF0F9FD",
 };
 
-export { ESTIMATE_DISCLAIMER } from "../commercial-terms";
+export { ESTIMATE_DISCLAIMER, resolveEstimateDisclaimer } from "../commercial-terms";
 
 /** Минимум места на странице, чтобы начать зону (заголовок + шапка + пара строк). */
 export const MIN_ZONE_BLOCK_MM = 42;

@@ -5,18 +5,26 @@ import {
   DEFAULT_KP_SITE,
   DEFAULT_LOGO_URL,
   DEFAULT_PUBLIC_BRAND,
+  type BrandFileKind,
   type PublicBrand,
 } from "./brand-public";
 
 const KEY = {
   crmName: "brand.crmName",
   crmLogo: "brand.crmLogo",
+  icon: "brand.icon",
   kpName: "brand.kpName",
   kpSite: "brand.kpSite",
   kpLogo: "brand.kpLogo",
   kpInvert: "brand.kpInvert",
   rev: "brand.rev",
 } as const;
+
+const LOGO_KEY: Record<BrandFileKind, string> = {
+  crm: KEY.crmLogo,
+  kp: KEY.kpLogo,
+  icon: KEY.icon,
+};
 
 function mapOf(rows: Array<{ key: string; value: string }>) {
   return new Map(rows.map((r) => [r.key, r.value]));
@@ -27,6 +35,7 @@ export function toPublicBrand(
 ): PublicBrand {
   const rev = values.get(KEY.rev) || "0";
   const crmLogo = values.get(KEY.crmLogo)?.trim() || "";
+  const icon = values.get(KEY.icon)?.trim() || "";
   const kpLogo = values.get(KEY.kpLogo)?.trim() || "";
   const crmName = values.get(KEY.crmName)?.trim() || DEFAULT_CRM_NAME;
   const kpName = values.get(KEY.kpName)?.trim() || DEFAULT_KP_NAME;
@@ -35,10 +44,13 @@ export function toPublicBrand(
   const kpLogoInvert = kpLogoCustom
     ? values.get(KEY.kpInvert) === "1"
     : true;
+  const crmLogoUrl = crmLogo ? `/api/brand/file/crm?v=${rev}` : DEFAULT_LOGO_URL;
   return {
     crmName,
     crmLogoCustom: Boolean(crmLogo),
-    crmLogoUrl: crmLogo ? `/api/brand/file/crm?v=${rev}` : DEFAULT_LOGO_URL,
+    crmLogoUrl,
+    iconCustom: Boolean(icon),
+    iconUrl: icon ? `/api/brand/file/icon?v=${rev}` : crmLogoUrl,
     kpName,
     kpSite,
     kpLogoCustom,
@@ -59,9 +71,9 @@ export async function getBrandSettings(): Promise<PublicBrand> {
 }
 
 export async function getBrandLogoPath(
-  kind: "crm" | "kp",
+  kind: BrandFileKind,
 ): Promise<string | null> {
-  const key = kind === "crm" ? KEY.crmLogo : KEY.kpLogo;
+  const key = LOGO_KEY[kind];
   try {
     const row = await prisma.appSetting.findUnique({ where: { key } });
     const value = row?.value?.trim() || "";
@@ -112,15 +124,15 @@ export async function saveBrandText(input: {
   return getBrandSettings();
 }
 
-export async function saveBrandLogoPath(kind: "crm" | "kp", storagePath: string) {
-  await put(kind === "crm" ? KEY.crmLogo : KEY.kpLogo, storagePath);
+export async function saveBrandLogoPath(kind: BrandFileKind, storagePath: string) {
+  await put(LOGO_KEY[kind], storagePath);
   if (kind === "kp") await put(KEY.kpInvert, "0");
   await bumpRev();
   return getBrandSettings();
 }
 
-export async function clearBrandLogo(kind: "crm" | "kp") {
-  await put(kind === "crm" ? KEY.crmLogo : KEY.kpLogo, "");
+export async function clearBrandLogo(kind: BrandFileKind) {
+  await put(LOGO_KEY[kind], "");
   if (kind === "kp") await put(KEY.kpInvert, "0");
   await bumpRev();
   return getBrandSettings();

@@ -1,5 +1,6 @@
 import { readFile } from "fs/promises";
 import { NextRequest, NextResponse } from "next/server";
+import { isBrandFileKind } from "@/lib/brand-public";
 import { getBrandLogoPath } from "@/lib/brand-settings";
 import { mimeFromStoragePath, resolveUploadPath } from "@/lib/uploads";
 
@@ -8,10 +9,13 @@ export async function GET(
   { params }: { params: Promise<{ kind: string }> },
 ) {
   const { kind } = await params;
-  if (kind !== "crm" && kind !== "kp") {
+  if (!isBrandFileKind(kind)) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
-  const storagePath = await getBrandLogoPath(kind);
+  let storagePath = await getBrandLogoPath(kind);
+  if (!storagePath && kind === "icon") {
+    storagePath = await getBrandLogoPath("crm");
+  }
   if (!storagePath) {
     return NextResponse.redirect(new URL("/brand/bsg-logo.png", req.url));
   }
