@@ -24,3 +24,26 @@ export function resolveEstimateDisclaimer(
   if (fromTemplate) return fromTemplate;
   return ESTIMATE_DISCLAIMER;
 }
+
+/**
+ * Текст поля ввода. Свой черновик отдаём как есть, вместе с пробелами в конце:
+ * иначе контролируемое поле срезает пробел до следующей буквы.
+ */
+export function disclaimerFieldValue(
+  own?: string | null,
+  templateNote?: string | null,
+): string {
+  if (typeof own === "string" && own.length > 0) return own;
+  return resolveEstimateDisclaimer("", templateNote);
+}
+
+/** Пустое поле и нетронутый текст шаблона не сохраняем: тогда правка шаблона доезжает до сметы. */
+export function disclaimerDraftToStore(
+  value: string,
+  templateNote?: string | null,
+): string {
+  if (!value.trim()) return "";
+  const inherited = resolveEstimateDisclaimer("", templateNote);
+  if (value === inherited) return "";
+  return value;
+}

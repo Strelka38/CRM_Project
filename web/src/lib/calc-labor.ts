@@ -23,10 +23,21 @@ import {
 export function buildAssignmentLaborRows(assignments: AssignmentLike[]) {
   return assignments.map((a) => {
     const rates = assignmentRates(a);
+    const rateOverride =
+      a.rateOverride == null || Number.isNaN(Number(a.rateOverride))
+        ? null
+        : Math.max(0, Number(a.rateOverride));
+    const defaultBase = calcAssignmentBasePay({
+      payMode: a.payMode,
+      hours: a.hours,
+      rateOverride: null,
+      hourlyRate: rates.hourlyRate,
+      shiftRate: rates.shiftRate,
+    });
     const basePay = calcAssignmentBasePay({
       payMode: a.payMode,
       hours: a.hours,
-      rateOverride: a.rateOverride,
+      rateOverride,
       hourlyRate: rates.hourlyRate,
       shiftRate: rates.shiftRate,
     });
@@ -35,7 +46,7 @@ export function buildAssignmentLaborRows(assignments: AssignmentLike[]) {
     const pay = calcAssignmentPay({
       payMode: a.payMode,
       hours: a.hours,
-      rateOverride: a.rateOverride,
+      rateOverride,
       hourlyRate: rates.hourlyRate,
       shiftRate: rates.shiftRate,
       bonus,
@@ -54,6 +65,8 @@ export function buildAssignmentLaborRows(assignments: AssignmentLike[]) {
       isFreelancer: isFreelancerAssignment(a),
       vacant: !a.userId && !isFreelancerAssignment(a),
       basePay: Math.round(basePay),
+      defaultBase: Math.round(defaultBase),
+      rateOverride,
       bonus: Math.round(bonus),
       montageAmount: Math.round(montageAmount),
       pay: Math.round(pay),
@@ -227,6 +240,7 @@ export function buildFreelancerExpenseInputs(
         amount: r.pay,
         owners: r.owners,
         mode: "SHARE",
+        freelance: true,
         sortOrder: sort++,
       });
     }
@@ -236,6 +250,7 @@ export function buildFreelancerExpenseInputs(
         amount: r.montageAmount,
         owners: r.owners,
         mode: "SHARE",
+        freelance: true,
         sortOrder: sort++,
       });
     }

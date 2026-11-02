@@ -88,6 +88,14 @@ await desktop.addInitScript(() => {
   localStorage.setItem("bs-crm-theme", "dark");
   localStorage.setItem("bs-crm-layout", "desktop");
   localStorage.setItem("calendar.dashCollapsed", "1");
+  sessionStorage.setItem(
+    "calendar.view",
+    JSON.stringify({ cursor: "2026-09-01", selected: "2026-09-23" }),
+  );
+  sessionStorage.setItem(
+    "roster.view",
+    JSON.stringify({ start: "2026-09-21", selected: "2026-09-23" }),
+  );
   document.cookie = "bs-crm-layout=desktop; path=/; max-age=31536000; SameSite=Lax";
 });
 
@@ -199,6 +207,10 @@ try {
   await mobile.addInitScript(() => {
     localStorage.setItem("bs-crm-theme", "dark");
     localStorage.setItem("bs-crm-layout", "mobile");
+    sessionStorage.setItem(
+      "calendar.view",
+      JSON.stringify({ cursor: "2026-09-01", selected: "2026-09-23" }),
+    );
     document.cookie =
       "bs-crm-layout=mobile; path=/; max-age=31536000; SameSite=Lax";
   });

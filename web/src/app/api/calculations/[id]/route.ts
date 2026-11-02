@@ -64,6 +64,7 @@ const patchSchema = z.object({
         id: z.string().min(1),
         bonus: z.number().min(0),
         montageAmount: z.number().min(0),
+        rateOverride: z.number().min(0).nullable().optional(),
       }),
     )
     .optional(),
@@ -294,7 +295,14 @@ function serialize(quote: NonNullable<Awaited<ReturnType<typeof loadQuote>>>) {
     quote.owner.owners as CatalogOwnerValue[],
     quote.owner.agencyPercent,
   );
-  const breakdownWithCogs = attachCogsToBreakdown(breakdown, baseCalc);
+  const breakdownWithCogs = attachCogsToBreakdown(breakdown, baseCalc).map(
+    (row) => ({
+      ...row,
+      freelanceCost:
+        baseCalc.breakdown.find((b) => b.company === row.company)
+          ?.freelanceCost ?? 0,
+    }),
+  );
 
   const calc = {
     ...baseCalc,
@@ -542,6 +550,14 @@ export async function PATCH(
             data: {
               bonus: Math.max(0, row.bonus),
               montageAmount: Math.max(0, row.montageAmount),
+              ...(row.rateOverride !== undefined
+                ? {
+                    rateOverride:
+                      row.rateOverride == null
+                        ? null
+                        : Math.max(0, row.rateOverride),
+                  }
+                : {}),
             },
           });
         }

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatMoney } from "@/lib/format";
+import { ClientContacts, type ClientContactRow } from "@/components/ClientContacts";
 import { ClientLegalEntities, type ClientLegalEntityRow } from "@/components/ClientLegalEntities";
 import { LegalCardImport } from "@/components/LegalCardImport";
 import { lifecycleLabel, SortableTh, useTableSort, AutoTextarea } from "@/components/ui";
@@ -28,6 +29,7 @@ type ClientDetail = {
   contactName: string;
   phone: string;
   email: string;
+  contacts: ClientContactRow[];
   comment: string;
   active: boolean;
   legalEntities: ClientLegalEntityRow[];
@@ -95,9 +97,6 @@ export function ClientEditor({ clientId }: { clientId: string }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         companyName: client.companyName,
-        contactName: client.contactName,
-        phone: client.phone,
-        email: client.email,
         comment: client.comment,
         active: client.active,
       }),
@@ -171,37 +170,11 @@ export function ClientEditor({ clientId }: { clientId: string }) {
                 а ООО и ИП живут в юрлицах ниже.
               </span>
             </label>
-            <label className="block text-sm">
-              <span className="text-[var(--muted)]">Контактное лицо</span>
-              <input
-                className="field mt-1"
-                value={client.contactName}
-                onChange={(e) =>
-                  setClient({ ...client, contactName: e.target.value })
-                }
-              />
-            </label>
-            <label className="block text-sm">
-              <span className="text-[var(--muted)]">Телефон</span>
-              <input
-                className="field mt-1"
-                value={client.phone}
-                onChange={(e) =>
-                  setClient({ ...client, phone: e.target.value })
-                }
-              />
-            </label>
-            <label className="block text-sm">
-              <span className="text-[var(--muted)]">Email</span>
-              <input
-                type="email"
-                className="field mt-1"
-                value={client.email}
-                onChange={(e) =>
-                  setClient({ ...client, email: e.target.value })
-                }
-              />
-            </label>
+            <ClientContacts
+              clientId={clientId}
+              contacts={client.contacts || []}
+              onSaved={load}
+            />
             <label className="block text-sm md:col-span-2">
               <span className="text-[var(--muted)]">Комментарий</span>
               <AutoTextarea

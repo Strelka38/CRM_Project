@@ -326,30 +326,6 @@ export function pickZoneForNewSlot(args: {
   return remaining[0] || needed[0] || null;
 }
 
-function mountImportedQty(
-  watermarks: SlotWatermarks,
-  specialtyId: string,
-  zoneId: string | null | undefined,
-  rows: SlotExisting[],
-  qty: number,
-): { imported: number; writeKey: string } {
-  const writeKey = slotWatermarkKey("MOUNT", specialtyId, zoneId);
-  if (Object.prototype.hasOwnProperty.call(watermarks, writeKey)) {
-    return { imported: Math.max(0, watermarks[writeKey] ?? 0), writeKey };
-  }
-  const legacyKey = slotWatermarkKey("MOUNT", specialtyId, null);
-  if (
-    normZoneId(zoneId) &&
-    Object.prototype.hasOwnProperty.call(watermarks, legacyKey)
-  ) {
-    return { imported: Math.max(rows.length, qty), writeKey };
-  }
-  if (rows.length > 0) {
-    return { imported: Math.max(rows.length, qty), writeKey };
-  }
-  return { imported: 0, writeKey };
-}
-
 function syncEventQty(
   rows: SlotExisting[],
   specialtyId: string,
@@ -394,10 +370,10 @@ function syncEventQty(
 /**
  * EVENT: qty — число позиций, не qty × дни. Пустые слоты на каждый день
  * не создаём: нехватка по дням показывается в сводке. Заполненные
- * подневные слоты оставляем. Монтажники — один раз, без дня.
- * MOUNT: импорт из сметы один раз. Watermark не уменьшается —
- * удалённые слоты не добираются. Рост qty в смете добавляет только дельту.
- * Лишние слоты бригадира не трогаем.
+ * подневные слоты оставляем.
+ * MOUNT: количество из сметы слоты не создаёт. Пустые «нужно назначить»
+ * забивают спецификацию. Людей ставят вручную; уже созданные слоты
+ * импорт не удаляет и не добирает.
  */
 export function planSlotSync(
   existing: SlotExisting[],
@@ -422,26 +398,7 @@ export function planSlotSync(
         normZoneId(a.zoneId) === zoneId,
     );
     const qty = Math.max(0, Math.round(d.qty) || 0);
-    if (d.kind === "MOUNT") {
-      const { imported, writeKey } = mountImportedQty(
-        watermarks,
-        d.specialtyId,
-        zoneId,
-        rows,
-        qty,
-      );
-      const missing = Math.max(0, qty - imported);
-      for (let i = 0; i < missing; i++) {
-        create.push({
-          specialtyId: d.specialtyId,
-          kind: "MOUNT",
-          zoneId,
-          dayIndex: null,
-        });
-      }
-      nextWatermarks[writeKey] = Math.max(imported, qty);
-      continue;
-    }
+    if (d.kind === "MOUNT") continue;
 
     if (days <= 1) {
       const singleDay = rows.filter((a) => {

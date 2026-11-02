@@ -105,7 +105,7 @@ export async function GET(req: NextRequest) {
       },
       orderBy: { name: "asc" },
       select: freelancerSelect,
-      take: q ? 20 : 500,
+      ...(q ? { take: 20 } : suggest ? {} : { take: 500 }),
     });
 
     const payMap = suggest ? null : await payByNameKey();
@@ -118,7 +118,13 @@ export async function GET(req: NextRequest) {
           assignmentCount: agg?.assignmentCount ?? 0,
           eventCount: agg?.eventCount ?? 0,
           totalPay: showPay ? (agg?.totalPay ?? 0) : 0,
-          specialties: f.specialties.map((s) => s.specialty),
+          specialties: f.specialties.map((s) => ({
+            id: s.specialty.id,
+            name: s.specialty.name,
+            ...(showPay
+              ? { hourlyRate: s.hourlyRate, shiftRate: s.shiftRate }
+              : {}),
+          })),
         };
       }),
     );

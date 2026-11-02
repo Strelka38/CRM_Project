@@ -46,7 +46,6 @@ import {
   rosterBarLabel,
   rosterItemPast,
   rosterItemMatchesFirms,
-  isVacantInstallerSlot,
   isRosterDutyMark,
   isRosterZoneMark,
   isRosterPersonSlotLocked,
@@ -57,7 +56,6 @@ import {
   rosterSpecialtyFilterForSlot,
   ROSTER_KIND_COLORS,
   ROSTER_KIND_LABELS,
-  ROSTER_MOUNT_COLOR,
   type RosterItem,
   type RosterKind,
   type RosterPerson,
@@ -568,7 +566,6 @@ export function RosterView() {
     DIAKOM: true,
     NE_EVENT: true,
   });
-  const [showVacantInstallers, setShowVacantInstallers] = useState(true);
   const [selectedDay, setSelectedDay] = useState(() => startOfDay(new Date()));
   const [dayPanelOpen, setDayPanelOpen] = useState(false);
   const [openQuoteId, setOpenQuoteId] = useState<string | null>(null);
@@ -694,7 +691,6 @@ export function RosterView() {
       items
         .filter((item) => kinds[item.kind])
         .filter((item) => rosterItemMatchesFirms(item, ownerFilter))
-        .filter((item) => showVacantInstallers || !isVacantInstallerSlot(item))
         .map((item) => {
           if (drag?.mode === "resize" && drag.itemId === item.id) {
             return { ...item, start: drag.start, end: drag.end };
@@ -702,7 +698,7 @@ export function RosterView() {
           return item;
         }),
     );
-  }, [items, kinds, ownerFilter, showVacantInstallers, drag]);
+  }, [items, kinds, ownerFilter, drag]);
 
   const viewLayout = useMemo(
     () => ({ days: visibleDays, segs: segmentsForDays(visibleDays, visibleItems) }),
@@ -1608,14 +1604,6 @@ export function RosterView() {
             }
           />
         ))}
-        <span className="mx-1 hidden h-3 w-px bg-[var(--line)] sm:inline-block" />
-        <FilterChip
-          label="Пустые монтаж"
-          color={ROSTER_MOUNT_COLOR}
-          active={showVacantInstallers}
-          title="Пустые слоты монтажа и демонтажа"
-          onToggle={() => setShowVacantInstallers((v) => !v)}
-        />
       </div>
 
       {error ? (

@@ -3,15 +3,16 @@ export function isServiceOrPersonnelKind(itemKind?: string | null): boolean {
   return k === "SERVICE" || k === "PERSONNEL";
 }
 
-/** Расходники и Zoom/лицензии по имени (не услуги/смены) — без закупа вся сумма в расход. */
+/** Расходники и лицензии по имени — без закупа вся сумма в расход. Ноутбук не лицензия, даже если в названии есть zoom. */
 export function isPassthroughKind(
   itemKind?: string | null,
   name?: string | null,
 ): boolean {
   if (isServiceOrPersonnelKind(itemKind)) return false;
+  const n = String(name || "").toLowerCase();
+  if (/ноутбук|notebook|laptop/.test(n)) return false;
   const k = String(itemKind || "").toUpperCase();
   if (k === "CONSUMABLE") return true;
-  const n = String(name || "").toLowerCase();
   return /zoom|лиценз|licence|license/.test(n);
 }
 
@@ -37,7 +38,8 @@ export type LineEconomics = {
 /**
  * Клиент 3000, закуп 1800 → маржа 1200.
  * Услуга / смена без закупа: закуп 0, маржа = клиент (зарплата — отдельный расход).
- * Расходник / Zoom-лицензия без закупа: вся сумма в закуп (passthrough).
+ * Расходник / лицензия без закупа: вся сумма в закуп (passthrough).
+ * Ноутбук без закупа: закуп 0, даже если в названии есть zoom.
  * Оборудование без закупа: закуп 0, маржа = клиент.
  */
 export function resolveLineEconomics(input: {

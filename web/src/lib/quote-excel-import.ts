@@ -34,8 +34,12 @@ type ColMap = {
   name: number;
   qty: number;
   price: number;
+  /** Вторая обычная «Цена» — безнал в нашем шаблоне Excel. Не «цена с коэф.». */
   priceCashless: number | null;
+  /** «Цена с коэф. и/или скидкой» в выгрузке Головы. Это не безнал. */
+  priceAdjusted: number | null;
   dayCoef: number | null;
+  discount: number | null;
   comment: number | null;
 };
 
@@ -43,6 +47,11 @@ type ParseSheetOpts = {
   forceDayCoef?: number;
   /** Явный нал/безнал. Без него берётся флаг из шапки листа. */
   cashless?: boolean;
+  /**
+   * Цифры в файле — наличная база (выгрузка Головы).
+   * Режим «безнал» только включает начисление CRM, а не переписывает цену файла.
+   */
+  pricesAreCash?: boolean;
 };
 
 export type QuoteImportSource = "excel" | "golova";
@@ -481,6 +490,10 @@ function readCell(ws: ExcelJS.Worksheet, row: number, col: number): unknown {
   return ws.getRow(row).getCell(col).value;
 }
 
+function isAdjustedPriceHeader(text: string): boolean {
+  return /цена/i.test(text) && /коэф|скид/i.test(text);
+}
+
 function findHeaderRow(ws: ExcelJS.Worksheet): { row: number; cols: ColMap } | null {
   const maxRow = Math.min(ws.rowCount || 30, 40);
   for (let r = 1; r <= maxRow; r++) {
@@ -494,8 +507,16 @@ function findHeaderRow(ws: ExcelJS.Worksheet): { row: number; cols: ColMap } | n
       labels.find((l) => /^услуги$/i.test(l.text));
     const qty = labels.find((l) => /кол-?во/i.test(l.text));
     if (!name || !qty) continue;
-    const priceHits = labels.filter((l) => /цена/i.test(l.text));
-    const day = labels.find((l) => /день|коэф/i.test(l.text));
+    const plainPrices = labels.filter(
+      (l) => /цена/i.test(l.text) && !isAdjustedPriceHeader(l.text),
+    );
+    const adjusted = labels.find((l) => isAdjustedPriceHeader(l.text));
+    const day = labels.find(
+      (l) => /день|коэф/i.test(l.text) && !/цена/i.test(l.text),
+    );
+    const discount = labels.find(
+      (l) => /скид/i.test(l.text) && !/цена/i.test(l.text),
+    );
     const comment =
       labels.find((l) => /^комментар/i.test(l.text)) ||
       labels.find((l) => /состав работ/i.test(l.text));
@@ -504,14 +525,50 @@ function findHeaderRow(ws: ExcelJS.Worksheet): { row: number; cols: ColMap } | n
       cols: {
         name: name.col,
         qty: qty.col,
-        price: priceHits[0]?.col ?? qty.col + 1,
-        priceCashless: priceHits[1]?.col ?? null,
+        price: plainPrices[0]?.col ?? qty.col + 1,
+        priceCashless: plainPrices[1]?.col ?? null,
+        priceAdjusted: adjusted?.col ?? null,
         dayCoef: day?.col ?? null,
+        discount: discount?.col ?? null,
         comment: comment?.col ?? null,
       },
     };
   }
   return null;
+}
+
+/**
+ * Наличная база и коэффициент Головы.
+ * «Цена с коэф.» уже включает коэффициент и скидку — делим обратно, чтобы
+ * коэффициент остался в строке и не записывался как безнал.
+ */
+function commercialCashUnit(
+  base: number | null,
+  adjusted: number | null,
+  coef: number | null,
+  discountPct: number | null,
+): { unitPrice: number; dayCoef: number | null } {
+  const fileCoef = coef != null && coef > 0 ? coef : null;
+  if (adjusted != null && adjusted > 0 && fileCoef != null && fileCoef !== 1) {
+    return { unitPrice: adjusted / fileCoef, dayCoef: fileCoef };
+  }
+  if (adjusted != null && adjusted > 0 && base == null) {
+    return { unitPrice: adjusted, dayCoef: fileCoef };
+  }
+  const discount =
+    discountPct != null && discountPct > 0 && discountPct < 100
+      ? discountPct / 100
+      : 0;
+  if (base != null && base > 0) {
+    return {
+      unitPrice: discount ? base * (1 - discount) : base,
+      dayCoef: fileCoef,
+    };
+  }
+  if (adjusted != null && adjusted > 0) {
+    return { unitPrice: adjusted, dayCoef: fileCoef };
+  }
+  return { unitPrice: 0, dayCoef: fileCoef };
 }
 
 function headerValueToTheRight(
@@ -667,9 +724,17 @@ function parseSheet(
       cols.priceCashless != null
         ? cellNumber(readCell(ws, r, cols.priceCashless))
         : null;
+    const adjusted =
+      cols.priceAdjusted != null
+        ? cellNumber(readCell(ws, r, cols.priceAdjusted))
+        : null;
     const dayCoef =
       cols.dayCoef != null
         ? cellNumber(readCell(ws, r, cols.dayCoef))
+        : null;
+    const discountPct =
+      cols.discount != null
+        ? cellNumber(readCell(ws, r, cols.discount))
         : null;
     const comment =
       cols.comment != null ? cellText(readCell(ws, r, cols.comment)) : "";
@@ -699,23 +764,33 @@ function parseSheet(
         ? `${rawName} (${comment})`
         : rawName;
 
-    const { unitPrice, cashlessOverride } = pricesForItem(
-      cash,
-      cashless,
-      hasTwoPrices,
-      meta.cashless,
-    );
+    const fileCoef =
+      dayCoef != null && Number.isFinite(dayCoef) && dayCoef > 0 ? dayCoef : null;
+    const commercial = opts?.pricesAreCash || cols.priceAdjusted != null;
+    let unitPrice: number;
+    let cashlessOverride: number | null;
+    let pricedCoef: number | null = fileCoef;
+    if (commercial) {
+      const priced = commercialCashUnit(cash, adjusted, fileCoef, discountPct);
+      unitPrice = priced.unitPrice;
+      cashlessOverride = null;
+      pricedCoef = priced.dayCoef;
+    } else {
+      const priced = pricesForItem(cash, cashless, hasTwoPrices, meta.cashless);
+      unitPrice = priced.unitPrice;
+      cashlessOverride = priced.cashlessOverride;
+    }
     items.push({
       name: itemName,
       qty,
       unitPrice,
       cashlessOverride,
       dayCoefOverride:
-        opts?.forceDayCoef != null
-          ? opts.forceDayCoef
-          : dayCoef != null && Number.isFinite(dayCoef)
-            ? dayCoef
-            : null,
+        pricedCoef != null
+          ? pricedCoef
+          : opts?.forceDayCoef != null
+            ? opts.forceDayCoef
+            : fileCoef,
       sectionTitle: personnel ? SERVICES_SECTION_TITLE : currentSection,
     });
   }
@@ -923,7 +998,11 @@ function parseGolovaWorkbook(
   const infoMeta = info ? parseGolovaInfoSheet(info) : emptyMeta();
   infoMeta.cashless = cashless;
 
-  const parseOpts: ParseSheetOpts = { forceDayCoef: 1, cashless };
+  const parseOpts: ParseSheetOpts = {
+    forceDayCoef: 1,
+    cashless,
+    pricesAreCash: true,
+  };
   let combined: ParsedSheet | null = null;
   const tabs: ParsedSheet[] = [];
   for (const ws of wb.worksheets) {

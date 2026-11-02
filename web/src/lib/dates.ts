@@ -50,6 +50,40 @@ export function formatDateKey(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
+const RU_MONTHS_GENITIVE = [
+  "января",
+  "февраля",
+  "марта",
+  "апреля",
+  "мая",
+  "июня",
+  "июля",
+  "августа",
+  "сентября",
+  "октября",
+  "ноября",
+  "декабря",
+];
+
+/** «21 октября 2026». Нераспознанную строку возвращает как есть. */
+export function formatLongRuDate(raw: string | Date | null | undefined): string {
+  if (raw == null || raw === "") return "";
+  if (raw instanceof Date) {
+    if (Number.isNaN(raw.getTime())) return "";
+    return longRuFromDate(raw);
+  }
+  const text = raw.trim();
+  if (!text) return "";
+  const d = parseEventDate(text);
+  if (!d) return text;
+  return longRuFromDate(d);
+}
+
+function longRuFromDate(d: Date): string {
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${day} ${RU_MONTHS_GENITIVE[d.getMonth()]} ${d.getFullYear()}`;
+}
+
 /** Format Date as ДД.ММ.ГГГГ */
 export function formatRuDate(d: Date): string {
   const day = String(d.getDate()).padStart(2, "0");

@@ -169,10 +169,13 @@ export type ExportMeta = {
   proposalNumber: string;
   eventName: string;
   date: string;
+  mountDate?: string;
   time: string;
   place: string;
   client: string;
   clientId?: string | null;
+  contactId?: string | null;
+  contactName?: string;
   ownerId?: string | null;
   /** Поле «Контактная информация» в карточке КП. */
   requestContact?: string;
@@ -301,9 +304,12 @@ function headerForExport(
       proposalNumber: meta.proposalNumber,
       eventName: meta.eventName,
       date: meta.date,
+      mountDate: meta.mountDate,
       time: meta.time,
       place: meta.place,
       client: meta.client,
+      contactName: meta.contactName,
+      contactPhone: meta.clientPhone,
       clientPhone: meta.clientPhone,
       address: meta.address,
       formedAt: todayLabel(),

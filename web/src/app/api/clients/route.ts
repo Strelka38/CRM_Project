@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { upsertFlatContact } from "@/lib/client-contacts";
 import { prisma } from "@/lib/db";
+import { ensureQuoteSchemaColumns } from "@/lib/ensure-schema";
 import { requireDatabaseAccess } from "@/lib/session";
 
 const clientSelect = {
@@ -27,6 +29,7 @@ const clientSelect = {
 export async function GET(req: NextRequest) {
   try {
     await requireDatabaseAccess();
+    await ensureQuoteSchemaColumns();
     const q = req.nextUrl.searchParams.get("q")?.trim();
     const activeOnly = req.nextUrl.searchParams.get("active") !== "0";
 
@@ -43,6 +46,8 @@ export async function GET(req: NextRequest) {
                 { inn: { contains: q, mode: "insensitive" } },
                 { legalEntities: { some: { name: { contains: q, mode: "insensitive" } } } },
                 { legalEntities: { some: { inn: { contains: q, mode: "insensitive" } } } },
+                { contacts: { some: { name: { contains: q, mode: "insensitive" } } } },
+                { contacts: { some: { phone: { contains: q, mode: "insensitive" } } } },
               ],
             }
           : {}),
@@ -77,6 +82,7 @@ const createSchema = z.object({
 export async function POST(req: NextRequest) {
   try {
     await requireDatabaseAccess();
+    await ensureQuoteSchemaColumns();
     const body = createSchema.parse(await req.json());
     const client = await prisma.client.create({
       data: {
@@ -91,6 +97,11 @@ export async function POST(req: NextRequest) {
         active: body.active ?? true,
       },
       select: clientSelect,
+    });
+    await upsertFlatContact(client.id, {
+      name: client.contactName,
+      phone: client.phone,
+      email: client.email,
     });
     return NextResponse.json(client, { status: 201 });
   } catch (e) {

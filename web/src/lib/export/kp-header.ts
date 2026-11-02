@@ -1,3 +1,5 @@
+import { formatLongRuDate } from "../dates";
+
 export const BRAND_NAME = "Байкал Стейдж Групп";
 export const BRAND_SITE = "baikalstagegroup.ru";
 export const BRAND_LOGO_URL = "/brand/bsg-logo.png";
@@ -39,7 +41,7 @@ export function buildKpHeader(meta: KpHeaderInput): KpHeaderModel {
     title: meta.eventName?.trim() || "Коммерческое предложение",
     rows: [
       { label: "КП №", value: meta.proposalNumber?.trim() || "—" },
-      { label: "Дата проведения", value: meta.date?.trim() || "—" },
+      { label: "Дата мероприятия", value: formatLongRuDate(meta.date) || "—" },
       { label: "Заказчик", value: meta.client?.trim() || "—" },
       {
         label: "Контакт от заказчика",

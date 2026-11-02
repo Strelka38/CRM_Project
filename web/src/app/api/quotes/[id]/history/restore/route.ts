@@ -90,6 +90,17 @@ export async function POST(
     }
 
     const patch = snapshotToQuotePatch(snap.payload);
+    let contactId = patch.contactId;
+    if (contactId) {
+      const contact = await prisma.clientContact.findFirst({
+        where: {
+          id: contactId,
+          ...(patch.clientId ? { clientId: patch.clientId } : {}),
+        },
+        select: { id: true },
+      });
+      if (!contact) contactId = null;
+    }
     if (patch.zones.length === 0) {
       return NextResponse.json(
         { error: "В снимке нет зон" },
@@ -120,6 +131,7 @@ export async function POST(
           venueId: patch.venueId,
           client: patch.client,
           clientId: patch.clientId,
+          contactId,
           requestContact: patch.requestContact,
           managerName: patch.managerName,
           cashless: patch.cashless,

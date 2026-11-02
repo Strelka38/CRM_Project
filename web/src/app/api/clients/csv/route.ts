@@ -7,7 +7,9 @@ import {
   parseClientCsv,
 } from "@/lib/directory-csv";
 import { requireDatabaseAccess } from "@/lib/session";
+import { upsertFlatContact } from "@/lib/client-contacts";
 import { upsertFlatLegalEntity } from "@/lib/client-legal";
+import { ensureQuoteSchemaColumns } from "@/lib/ensure-schema";
 
 const clientSelect = {
   id: true,
@@ -44,6 +46,7 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     await requireDatabaseAccess();
+    await ensureQuoteSchemaColumns();
     const uploaded = await readUploadedCsv(req);
     if ("error" in uploaded) return uploaded.error;
     const { rows, errors } = parseClientCsv(uploaded.text);
@@ -83,6 +86,11 @@ export async function POST(req: NextRequest) {
               legalAddress: r.legalAddress,
               legalDetails: r.legalDetails,
             });
+            await upsertFlatContact(r.id, {
+              name: r.contactName,
+              phone: r.phone,
+              email: r.email,
+            });
             updated += 1;
             continue;
           }
@@ -93,6 +101,11 @@ export async function POST(req: NextRequest) {
           inn: r.inn,
           legalAddress: r.legalAddress,
           legalDetails: r.legalDetails,
+        });
+        await upsertFlatContact(row.id, {
+          name: r.contactName,
+          phone: r.phone,
+          email: r.email,
         });
         created += 1;
       } catch (err) {

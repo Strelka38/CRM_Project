@@ -24,6 +24,8 @@ export type CalcExpenseInput = {
   owners?: CatalogOwnerValue[] | CatalogOwner[];
   amounts?: LineAmountSplit;
   sortOrder?: number;
+  /** Оплата фрилансера: в карточке фирмы отдельно от прочих расходов. */
+  freelance?: boolean;
 };
 
 export type CalcShareInput = {
@@ -61,7 +63,10 @@ export type CompanyBreakdown = {
   revenue: number;
   /** Закуп / себестоимость позиций. */
   cogs: number;
+  /** Прочие расходы и оплаты фрилансеров вместе. Нетто минусует всю сумму. */
   expenses: number;
+  /** Часть expenses — оплаты фрилансеров. */
+  freelanceCost: number;
   net: number;
 };
 
@@ -304,6 +309,22 @@ export function computeQuoteCalculation(input: {
   );
 
   const expenseByCompany = new Map<CatalogOwnerValue, number>();
+  const freelanceByCompany = new Map<CatalogOwnerValue, number>();
+
+  function addExpense(
+    company: CatalogOwnerValue,
+    part: number,
+    freelance: boolean,
+  ) {
+    if (part <= 0) return;
+    expenseByCompany.set(company, (expenseByCompany.get(company) ?? 0) + part);
+    if (freelance) {
+      freelanceByCompany.set(
+        company,
+        (freelanceByCompany.get(company) ?? 0) + part,
+      );
+    }
+  }
   let revenueForShare = [...effectiveRevenue.entries()].filter(
     ([, v]) => v > 0,
   );
@@ -316,14 +337,12 @@ export function computeQuoteCalculation(input: {
   for (const exp of input.expenses) {
     const mode = exp.mode ?? "SHARE";
 
+    const freelance = Boolean(exp.freelance);
+
     if (mode === "AMOUNT" && exp.amounts) {
       for (const company of CATALOG_OWNERS.map((o) => o.value)) {
         const part = Math.max(0, Number(exp.amounts[company]) || 0);
-        if (part <= 0) continue;
-        expenseByCompany.set(
-          company,
-          (expenseByCompany.get(company) ?? 0) + part,
-        );
+        addExpense(company, part, freelance);
       }
       continue;
     }
@@ -342,10 +361,7 @@ export function computeQuoteCalculation(input: {
     if (owners.length > 0) {
       const part = amount / owners.length;
       for (const company of owners) {
-        expenseByCompany.set(
-          company,
-          (expenseByCompany.get(company) ?? 0) + part,
-        );
+        addExpense(company, part, freelance);
       }
       continue;
     }
@@ -353,10 +369,7 @@ export function computeQuoteCalculation(input: {
     // empty owners → split by revenue shares
     if (revenueShareSum <= 0) continue;
     for (const [company, rev] of revenueForShare) {
-      expenseByCompany.set(
-        company,
-        (expenseByCompany.get(company) ?? 0) + (amount * rev) / revenueShareSum,
-      );
+      addExpense(company, (amount * rev) / revenueShareSum, freelance);
     }
   }
 
@@ -385,6 +398,7 @@ export function computeQuoteCalculation(input: {
     const revenue = effectiveRevenue.get(company) ?? 0;
     const cogs = cogsRawByCompany.get(company) ?? 0;
     const expenses = expenseByCompany.get(company) ?? 0;
+    const freelanceCost = freelanceByCompany.get(company) ?? 0;
     const autoRev = autoRevenue.get(company) ?? 0;
     const autoPercent =
       autoTotal > 0 ? Math.round((autoRev / autoTotal) * 10000) / 100 : 0;
@@ -402,6 +416,7 @@ export function computeQuoteCalculation(input: {
       revenue: Math.round(revenue),
       cogs: Math.round(cogs),
       expenses: Math.round(expenses),
+      freelanceCost: Math.round(freelanceCost),
       // Закуп уже вычтен из выручки (маржа). Не минусуем повторно.
       net: Math.round(revenue - expenses),
     };

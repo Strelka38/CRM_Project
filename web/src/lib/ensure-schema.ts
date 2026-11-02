@@ -374,6 +374,27 @@ END $$`,
      FROM "Client" c
      WHERE NOT EXISTS (SELECT 1 FROM "ClientLegalEntity" e WHERE e."clientId" = c.id)
        AND (btrim(c.inn) <> '' OR btrim(c."legalAddress") <> '' OR btrim(c."legalDetails") <> '')`,
+    `CREATE TABLE IF NOT EXISTS "ClientContact" (
+      "id" TEXT NOT NULL,
+      "clientId" TEXT NOT NULL,
+      "name" TEXT NOT NULL DEFAULT '',
+      "phone" TEXT NOT NULL DEFAULT '',
+      "email" TEXT NOT NULL DEFAULT '',
+      "sortOrder" INTEGER NOT NULL DEFAULT 0,
+      "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "ClientContact_pkey" PRIMARY KEY ("id")
+    )`,
+    `CREATE INDEX IF NOT EXISTS "ClientContact_clientId_idx" ON "ClientContact"("clientId")`,
+    `DO $$ BEGIN ALTER TABLE "ClientContact" ADD CONSTRAINT "ClientContact_clientId_fkey" FOREIGN KEY ("clientId") REFERENCES "Client"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+    `INSERT INTO "ClientContact" ("id", "clientId", "name", "phone", "email", "sortOrder", "createdAt", "updatedAt")
+     SELECT 'cct_' || md5(c.id), c.id, c."contactName", c.phone, c.email, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+     FROM "Client" c
+     WHERE NOT EXISTS (SELECT 1 FROM "ClientContact" k WHERE k."clientId" = c.id)
+       AND (btrim(c."contactName") <> '' OR btrim(c.phone) <> '' OR btrim(c.email) <> '')`,
+    `ALTER TABLE "Quote" ADD COLUMN IF NOT EXISTS "contactId" TEXT`,
+    `CREATE INDEX IF NOT EXISTS "Quote_contactId_idx" ON "Quote"("contactId")`,
+    `DO $$ BEGIN ALTER TABLE "Quote" ADD CONSTRAINT "Quote_contactId_fkey" FOREIGN KEY ("contactId") REFERENCES "ClientContact"("id") ON DELETE SET NULL ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
   ];
 
   for (const sql of statements) {

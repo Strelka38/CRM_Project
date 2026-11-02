@@ -85,6 +85,21 @@ const mount1 = slot({
 assert.equal(eventAssignments([mount1]).length, 0);
 assert.equal(mountAssignments([mount1]).length, 1);
 
+const mountVacant = slot({
+  id: "m-vacant",
+  kind: "MOUNT",
+  userId: null,
+  specialty: { id: "spec-m", name: "Монтаж" },
+});
+const mountCoverage = staffCoverageLines(
+  [mount1, mountVacant, slot({ id: "e1", userId: "u1" })],
+  1,
+);
+assert.equal(mountCoverage.filter((l) => l.role === "Монтаж").length, 0);
+assert.equal(mountCoverage.filter((l) => l.role === "Монтажник").length, 1);
+assert.equal(mountCoverage.filter((l) => l.vacant).length, 0);
+assert.ok(mountCoverage.some((l) => l.text.includes("Монтажник")));
+
 const oneDay = [
   slot({ id: "e1", userId: "u1" }),
   slot({ id: "e2", specialty: video, userId: null }),

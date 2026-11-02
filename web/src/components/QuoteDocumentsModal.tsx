@@ -6,7 +6,7 @@ import { customerWarnings, type LegalDocCustomer, type LegalDocInput } from "@/l
 import { formatMoney } from "@/lib/format";
 import { ownerShorts, type CatalogOwnerValue } from "@/lib/catalog-owner";
 import type { QuoteBlockInput } from "@/lib/quote-calc";
-import { resolveEstimateDisclaimer } from "@/lib/commercial-terms";
+import { disclaimerFieldValue } from "@/lib/commercial-terms";
 import type { ExportMeta } from "@/lib/export/quote-zones";
 
 type Account = {
@@ -561,7 +561,7 @@ export function QuoteDocumentsPanel({
             <span className="text-[var(--muted)]">Примечание под сметой</span>
             <textarea
               className="field mt-1 min-h-28 text-xs leading-snug"
-              value={resolveEstimateDisclaimer(estimateDisclaimer, templateNote)}
+              value={disclaimerFieldValue(estimateDisclaimer, templateNote)}
               disabled={!canEdit}
               onChange={(e) => onEstimateDisclaimerChange?.(e.target.value)}
             />

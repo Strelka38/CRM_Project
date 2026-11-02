@@ -35,6 +35,7 @@ export type CreateQuoteFromStructureInput = {
   place?: string;
   client?: string;
   clientId?: string | null;
+  contactId?: string | null;
   requestContact?: string;
   venueId?: string | null;
   cashless?: boolean;
@@ -131,6 +132,7 @@ export async function createQuoteFromStructure(
       venueId: input.venueId ?? null,
       client: input.client || "",
       clientId: input.clientId ?? null,
+      contactId: input.contactId ?? null,
       requestContact: input.requestContact || "",
       cashless: input.cashless ?? true,
       cashlessPercent: input.cashlessPercent ?? DEFAULT_CASHLESS_PERCENT,

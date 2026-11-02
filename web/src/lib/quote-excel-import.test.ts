@@ -450,16 +450,19 @@ assert.equal(
   assert.equal(items.length, 3);
   assert.equal(items[0]?.name, "RCF HDL10A");
   assert.equal(items[0]?.qty, 12);
-  assert.equal(shownCashless(items[0]!), 3000);
-  assert.notEqual(items[0]?.unitPrice, 3000);
+  assert.equal(items[0]?.unitPrice, 3000);
+  assert.equal(items[0]?.cashlessOverride, null);
+  assert.equal(shownCashless(items[0]!), cashlessUnitPrice(3000, true, null));
   assert.equal(items[0]?.dayCoefOverride, 1);
   assert.equal(parsed.structure.zones.length, 1);
   assert.equal(parsed.structure.zones[0]?.name, "Зона 1");
   assert.ok(items.every((b) => b.zoneIndex === 0));
   assert.equal(items[1]?.name, "Подиум типа евростол (Подиум 12х7 м)");
-  assert.equal(shownCashless(items[1]!), 2000);
+  assert.equal(items[1]?.unitPrice, 2000);
+  assert.equal(shownCashless(items[1]!), cashlessUnitPrice(2000, true, null));
   assert.equal(items[2]?.name, "Звукооператор");
-  assert.equal(shownCashless(items[2]!), 15000);
+  assert.equal(items[2]?.unitPrice, 15000);
+  assert.equal(shownCashless(items[2]!), cashlessUnitPrice(15000, true, null));
   assert.deepEqual(
     parsed.structure.blocks
       .filter((b) => b.type === "SECTION")
@@ -504,13 +507,14 @@ assert.equal(
     ["Звук", "Свет", "Сцена", "Разное"],
   );
   const items = parsed.structure.blocks.filter((b) => b.type === "ITEM");
-  assert.equal(shownCashless(items[0]!), 8750);
-  assert.notEqual(items[0]?.unitPrice, 8750);
+  assert.equal(items[0]?.unitPrice, 8750);
+  assert.equal(items[0]?.cashlessOverride, null);
+  assert.equal(shownCashless(items[0]!), cashlessUnitPrice(8750, true, null));
   assert.equal(items[0]?.dayCoefOverride, 1);
   assert.equal(items[1]?.name, "ASM Lighting BSW-470B");
-  assert.equal(shownCashless(items[1]!), 6250);
+  assert.equal(items[1]?.unitPrice, 6250);
   assert.equal(items[2]?.zoneIndex, 2);
-  assert.equal(shownCashless(items[3]!), 25000);
+  assert.equal(shownCashless(items[3]!), cashlessUnitPrice(25000, true, null));
   assert.ok(
     parsed.structure.blocks
       .filter((b) => b.type === "SECTION")
@@ -582,6 +586,67 @@ assert.equal(
       .map((b) => b.title),
     ["Звук"],
   );
+}
+
+{
+  const parsed = await parseBuilt(
+    (wb) => {
+      const ws = wb.addWorksheet("1. Звук 1");
+      ws.getCell("A1").value = "Звук";
+      ws.getCell("A2").value = "№";
+      ws.getCell("B2").value = "Оборудование";
+      ws.getCell("C2").value = "Кол-во";
+      ws.getCell("D2").value = "Цена";
+      ws.getCell("E2").value = "Коэффициент";
+      ws.getCell("F2").value = "Цена с коэф. и/или скидкой";
+      ws.getCell("G2").value = "Сумма";
+      ws.getCell("A3").value = 1;
+      ws.getCell("B3").value = "RCF HDL10A";
+      ws.getCell("C3").value = 12;
+      ws.getCell("D3").value = 3000;
+      ws.getCell("E3").value = 1.5;
+      ws.getCell("F3").value = 4500;
+      ws.getCell("G3").value = 54000;
+    },
+    "coef.xlsx",
+    { source: "golova", cashless: false },
+  );
+  const cash = parsed.structure.blocks.filter((b) => b.type === "ITEM");
+  assert.equal(parsed.meta.cashless, false);
+  assert.equal(cash[0]?.unitPrice, 3000);
+  assert.equal(cash[0]?.dayCoefOverride, 1.5);
+  assert.equal(cash[0]?.cashlessOverride, null);
+  assert.equal(shownCashless(cash[0]!), cashlessUnitPrice(3000, true, null));
+}
+
+{
+  const parsed = await parseBuilt(
+    (wb) => {
+      const ws = wb.addWorksheet("1. Звук 1");
+      ws.getCell("A1").value = "Звук";
+      ws.getCell("A2").value = "№";
+      ws.getCell("B2").value = "Оборудование";
+      ws.getCell("C2").value = "Кол-во";
+      ws.getCell("D2").value = "Цена";
+      ws.getCell("E2").value = "Коэффициент";
+      ws.getCell("F2").value = "Цена с коэф. и/или скидкой";
+      ws.getCell("A3").value = 1;
+      ws.getCell("B3").value = "RCF HDL10A";
+      ws.getCell("C3").value = 12;
+      ws.getCell("D3").value = 3000;
+      ws.getCell("E3").value = 1.5;
+      ws.getCell("F3").value = 4500;
+    },
+    "coef-cashless.xlsx",
+    { source: "golova", cashless: true },
+  );
+  const item = parsed.structure.blocks.find((b) => b.type === "ITEM");
+  assert.equal(parsed.meta.cashless, true);
+  assert.equal(item?.unitPrice, 3000);
+  assert.equal(item?.dayCoefOverride, 1.5);
+  assert.equal(item?.cashlessOverride, null);
+  assert.equal(shownCashless(item!), cashlessUnitPrice(3000, true, null));
+  assert.notEqual(shownCashless(item!), 4500);
 }
 
 console.log("quote-excel-import.test.ts: ok");

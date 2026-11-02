@@ -108,6 +108,7 @@ const patchSchema = z.object({
   venueId: z.string().nullable().optional(),
   client: z.string().optional(),
   clientId: z.string().nullable().optional(),
+  contactId: z.string().nullable().optional(),
   requestContact: z.string().max(1000).optional(),
   managerName: z.string().optional(),
   ownerId: z.string().min(1).optional(),
@@ -176,6 +177,14 @@ export async function PATCH(
       }
     }
 
+    if (
+      meta.clientId !== undefined &&
+      meta.clientId !== existing.clientId &&
+      meta.contactId === undefined
+    ) {
+      meta.contactId = null;
+    }
+
     if (meta.clientId) {
       const clientExists = await prisma.client.findUnique({
         where: { id: meta.clientId },
@@ -189,6 +198,23 @@ export async function PATCH(
       }
       if (meta.client === undefined || meta.client.trim() === "") {
         meta.client = clientExists.companyName;
+      }
+    }
+
+    if (meta.contactId) {
+      const clientId =
+        meta.clientId !== undefined ? meta.clientId : existing.clientId;
+      const contact = clientId
+        ? await prisma.clientContact.findFirst({
+            where: { id: meta.contactId, clientId },
+            select: { id: true },
+          })
+        : null;
+      if (!contact) {
+        return NextResponse.json(
+          { error: "Контактное лицо не найдено" },
+          { status: 400 },
+        );
       }
     }
 
@@ -340,9 +366,39 @@ export async function PATCH(
         await tx.quoteShare.deleteMany({ where: { quoteId: id } });
       }
 
+      // id строк сохраняем: калькуляция держит владельцев и закуп по blockId.
+      // Новые id на каждом автосохранении отвязывали эти правки.
+      let keepBlockIds: string[] = [];
       if (zones || blocks) {
+        if (blocks && blocks.length > 0) {
+          const incoming = [
+            ...new Set(
+              blocks
+                .map((b) => b.id?.trim())
+                .filter((blockId): blockId is string => Boolean(blockId)),
+            ),
+          ];
+          if (incoming.length > 0) {
+            const foreign = await tx.quoteBlock.findMany({
+              where: { id: { in: incoming }, NOT: { quoteId: id } },
+              select: { id: true },
+            });
+            const foreignIds = new Set(foreign.map((row) => row.id));
+            keepBlockIds = incoming.filter((blockId) => !foreignIds.has(blockId));
+          }
+        }
         // Replace blocks first so zone FK can be dropped safely
         await tx.quoteBlock.deleteMany({ where: { quoteId: id } });
+
+        if (blocks) {
+          await tx.quoteCalcLineOverride.deleteMany({
+            where:
+              keepBlockIds.length === 0
+                ? { quoteId: id }
+                : { quoteId: id, blockId: { notIn: keepBlockIds } },
+          });
+        }
+
       }
 
       if (zones) {
@@ -387,23 +443,34 @@ export async function PATCH(
         }
       }
 
+      const keepBlockIdSet = new Set(keepBlockIds);
       if (blocks && blocks.length > 0) {
+        const seenIds = new Set<string>();
         await tx.quoteBlock.createMany({
-          data: blocks.map((b, index) => ({
-            quoteId: id,
-            zoneId: b.zoneId,
-            type: b.type,
-            sortOrder: b.sortOrder ?? index,
-            title: b.title ?? null,
-            name: b.name ?? null,
-            qty: b.qty ?? 0,
-            unitPrice: b.unitPrice ?? 0,
-            cashlessOverride: b.cashlessOverride ?? null,
-            dayMode: toPrismaDayMode(b.dayMode ?? "HALF_EXTRA"),
-            dayCoefOverride: b.dayCoefOverride ?? null,
-            catalogItemId: b.catalogItemId ?? null,
-            kitId: b.kitId ?? null,
-          })),
+          data: blocks.map((b, index) => {
+            const raw = b.id?.trim();
+            const blockId =
+              raw && keepBlockIdSet.has(raw) && !seenIds.has(raw)
+                ? raw
+                : undefined;
+            if (blockId) seenIds.add(blockId);
+            return {
+              ...(blockId ? { id: blockId } : {}),
+              quoteId: id,
+              zoneId: b.zoneId,
+              type: b.type,
+              sortOrder: b.sortOrder ?? index,
+              title: b.title ?? null,
+              name: b.name ?? null,
+              qty: b.qty ?? 0,
+              unitPrice: b.unitPrice ?? 0,
+              cashlessOverride: b.cashlessOverride ?? null,
+              dayMode: toPrismaDayMode(b.dayMode ?? "HALF_EXTRA"),
+              dayCoefOverride: b.dayCoefOverride ?? null,
+              catalogItemId: b.catalogItemId ?? null,
+              kitId: b.kitId ?? null,
+            };
+          }),
         });
       }
 

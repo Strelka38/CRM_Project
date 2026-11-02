@@ -54,7 +54,11 @@ import { formatMoney, formatNumber } from "@/lib/format";
 import { PriceInput } from "@/components/ui/PriceInput";
 import { collapseKitBlocks } from "@/lib/kit-blocks";
 import { parseTemplatePayload } from "@/lib/quote-structure";
-import { resolveEstimateDisclaimer } from "@/lib/commercial-terms";
+import {
+  disclaimerDraftToStore,
+  disclaimerFieldValue,
+  resolveEstimateDisclaimer,
+} from "@/lib/commercial-terms";
 import {
   STANDARD_TEMPLATE_ID,
   baseTemplateNote,
@@ -145,6 +149,7 @@ type QuoteMeta = {
   venueId: string | null;
   client: string;
   clientId: string | null;
+  contactId: string | null;
   requestContact: string;
   managerName: string;
   ownerId: string;
@@ -295,6 +300,10 @@ export function QuoteEditor({
   );
   const [reloadKey, setReloadKey] = useState(0);
   const [managers, setManagers] = useState<ManagerOption[]>([]);
+  const [clientContacts, setClientContacts] = useState<
+    Array<{ id: string; name: string; phone: string }>
+  >([]);
+  const [contactsClientId, setContactsClientId] = useState<string | null>(null);
   const [laborKey, setLaborKey] = useState(0);
   const [dragKey, setDragKey] = useState<string | null>(null);
   const [dropKey, setDropKey] = useState<string | null>(null);
@@ -386,6 +395,7 @@ export function QuoteEditor({
         venueId: data.venueId ?? null,
         client: data.client,
         clientId: data.clientId ?? null,
+        contactId: typeof data.contactId === "string" ? data.contactId : null,
         requestContact:
           typeof data.requestContact === "string" ? data.requestContact : "",
         managerName: data.managerName,
@@ -733,6 +743,7 @@ export function QuoteEditor({
             venueId: nextMeta.venueId,
             client: nextMeta.client,
             clientId: nextMeta.clientId,
+            contactId: nextMeta.contactId,
             requestContact: nextMeta.requestContact,
             managerName: nextMeta.managerName,
             ownerId: nextMeta.ownerId || undefined,
@@ -759,6 +770,7 @@ export function QuoteEditor({
               pricing: parseZonePricing(z.pricing),
             })),
             blocks: nextBlocks.map((b, i) => ({
+              id: b.id,
               type: b.type,
               sortOrder: i,
               title: b.title ?? null,
@@ -797,6 +809,45 @@ export function QuoteEditor({
     },
     [quoteId, canEditQuote],
   );
+
+  useEffect(() => {
+    const clientId = meta?.clientId;
+    if (!clientId) return;
+    let cancelled = false;
+    void fetch(`/api/clients/${clientId}/contacts`)
+      .then(async (res) => (res.ok ? res.json() : []))
+      .then((data: unknown) => {
+        if (cancelled) return;
+        const list = Array.isArray(data)
+          ? data.flatMap((row) => {
+              if (!row || typeof row !== "object" || !("id" in row)) return [];
+              const id = typeof row.id === "string" ? row.id : "";
+              if (!id) return [];
+              return [
+                {
+                  id,
+                  name: "name" in row && typeof row.name === "string" ? row.name : "",
+                  phone:
+                    "phone" in row && typeof row.phone === "string" ? row.phone : "",
+                },
+              ];
+            })
+          : [];
+        setClientContacts(list);
+        setContactsClientId(clientId);
+        setMeta((prev) => {
+          if (!prev || prev.clientId !== clientId || !prev.contactId) return prev;
+          if (list.some((item) => item.id === prev.contactId)) return prev;
+          return { ...prev, contactId: null };
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setClientContacts([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [meta?.clientId]);
 
   useEffect(() => {
     if (!canAutosave || !meta || loading) return;
@@ -843,8 +894,7 @@ export function QuoteEditor({
   }, []);
 
   function commitDisclaimer(value: string) {
-    const inherited = resolveEstimateDisclaimer("", templateNote);
-    updateMeta("estimateDisclaimer", value.trim() === inherited ? "" : value);
+    updateMeta("estimateDisclaimer", disclaimerDraftToStore(value, templateNote));
   }
 
   function patchMeta(
@@ -857,6 +907,28 @@ export function QuoteEditor({
 
   function updateMeta<K extends keyof QuoteMeta>(key: K, value: QuoteMeta[K]) {
     patchMeta((prev) => ({ ...prev, [key]: value }), `meta:${String(key)}`);
+  }
+
+  function contactOptionLabel(contact: { name: string; phone: string }) {
+    const name = contact.name.trim();
+    const phone = contact.phone.trim();
+    if (name && phone) return `${name}, ${phone}`;
+    return name || phone || "Контакт";
+  }
+
+  const visibleContacts =
+    meta?.clientId && contactsClientId === meta.clientId ? clientContacts : [];
+
+  function exportContact(current: QuoteMeta) {
+    const chosen =
+      visibleContacts.find((item) => item.id === current.contactId) ||
+      (current.contactId ? null : visibleContacts[0]);
+    return {
+      contactId: current.contactId,
+      contactName: chosen?.name || "",
+      clientPhone: chosen ? chosen.phone : "",
+      mountDate: current.mountDate,
+    };
   }
 
   function goToPane(next: EditorPane) {
@@ -1754,6 +1826,7 @@ export function QuoteEditor({
                     place: meta.place,
                     client: meta.client,
                     clientId: meta.clientId,
+                    ...exportContact(meta),
                     venueId: meta.venueId,
                     ownerId: meta.ownerId,
                     requestContact: meta.requestContact,
@@ -2156,7 +2229,12 @@ export function QuoteEditor({
                     disabled={!isManager}
                     onChange={(text) =>
                       patchMeta(
-                        (prev) => ({ ...prev, client: text, clientId: null }),
+                        (prev) => ({
+                          ...prev,
+                          client: text,
+                          clientId: null,
+                          contactId: null,
+                        }),
                         "meta:client",
                       )
                     }
@@ -2165,9 +2243,43 @@ export function QuoteEditor({
                         ...prev,
                         client: c.companyName,
                         clientId: c.id,
+                        contactId: null,
                       }))
                     }
                   />
+                </label>
+                <label className="col-span-2 text-caption text-[var(--muted)] sm:col-span-1">
+                  <span className="flex items-baseline justify-between gap-2">
+                    Контактное лицо
+                    {meta.clientId ? (
+                      <Link
+                        href={`/clients/${meta.clientId}`}
+                        target="_blank"
+                        className="text-caption text-[var(--accent)] hover:underline"
+                      >
+                        Добавить
+                      </Link>
+                    ) : null}
+                  </span>
+                  <select
+                    className="field mt-0.5 text-sm"
+                    value={meta.contactId || ""}
+                    disabled={!isManager || !meta.clientId}
+                    onChange={(e) => updateMeta("contactId", e.target.value || null)}
+                  >
+                    <option value="">
+                      {meta.clientId
+                        ? visibleContacts.length
+                          ? "Основной контакт"
+                          : "В карточке нет контактов"
+                        : "Сначала выберите заказчика"}
+                    </option>
+                    {visibleContacts.map((contact) => (
+                      <option key={contact.id} value={contact.id}>
+                        {contactOptionLabel(contact)}
+                      </option>
+                    ))}
+                  </select>
                 </label>
                 <label className="col-span-2 text-caption text-[var(--muted)] sm:col-span-1">
                   Контактная информация
@@ -2893,7 +3005,7 @@ export function QuoteEditor({
         Примечание под сметой
         <textarea
           className="field mt-1 min-h-20 text-xs leading-snug"
-          value={resolveEstimateDisclaimer(meta.estimateDisclaimer, templateNote)}
+          value={disclaimerFieldValue(meta.estimateDisclaimer, templateNote)}
           disabled={!isManager}
           onChange={(e) => commitDisclaimer(e.target.value)}
         />
@@ -2970,6 +3082,7 @@ export function QuoteEditor({
               place: meta.place,
               client: meta.client,
               clientId: meta.clientId,
+              ...exportContact(meta),
               ownerId: meta.ownerId,
               requestContact: meta.requestContact,
               managerName: meta.managerName,

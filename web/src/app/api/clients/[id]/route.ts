@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { calcAssignmentPay } from "@/lib/payroll";
 import { isStatsLifecycle } from "@/lib/lifecycle";
 import { calcByZones } from "@/lib/quote-calc";
+import { upsertFlatContact } from "@/lib/client-contacts";
 import { ensureQuoteSchemaColumns } from "@/lib/ensure-schema";
 import { requireDatabaseAccess } from "@/lib/session";
 
@@ -32,6 +33,16 @@ const clientSelect = {
   legalEntities: {
     orderBy: [{ sortOrder: "asc" as const }, { createdAt: "asc" as const }],
     select: legalEntitySelect,
+  },
+  contacts: {
+    orderBy: [{ sortOrder: "asc" as const }, { createdAt: "asc" as const }],
+    select: {
+      id: true,
+      name: true,
+      phone: true,
+      email: true,
+      sortOrder: true,
+    },
   },
 };
 
@@ -202,6 +213,19 @@ export async function PATCH(
       data,
       select: clientSelect,
     });
+
+    if (
+      body.contactName !== undefined ||
+      body.phone !== undefined ||
+      body.email !== undefined
+    ) {
+      await ensureQuoteSchemaColumns();
+      await upsertFlatContact(id, {
+        name: client.contactName,
+        phone: client.phone,
+        email: client.email,
+      });
+    }
 
     // Keep denormalized Quote.client in sync when company name changes
     if (

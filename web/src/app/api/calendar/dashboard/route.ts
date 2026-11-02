@@ -25,9 +25,9 @@ function utcDateOnly(d: Date): Date {
   return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
 }
 
-function quoteTitle(q: { proposalNumber: string; eventName: string }) {
+function quoteTitle(q: { eventName: string }) {
   const name = q.eventName.trim();
-  return name ? `№${q.proposalNumber} ${name}` : `№${q.proposalNumber} КП`;
+  return name || "КП";
 }
 
 function entryDateKey(d: Date) {
@@ -78,7 +78,6 @@ export async function GET() {
           take: 12,
           select: {
             id: true,
-            proposalNumber: true,
             eventName: true,
             client: true,
             date: true,
@@ -103,7 +102,6 @@ export async function GET() {
           take: 20,
           select: {
             id: true,
-            proposalNumber: true,
             eventName: true,
             date: true,
             assignments: {
@@ -207,7 +205,6 @@ export async function GET() {
             take: 12,
             select: {
               id: true,
-              proposalNumber: true,
               eventName: true,
               date: true,
               place: true,

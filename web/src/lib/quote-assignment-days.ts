@@ -502,6 +502,7 @@ export function staffCoverageLines(
     lines.push(...coverageForRole(group, eventDays, eventStart, zones));
   }
   for (const a of mount) {
+    if (isVacantAssignment(a)) continue;
     lines.push(toWhoWorksLine(a));
   }
   return lines;

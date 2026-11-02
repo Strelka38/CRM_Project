@@ -36,6 +36,18 @@ type UserOption = {
   }>;
 };
 
+type FreelancerOption = {
+  id: string;
+  name: string;
+  active?: boolean;
+  specialties?: Array<{
+    id?: string;
+    name?: string;
+    hourlyRate?: number;
+    shiftRate?: number;
+  }>;
+};
+
 type QuoteZoneOption = {
   id: string;
   name: string;
@@ -208,6 +220,7 @@ export function QuoteAssignments({
 
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [users, setUsers] = useState<UserOption[]>([]);
+  const [freelancers, setFreelancers] = useState<FreelancerOption[]>([]);
   const [allSpecialties, setAllSpecialties] = useState<Specialty[]>([]);
   const [zoneList, setZoneList] = useState<QuoteZoneOption[]>(zones ?? []);
   const [eventDateText, setEventDateText] = useState(eventDate ?? "");
@@ -255,9 +268,12 @@ export function QuoteAssignments({
   }
 
   const load = useCallback(async () => {
-    const [aRes, uRes, sRes, qRes] = await Promise.all([
+    const [aRes, uRes, fRes, sRes, qRes] = await Promise.all([
       fetch(`/api/quotes/${quoteId}/assignments`),
       canEdit ? fetch("/api/users") : Promise.resolve(null),
+      canEdit
+        ? fetch("/api/freelancers?suggest=1&active=0")
+        : Promise.resolve(null),
       canEdit ? fetch("/api/specialties") : Promise.resolve(null),
       zones?.length
         ? Promise.resolve(null)
@@ -272,6 +288,14 @@ export function QuoteAssignments({
         list.filter(
           (u: UserOption & { role: string; active: boolean }) => u.active,
         ),
+      );
+    }
+    if (fRes?.ok) {
+      const list = (await fRes.json()) as unknown;
+      setFreelancers(
+        Array.isArray(list)
+          ? list.filter((f: FreelancerOption) => f?.id && f.name)
+          : [],
       );
     }
     if (sRes?.ok) {
@@ -351,6 +375,12 @@ export function QuoteAssignments({
       ];
     }
     return list;
+  }
+  function freelancersForSpec(specId: string): FreelancerOption[] {
+    if (!specId) return [];
+    return freelancers.filter((f) =>
+      f.specialties?.some((s) => (s.id || "") === specId),
+    );
   }
   const staffOptions = staffForSpec(specialtyId);
 
@@ -512,6 +542,25 @@ export function QuoteAssignments({
   function dismissConflict() {
     setConflictWarn(null);
     setPendingReplace(null);
+  }
+
+  async function assignSlotFreelancer(
+    assignmentId: string,
+    freelancerId: string,
+    specId: string,
+  ) {
+    const person = freelancers.find((f) => f.id === freelancerId);
+    if (!person) return;
+    const spec = person.specialties?.find((s) => s.id === specId);
+    const shift = Number(spec?.shiftRate);
+    await patchAssignment(assignmentId, {
+      userId: null,
+      isFreelancer: true,
+      freelancerName: person.name,
+      ...(!noPay && Number.isFinite(shift) && shift > 0
+        ? { rateOverride: shift }
+        : {}),
+    });
   }
 
   async function changeSlotUser(
@@ -1083,17 +1132,27 @@ export function QuoteAssignments({
                         value={a.userId || ""}
                         disabled={checkingBusy}
                         onChange={(e) => {
-                          void changeSlotUser(
-                            a.id,
-                            e.target.value,
-                            a.userId,
-                          );
+                          const next = e.target.value;
+                          if (next.startsWith("fl:")) {
+                            void assignSlotFreelancer(
+                              a.id,
+                              next.slice(3),
+                              a.specialtyId,
+                            );
+                            return;
+                          }
+                          void changeSlotUser(a.id, next, a.userId);
                         }}
                       >
                         <option value="">не назначен</option>
                         {staffOptionsForRow(a).map((u) => (
                           <option key={u.id} value={u.id}>
                             {u.name}
+                          </option>
+                        ))}
+                        {freelancersForSpec(a.specialtyId).map((f) => (
+                          <option key={`fl:${f.id}`} value={`fl:${f.id}`}>
+                            {f.name} (фр.)
                           </option>
                         ))}
                       </select>

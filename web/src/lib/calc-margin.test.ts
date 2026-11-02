@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
 import { resolveLineEconomics, isCostAwareKind } from "./calc-line-cost";
+import {
+  formatRentability,
+  rentabilityRatio,
+  rentabilityTone,
+} from "./rentability";
 import { emptyAmounts, computeQuoteCalculation } from "./quote-calculation";
 import { buildFreelancerExpenseInputs, buildLaborAndMontageBreakdown } from "./calc-labor";
 import type { AssignmentLike } from "./quote-assignments";
@@ -7,6 +12,7 @@ import type { AssignmentLike } from "./quote-assignments";
 assert.equal(isCostAwareKind("SERVICE"), true);
 assert.equal(isCostAwareKind("PERSONNEL"), true);
 assert.equal(isCostAwareKind("EQUIPMENT", "Zoom"), true);
+assert.equal(isCostAwareKind("EQUIPMENT", "Ноутбук (контент, zoom)"), false);
 assert.equal(isCostAwareKind("EQUIPMENT", "Микшер"), false);
 
 const serviceDefault = resolveLineEconomics({
@@ -66,6 +72,16 @@ const gear = resolveLineEconomics({
 });
 assert.equal(gear.cost, 0);
 assert.equal(gear.margin, 5000);
+
+const laptop = resolveLineEconomics({
+  clientTotal: 2500,
+  qty: 1,
+  itemKind: "EQUIPMENT",
+  name: "Ноутбук (контент, zoom)",
+});
+assert.equal(laptop.cost, 0);
+assert.equal(laptop.margin, 2500);
+assert.equal(laptop.costSource, "none");
 
 const zoomLine = {
   block: {
@@ -172,6 +188,7 @@ const ne2 = withFreelance.breakdown.find((b) => b.company === "NE_EVENT");
 assert.ok(ne2);
 assert.equal(ne2.revenue, 1200);
 assert.equal(ne2.expenses, 5500);
+assert.equal(ne2.freelanceCost, 5500);
 assert.equal(ne2.net, 1200 - 5500);
 
 const mountWorker: AssignmentLike = {
@@ -286,5 +303,19 @@ assert.equal(dk.revenue, 1200);
 assert.equal(dk.cogs, 1800);
 assert.notEqual(shm.revenue, 5000);
 assert.notEqual(dk.revenue, 3000);
+
+assert.equal(rentabilityRatio(267000, 13350), 20);
+assert.equal(formatRentability(20), "20.00");
+assert.equal(rentabilityTone(20), "green");
+assert.equal(rentabilityRatio(120, 100), 1.2);
+assert.equal(rentabilityTone(1.2), "blue");
+assert.equal(rentabilityTone(1), "blue");
+assert.equal(rentabilityRatio(100, 101), 0.99);
+assert.equal(rentabilityTone(0.99), "red");
+assert.equal(rentabilityRatio(10, 0), Number.POSITIVE_INFINITY);
+assert.equal(rentabilityTone(Number.POSITIVE_INFINITY), "green");
+assert.equal(formatRentability(Number.POSITIVE_INFINITY), "∞");
+assert.equal(rentabilityRatio(0, 0), null);
+assert.equal(rentabilityTone(null), "muted");
 
 console.log("calc-margin.test.ts: ok");

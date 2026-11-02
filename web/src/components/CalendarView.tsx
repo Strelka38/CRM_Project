@@ -389,7 +389,7 @@ function quoteEventPaint(
 }
 
 function quoteLabel(q: Quote) {
-  const title = `№${q.proposalNumber} ${q.eventName || q.client || "КП"}`;
+  const title = q.eventName?.trim() || q.client?.trim() || "КП";
   if (q.lifecycle === "CANCELLED") return `ОТМЕНА ${title}`;
   return title;
 }

@@ -47,7 +47,8 @@ export async function GET(req: NextRequest) {
       include: specialtyCatalogInclude,
     });
     const serialized = specialties.map(serializeSpecialty);
-    if (!withServices) return NextResponse.json(serialized);
+    const headers = { "Cache-Control": "no-store" };
+    if (!withServices) return NextResponse.json(serialized, { headers });
 
     const services = await prisma.catalogItem.findMany({
       where: {
@@ -57,7 +58,7 @@ export async function GET(req: NextRequest) {
       select: { id: true, name: true, itemKind: true },
       orderBy: [{ name: "asc" }],
     });
-    return NextResponse.json({ specialties: serialized, services });
+    return NextResponse.json({ specialties: serialized, services }, { headers });
   } catch (e) {
     if (e instanceof Response) return e;
     throw e;

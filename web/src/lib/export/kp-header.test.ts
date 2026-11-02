@@ -31,7 +31,7 @@ assert.deepEqual(
   header.rows.map((r) => r.label),
   [
     "КП №",
-    "Дата проведения",
+    "Дата мероприятия",
     "Заказчик",
     "Контакт от заказчика",
     "Менеджер",
@@ -39,6 +39,7 @@ assert.deepEqual(
   ],
 );
 assert.equal(header.rows[0].value, "101");
+assert.equal(header.rows[1].value, "12 августа 2026");
 assert.equal(header.rows[2].value, "ООО Вектор");
 assert.equal(header.rows[3].value, "@client · +7 900");
 assert.equal(header.rows[4].value, "Стрельченко Артем, +7 900 000-00-00");

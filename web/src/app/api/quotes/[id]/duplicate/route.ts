@@ -58,6 +58,7 @@ export async function POST(
       venueId: source.venueId,
       client: source.client,
       clientId: source.clientId,
+      contactId: source.contactId,
       requestContact: source.requestContact,
       cashless: source.cashless,
       cashlessPercent: source.cashlessPercent,

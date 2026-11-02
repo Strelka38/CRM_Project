@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { resolveEstimateDisclaimer } from "@/lib/commercial-terms";
 import { prisma } from "@/lib/db";
+import { ensureQuoteSchemaColumns } from "@/lib/ensure-schema";
 import {
   EXPORT_TEMPLATES_KEY,
   STANDARD_TEMPLATE_ID,
@@ -23,7 +24,8 @@ const shareInclude = {
     include: { catalogItem: { select: { itemKind: true } } },
   },
   owner: { select: { name: true, phone: true } },
-  clientRef: { select: { phone: true } },
+  clientRef: { select: { phone: true, contactName: true } },
+  contactPerson: { select: { name: true, phone: true } },
   venueRef: { select: { address: true } },
 } satisfies Prisma.QuoteInclude;
 
@@ -32,6 +34,7 @@ export async function renderPublicQuoteHtml(
   origin: string,
 ): Promise<{ html: string } | null> {
   if (!isShareToken(token)) return null;
+  await ensureQuoteSchemaColumns();
 
   const share = await prisma.quoteShare.findUnique({
     where: { token },
@@ -82,6 +85,7 @@ export async function renderPublicQuoteHtml(
     proposalNumber: quote.proposalNumber,
     eventName: quote.eventName,
     date: quote.date,
+    mountDate: quote.mountDate,
     time: quote.time,
     place: quote.place,
     client: quote.client,
@@ -93,7 +97,14 @@ export async function renderPublicQuoteHtml(
     durationDays: quote.durationDays,
     discountPercent: quote.discountPercent,
     notes: quote.notes,
-    clientPhone: quote.clientRef?.phone?.trim() || "",
+    contactId: quote.contactId,
+    contactName:
+      quote.contactPerson?.name?.trim() ||
+      quote.clientRef?.contactName?.trim() ||
+      "",
+    clientPhone: quote.contactPerson
+      ? quote.contactPerson.phone.trim()
+      : quote.clientRef?.phone?.trim() || "",
     address: quote.venueRef?.address?.trim() || "",
     comment: quote.paymentComment.trim() || notes.join("\n"),
     estimateDisclaimer: resolveEstimateDisclaimer(quote.estimateDisclaimer, templateNote),

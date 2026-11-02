@@ -1,3 +1,4 @@
+import { formatLongRuDate } from "../dates";
 import { todayLabel } from "../format";
 
 /** Поля печати коммерческого предложения. Нет флага — старое поведение экспорта. */
@@ -7,8 +8,10 @@ export type QuotePrintOptions = {
   showFirm: boolean;
   showProjectName: boolean;
   showEventDate: boolean;
+  showMountDate: boolean;
   showEventTime: boolean;
   showClient: boolean;
+  showContact: boolean;
   showClientPhone: boolean;
   showVenue: boolean;
   showAddress: boolean;
@@ -34,8 +37,10 @@ export const STANDARD_PRINT_OPTIONS: QuotePrintOptions = {
   showFirm: false,
   showProjectName: false,
   showEventDate: false,
+  showMountDate: false,
   showEventTime: false,
   showClient: false,
+  showContact: false,
   showClientPhone: false,
   showVenue: false,
   showAddress: false,
@@ -72,11 +77,13 @@ export const EXPORT_OPTION_ROWS: ExportOptionRow[] = [
   { kind: "print", key: "showProjectNumber", label: "Номер проекта", caps: true },
   { kind: "print", key: "showFirm", label: "Фирма", caps: true },
   { kind: "print", key: "showProjectName", label: "Название проекта", caps: true },
-  { kind: "print", key: "showEventDate", label: "Дата проведения", caps: true },
+  { kind: "print", key: "showEventDate", label: "Дата мероприятия", caps: true },
+  { kind: "print", key: "showMountDate", label: "Дата монтажа", caps: true },
   { kind: "print", key: "showEventTime", label: "Время проведения", caps: true },
-  { kind: "print", key: "showClient", label: "Клиент", caps: true },
-  { kind: "print", key: "showClientPhone", label: "Телефон клиента", caps: true },
-  { kind: "print", key: "showVenue", label: "Площадка", caps: true },
+  { kind: "print", key: "showClient", label: "Заказчик", caps: true },
+  { kind: "print", key: "showContact", label: "Контактное лицо", caps: true },
+  { kind: "print", key: "showClientPhone", label: "Телефон заказчика", caps: true },
+  { kind: "print", key: "showVenue", label: "Место", caps: true },
   { kind: "print", key: "showAddress", label: "Адрес", caps: true },
   { kind: "gap" },
   { kind: "print", key: "showLinePrice", label: "Показывать цену для позиции" },
@@ -147,9 +154,13 @@ export type PrintHeaderMeta = {
   proposalNumber?: string;
   eventName?: string;
   date?: string;
+  mountDate?: string;
   time?: string;
   place?: string;
   client?: string;
+  /** Имя контактного лица. Пустой телефон подставляется, если имени нет. */
+  contactName?: string;
+  contactPhone?: string;
   clientPhone?: string;
   address?: string;
   formedAt?: string;
@@ -168,6 +179,18 @@ function filled(value?: string): string {
   return text || "—";
 }
 
+function headerDate(value?: string): string {
+  const text = value?.trim();
+  if (!text) return "";
+  return formatLongRuDate(text);
+}
+
+function contactPersonLabel(name?: string, phone?: string): string {
+  const person = name?.trim() || "";
+  if (person) return person;
+  return phone?.trim() || "";
+}
+
 export function buildPrintHeader(
   meta: PrintHeaderMeta,
   options: QuotePrintOptions,
@@ -177,14 +200,24 @@ export function buildPrintHeader(
     if (!on) return;
     rows.push({ label, value: filled(value) });
   };
-  push(options.showFormedAt, "Дата формирования", meta.formedAt || todayLabel());
+  push(
+    options.showFormedAt,
+    "Дата формирования",
+    headerDate(meta.formedAt || todayLabel()),
+  );
   push(options.showProjectNumber, "Номер проекта", meta.proposalNumber);
   push(options.showFirm, "Фирма", meta.firm);
-  push(options.showEventDate, "Дата проведения", meta.date);
+  push(options.showEventDate, "Дата мероприятия", headerDate(meta.date));
+  push(options.showMountDate, "Дата монтажа", headerDate(meta.mountDate));
   push(options.showEventTime, "Время проведения", meta.time);
-  push(options.showClient, "Клиент", meta.client);
-  push(options.showClientPhone, "Телефон клиента", meta.clientPhone);
-  push(options.showVenue, "Площадка", meta.place);
+  push(options.showClient, "Заказчик", meta.client);
+  push(
+    options.showContact,
+    "Контактное лицо",
+    contactPersonLabel(meta.contactName, meta.contactPhone),
+  );
+  push(options.showClientPhone, "Телефон заказчика", meta.clientPhone);
+  push(options.showVenue, "Место", meta.place);
   push(options.showAddress, "Адрес", meta.address);
   push(options.showComment, "Комментарий", meta.comment);
   const title =

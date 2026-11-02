@@ -5,6 +5,8 @@ import {
   ESTIMATE_VALIDITY_DAYS,
   QUOTE_DAY_RATE_NOTE,
   QUOTE_OFFER_NOTE,
+  disclaimerDraftToStore,
+  disclaimerFieldValue,
   resolveEstimateDisclaimer,
 } from "./commercial-terms";
 
@@ -18,5 +20,20 @@ assert.match(ESTIMATE_DISCLAIMER, /не является офертой/);
 assert.equal(resolveEstimateDisclaimer("  Своё  ", "Шаблон"), "Своё");
 assert.equal(resolveEstimateDisclaimer("  ", "Шаблон"), "Шаблон");
 assert.equal(resolveEstimateDisclaimer("", ""), ESTIMATE_DISCLAIMER);
+
+const inherited = "Текст шаблона.";
+assert.equal(disclaimerFieldValue("", inherited), inherited);
+assert.equal(
+  disclaimerFieldValue(inherited + " При наличной", inherited),
+  inherited + " При наличной",
+);
+assert.equal(disclaimerFieldValue(inherited + " ", inherited), inherited + " ");
+assert.equal(disclaimerDraftToStore(inherited, inherited), "");
+assert.equal(disclaimerDraftToStore("   ", inherited), "");
+assert.equal(disclaimerDraftToStore(inherited + " ", inherited), inherited + " ");
+assert.equal(
+  disclaimerDraftToStore(inherited + " При наличной оплате скидка 10%", inherited),
+  inherited + " При наличной оплате скидка 10%",
+);
 
 console.log("commercial-terms.test.ts ok");

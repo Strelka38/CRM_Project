@@ -17,6 +17,7 @@ export type QuoteSnapshotPayload = {
     venueId: string | null;
     client: string;
     clientId: string | null;
+    contactId?: string | null;
     requestContact?: string;
     managerName: string;
     ownerId: string;
@@ -67,6 +68,7 @@ type QuoteBody = {
   venueId: string | null;
   client: string;
   clientId: string | null;
+  contactId?: string | null;
   requestContact?: string;
   managerName: string;
   ownerId: string;
@@ -118,6 +120,7 @@ export function buildQuoteSnapshotPayload(quote: QuoteBody): QuoteSnapshotPayloa
       venueId: quote.venueId,
       client: quote.client,
       clientId: quote.clientId,
+      contactId: quote.contactId ?? null,
       requestContact: quote.requestContact || "",
       managerName: quote.managerName,
       ownerId: quote.ownerId,
@@ -231,6 +234,7 @@ const META_AUDIT_KEYS = [
   "venueId",
   "client",
   "clientId",
+  "contactId",
   "requestContact",
   "managerName",
   "ownerId",
@@ -303,6 +307,7 @@ export type QuoteSnapshotPatch = {
   venueId: string | null;
   client: string;
   clientId: string | null;
+  contactId: string | null;
   requestContact: string;
   managerName: string;
   ownerId: string;
@@ -355,6 +360,7 @@ export function snapshotToQuotePatch(
     venueId: payload.meta.venueId,
     client: payload.meta.client,
     clientId: payload.meta.clientId,
+    contactId: payload.meta.contactId ?? null,
     requestContact: payload.meta.requestContact || "",
     managerName: payload.meta.managerName,
     ownerId: payload.meta.ownerId,

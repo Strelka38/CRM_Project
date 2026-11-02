@@ -266,16 +266,16 @@ const mountGrow = planSlotSync(
   [{ specialtyId: "mount", kind: "MOUNT", qty: 5 }],
   { "MOUNT:mount": 3 },
 );
-assert.equal(mountGrow.create.length, 2);
-assert.ok(mountGrow.create.every((c) => c.kind === "MOUNT"));
-assert.equal(mountGrow.watermarks["MOUNT:mount"], 5);
+assert.equal(mountGrow.create.length, 0);
+assert.equal(mountGrow.deleteIds.length, 0);
+assert.equal(mountGrow.watermarks["MOUNT:mount"], 3);
 
 const mountFirst = planSlotSync(
   [],
-  [{ specialtyId: "mount", kind: "MOUNT", qty: 2 }],
+  [{ specialtyId: "mount", kind: "MOUNT", qty: 40 }],
 );
-assert.equal(mountFirst.create.length, 2);
-assert.equal(mountFirst.watermarks["MOUNT:mount"], 2);
+assert.equal(mountFirst.create.length, 0);
+assert.deepEqual(mountFirst.watermarks, {});
 
 const mountAfterDelete = planSlotSync(
   [mountExtra[0]],
@@ -297,7 +297,8 @@ const mountLegacyDeleted = planSlotSync(
   [{ specialtyId: "mount", kind: "MOUNT", qty: 2 }],
 );
 assert.equal(mountLegacyDeleted.create.length, 0);
-assert.equal(mountLegacyDeleted.watermarks["MOUNT:mount"], 2);
+assert.equal(mountLegacyDeleted.deleteIds.length, 0);
+assert.deepEqual(mountLegacyDeleted.watermarks, {});
 
 const grouped = groupDesiredQty([
   { specialtyId: specSound, kind: "EVENT", qty: 1 },
@@ -323,7 +324,7 @@ const samePersonKeys = planSlotSync(
 );
 assert.equal(
   samePersonKeys.create.filter((c) => c.kind === "MOUNT").length,
-  1,
+  0,
 );
 
 const blocks = [
@@ -416,12 +417,7 @@ const multiMount = planSlotSync(
   3,
 );
 assert.equal(multiMount.create.filter((c) => c.kind === "EVENT").length, 1);
-assert.equal(multiMount.create.filter((c) => c.kind === "MOUNT").length, 2);
-assert.ok(
-  multiMount.create
-    .filter((c) => c.kind === "MOUNT")
-    .every((c) => c.dayIndex == null),
-);
+assert.equal(multiMount.create.filter((c) => c.kind === "MOUNT").length, 0);
 
 const filledAllDays: SlotExisting[] = [
   {

@@ -25,6 +25,11 @@ import {
 import { Button, Card, PageHeader, StatusBadge } from "@/components/ui";
 import type { LifecycleStatus } from "@/components/ui";
 import { emptyAmounts, type LineAmountSplit } from "@/lib/quote-calculation";
+import {
+  formatRentability,
+  rentabilityClass,
+  rentabilityRatio,
+} from "@/lib/rentability";
 
 type ShareRow = { company: CatalogOwnerValue; percent: number };
 
@@ -86,6 +91,10 @@ type AssignmentRow = {
   owners: CatalogOwnerValue[];
   isFreelancer?: boolean;
   basePay: number;
+  /** Ставка специальности без override. */
+  defaultBase: number;
+  /** Своя база на это мероприятие. Пусто — берётся defaultBase. */
+  rateOverride: number | null;
   bonus: number;
   montageAmount: number;
   pay: number;
@@ -163,6 +172,7 @@ type CalculationPayload = {
       revenue: number;
       cogs?: number;
       expenses: number;
+      freelanceCost?: number;
       laborCost?: number;
       montageCost?: number;
       agency?: number;
@@ -244,6 +254,11 @@ function applyPayload(
       bonus: Math.max(0, Number(a.bonus) || 0),
       montageAmount: Math.max(0, Number(a.montageAmount) || 0),
       basePay: Math.max(0, Number(a.basePay) || 0),
+      defaultBase: Math.max(0, Number(a.defaultBase) || 0),
+      rateOverride:
+        a.rateOverride == null || Number.isNaN(Number(a.rateOverride))
+          ? null
+          : Math.max(0, Number(a.rateOverride)),
       pay: Math.max(0, Number(a.pay) || 0),
     })),
   );
@@ -260,6 +275,8 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
   const [assignments, setAssignments] = useState<AssignmentRow[]>([]);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshNote, setRefreshNote] = useState("");
   const [exporting, setExporting] = useState(false);
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [tab, setTab] = useState<CalcTabId>("estimate");
@@ -273,7 +290,7 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
     const res = await fetch(`/api/calculations/${quoteId}`);
     if (!res.ok) {
       setError("Не удалось загрузить");
-      return;
+      return false;
     }
     const json: CalculationPayload = await res.json();
     setData(json);
@@ -286,6 +303,7 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
       setAssignments,
       setEstimateBlocks,
     );
+    return true;
   }, [quoteId]);
 
   useEffect(() => {
@@ -345,6 +363,34 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
     [lines],
   );
 
+  const costPositions = useMemo(() => {
+    return lines.flatMap((l) => {
+      const passthrough =
+        l.costSource === "passthrough" && l.costOverride == null;
+      if (passthrough) return [];
+      const cost = Math.round(
+        Math.max(0, l.costOverride != null ? l.costOverride : l.costTotal),
+      );
+      if (cost <= 0) return [];
+      const client = Math.round(Math.max(0, Number(l.lineTotal) || 0));
+      const owners =
+        l.mode === "AMOUNT"
+          ? CATALOG_OWNERS.map((o) => o.value).filter(
+              (company) => (l.amounts[company] || 0) > 0,
+            )
+          : l.owners;
+      return [
+        {
+          id: l.id,
+          name: l.name || "Позиция",
+          cost,
+          diff: client - cost,
+          owners,
+        },
+      ];
+    });
+  }, [lines]);
+
   async function save(next?: {
     sharesCustom?: boolean;
     shares?: ShareRow[];
@@ -387,6 +433,7 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
         id: a.id,
         bonus: Math.max(0, Number(a.bonus) || 0),
         montageAmount: Math.max(0, Number(a.montageAmount) || 0),
+        rateOverride: a.rateOverride,
       }));
     }
 
@@ -421,6 +468,7 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
         id: a.id,
         bonus: Math.max(0, Number(a.bonus) || 0),
         montageAmount: Math.max(0, Number(a.montageAmount) || 0),
+        rateOverride: a.rateOverride,
       }));
     }
 
@@ -449,6 +497,22 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
       setEstimateBlocks,
     );
     setSavedAt(new Date().toLocaleTimeString("ru-RU"));
+  }
+
+  function setAssignmentRate(id: string, rateOverride: number | null) {
+    setAssignments((prev) =>
+      prev.map((a) => {
+        if (a.id !== id) return a;
+        const basePay =
+          rateOverride == null ? a.defaultBase : Math.max(0, rateOverride);
+        return {
+          ...a,
+          rateOverride,
+          basePay,
+          pay: basePay + Math.max(0, Number(a.bonus) || 0),
+        };
+      }),
+    );
   }
 
   function setAssignmentBonus(id: string, bonus: number) {
@@ -676,6 +740,29 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
       displayMontageTotal -
       displayAgencyDeducted,
   );
+  const projectExpenses =
+    displayCogs +
+    extraOnly +
+    displayFreelance +
+    displayLaborTotal +
+    displayMontageTotal +
+    displayAgencyTotal;
+  const projectRentability = rentabilityRatio(displayMargin, projectExpenses);
+
+  async function refreshFromQuote() {
+    setRefreshing(true);
+    setRefreshNote("");
+    try {
+      const ok = await load();
+      if (ok) {
+        setRefreshNote(
+          "Смета подтянута. Сохранённые владельцы и закуп остались на своих строках.",
+        );
+      }
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   async function downloadExcel() {
     if (!data) return;
@@ -742,7 +829,15 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
         title={`Калькуляция №${data.proposalNumber}`}
         subtitle={`${data.eventName || "Без названия"} · ${data.client || "—"} · ${data.date || "без даты"}`}
         actions={
-          <div className="flex items-center gap-0.5">
+          <div className="flex items-center gap-1">
+            <Button
+              type="button"
+              size="sm"
+              disabled={refreshing || saving}
+              onClick={() => void refreshFromQuote()}
+            >
+              {refreshing ? "Обновление…" : "Обновить из сметы"}
+            </Button>
             <DirectoryIconButton
               title={exporting ? "Excel…" : "Excel"}
               disabled={exporting}
@@ -777,6 +872,9 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
         {saving && (
           <span className="text-xs text-[var(--muted)]">сохранение…</span>
         )}
+        {refreshNote && (
+          <span className="text-xs text-[var(--muted)]">{refreshNote}</span>
+        )}
       </div>
 
       {error && <p className="mb-4 text-sm text-[var(--danger)]">{error}</p>}
@@ -793,7 +891,7 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
         }}
       />
 
-      <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
+      <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-9">
         <Stat label="Сумма КП" value={formatMoney(calc.payable)} />
         <Stat label="Выручка (маржа)" value={formatMoney(displayMargin)} />
         <Stat label="Закуп" value={formatMoney(displayCogs)} />
@@ -812,6 +910,12 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
           value={formatMoney(displayNetTotal)}
           accent={displayNetTotal >= 0}
           danger={displayNetTotal < 0}
+        />
+        <Stat
+          label="Рентабельность"
+          value={formatRentability(projectRentability)}
+          valueClassName={rentabilityClass(projectRentability)}
+          title="Выручка ÷ закуп, доп. расходы, ЗП, монтажные и агентские"
         />
       </div>
 
@@ -845,7 +949,9 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
             <h2 className="text-lg font-medium">Сотрудники на мероприятии</h2>
             <p className="mt-1 text-sm text-[var(--muted)]">
               Участники шоу — в ЗП. Монтажники — в факт пусконаладки. Перерасход
-              режет маржу конторы, выручку не раздувает.
+              режет маржу конторы, выручку не раздувает. Пустое поле базы —
+              ставка специальности; введённое число заменяет её только на этом
+              мероприятии.
             </p>
           </div>
           <div className="flex items-center gap-1">
@@ -861,7 +967,7 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
               onClick={() => void save({ assignments })}
             >
               <IconSave />
-              Сохранить премии и монтажные
+              Сохранить базу и премии
             </Button>
           </div>
         </div>
@@ -969,8 +1075,25 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
                           ? `${a.hours ?? 0} ч`
                           : "Смена"}
                       </td>
-                      <td className="px-4 py-3 text-right tabular-nums">
-                        {formatMoney(a.basePay)}
+                      <td className="px-4 py-3 text-right">
+                        <input
+                          type="number"
+                          min={0}
+                          className="field ml-auto max-w-[110px] text-right"
+                          value={a.rateOverride == null ? "" : a.rateOverride}
+                          placeholder={String(a.defaultBase)}
+                          title="Пусто — ставка специальности. Число действует только на этом мероприятии."
+                          onChange={(e) => {
+                            const raw = e.target.value.trim();
+                            if (raw === "") {
+                              setAssignmentRate(a.id, null);
+                              return;
+                            }
+                            const n = Number(raw);
+                            if (!Number.isFinite(n) || n < 0) return;
+                            setAssignmentRate(a.id, n);
+                          }}
+                        />
                       </td>
                       <td className="px-4 py-3 text-right">
                         <input
@@ -1273,11 +1396,14 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
                         {c.label}
                       </span>
                     </p>
-                    {!sharesCustom && (
-                      <span className="text-sm tabular-nums text-[var(--accent-deep)]">
-                        {breakdown?.autoPercent ?? 0}%
-                      </span>
-                    )}
+                    <p className="flex items-baseline gap-2">
+                      <CompanyRentability breakdown={breakdown} />
+                      {!sharesCustom && (
+                        <span className="text-sm tabular-nums text-[var(--accent-deep)]">
+                          {breakdown?.autoPercent ?? 0}%
+                        </span>
+                      )}
+                    </p>
                   </div>
                   {sharesCustom ? (
                     <label className="mt-2 block text-sm">
@@ -1315,7 +1441,19 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
                     <p>
                       Расходы:{" "}
                       <span className="tabular-nums">
-                        {formatMoney(breakdown?.expenses ?? 0)}
+                        {formatMoney(
+                          Math.max(
+                            0,
+                            (breakdown?.expenses ?? 0) -
+                              (breakdown?.freelanceCost ?? 0),
+                          ),
+                        )}
+                      </span>
+                    </p>
+                    <p>
+                      Расходы на фрилансеров:{" "}
+                      <span className="tabular-nums">
+                        {formatMoney(breakdown?.freelanceCost ?? 0)}
                       </span>
                     </p>
                     <p>
@@ -1398,6 +1536,81 @@ export function CalculationEditor({ quoteId }: { quoteId: string }) {
                 </li>
               ))}
             </ul>
+          )}
+        </Card>
+      </section>
+
+      <section className="mb-6 space-y-3">
+        <div>
+          <h2 className="text-lg font-medium">Расходы</h2>
+          <p className="mt-1 text-sm text-[var(--muted)]">
+            Позиции сметы с указанным закупом. Разница — сумма клиенту минус
+            закуп.
+          </p>
+        </div>
+        <Card>
+          {costPositions.length === 0 ? (
+            <p className="px-4 py-6 text-center text-sm text-[var(--muted)]">
+              Позиций с закупом нет
+            </p>
+          ) : (
+            <div className="data-table-shell">
+              <table className="data-table w-full min-w-[640px] text-left text-sm">
+                <thead className="bg-[var(--table-head)] text-caption uppercase tracking-wider text-[var(--muted)]">
+                  <tr>
+                    <th className="px-4 py-3">Позиция</th>
+                    <th className="px-4 py-3">Фирма</th>
+                    <th className="px-4 py-3 text-right">Закуп</th>
+                    <th className="px-4 py-3 text-right">Разница</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {costPositions.map((row) => (
+                    <tr
+                      key={row.id}
+                      className="border-t border-[var(--line)]"
+                    >
+                      <td className="px-4 py-3">{row.name}</td>
+                      <td className="px-4 py-3">
+                        {row.owners.length === 0 ? (
+                          <span className="text-[var(--muted)]">—</span>
+                        ) : (
+                          <span className="inline-flex flex-wrap gap-0.5">
+                            {CATALOG_OWNERS.filter((o) =>
+                              row.owners.includes(o.value),
+                            ).map((o) => (
+                              <span
+                                key={o.value}
+                                title={o.label}
+                                className="rounded border border-[var(--solid)] bg-[var(--solid)] px-1.5 py-0.5 text-caption font-medium uppercase text-[var(--on-solid)]"
+                              >
+                                {o.short}
+                              </span>
+                            ))}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums">
+                        {formatMoney(row.cost)}
+                      </td>
+                      <td
+                        className={`px-4 py-3 text-right tabular-nums ${
+                          row.diff > 0
+                            ? "text-emerald-500 dark:text-emerald-400"
+                            : row.diff < 0
+                              ? "text-[var(--danger)]"
+                              : ""
+                        }`}
+                      >
+                        {row.diff > 0
+                          ? `+${formatMoney(row.diff)}`
+                          : formatMoney(row.diff)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </Card>
       </section>
@@ -1684,16 +1897,65 @@ function IconReset() {
   );
 }
 
+function companyExpenses(breakdown: {
+  cogs?: number;
+  expenses?: number;
+  laborCost?: number;
+  montageCost?: number;
+  agency?: number;
+} | undefined): number {
+  if (!breakdown) return 0;
+  return (
+    (breakdown.cogs ?? 0) +
+    (breakdown.expenses ?? 0) +
+    (breakdown.laborCost ?? 0) +
+    (breakdown.montageCost ?? 0) +
+    (breakdown.agency ?? 0)
+  );
+}
+
+function CompanyRentability({
+  breakdown,
+}: {
+  breakdown:
+    | {
+        revenue: number;
+        cogs?: number;
+        expenses?: number;
+        laborCost?: number;
+        montageCost?: number;
+        agency?: number;
+      }
+    | undefined;
+}) {
+  const ratio = rentabilityRatio(
+    breakdown?.revenue ?? 0,
+    companyExpenses(breakdown),
+  );
+  return (
+    <span
+      className={`text-sm font-medium tabular-nums ${rentabilityClass(ratio)}`}
+      title="Выручка ÷ закуп, расходы, фриланс, ЗП, монтажные и агентские"
+    >
+      {formatRentability(ratio)}
+    </span>
+  );
+}
+
 function Stat({
   label,
   value,
   accent,
   danger,
+  valueClassName,
+  title,
 }: {
   label: string;
   value: string;
   accent?: boolean;
   danger?: boolean;
+  valueClassName?: string;
+  title?: string;
 }) {
   return (
     <Card className="p-4">
@@ -1701,12 +1963,14 @@ function Stat({
         {label}
       </p>
       <p
+        title={title}
         className={`mt-1 text-xl font-medium tracking-tight ${
-            danger
+          valueClassName ??
+          (danger
             ? "text-[var(--danger)]"
             : accent
               ? "text-[var(--accent-deep)]"
-              : ""
+              : "")
         }`}
       >
         {value}

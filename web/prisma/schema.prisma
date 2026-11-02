@@ -446,6 +446,7 @@ model Client {
   quotes          Quote[]
   calendarEntries CalendarEntry[]
   legalEntities   ClientLegalEntity[]
+  contacts        ClientContact[]
 
   @@index([companyName])
   @@index([inn])
@@ -466,6 +467,22 @@ model ClientLegalEntity {
 
   @@index([clientId])
   @@index([inn])
+}
+
+/// Контактное лицо заказчика. У одной компании их может быть несколько.
+model ClientContact {
+  id        String   @id @default(cuid())
+  clientId  String
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  name      String   @default("")
+  phone     String   @default("")
+  email     String   @default("")
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  quotes    Quote[]
+
+  @@index([clientId])
 }
 
 /// Справочник фрилансеров: ФИО + статистика выплат по назначениям в сметах.
@@ -638,6 +655,9 @@ model Quote {
   client          String            @default("")
   clientId        String?
   clientRef       Client?           @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  /// Выбранное контактное лицо. Пусто — в шапке КП основной контакт карточки.
+  contactId       String?
+  contactPerson   ClientContact?    @relation(fields: [contactId], references: [id], onDelete: SetNull)
   /// Контакт, с которого поступила заявка на КП: телефон, Telegram и примечание
   requestContact  String            @default("")
   managerName     String            @default("")
@@ -689,6 +709,7 @@ model Quote {
   @@index([eventDate])
   @@index([lifecycle])
   @@index([clientId])
+  @@index([contactId])
   @@index([venueId])
 }
 

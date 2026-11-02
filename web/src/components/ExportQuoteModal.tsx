@@ -48,7 +48,34 @@ async function resolveExportMeta(meta: ExportMeta): Promise<ExportMeta> {
         .catch(() => undefined),
     );
   }
-  if (next.clientId && !next.clientPhone?.trim()) {
+  if (next.contactId && next.clientId) {
+    jobs.push(
+      fetch(`/api/clients/${next.clientId}/contacts`)
+        .then(async (res) => {
+          if (!res.ok) return;
+          const data: unknown = await res.json();
+          if (!Array.isArray(data)) return;
+          const contact = data.find(
+            (row) =>
+              row &&
+              typeof row === "object" &&
+              "id" in row &&
+              row.id === next.contactId,
+          );
+          if (!contact || typeof contact !== "object") return;
+          const name =
+            "name" in contact && typeof contact.name === "string"
+              ? contact.name.trim()
+              : "";
+          const phone =
+            "phone" in contact && typeof contact.phone === "string"
+              ? contact.phone.trim()
+              : "";
+          next = { ...next, contactName: name, clientPhone: phone };
+        })
+        .catch(() => undefined),
+    );
+  } else if (next.clientId && (!next.clientPhone?.trim() || !next.contactName?.trim())) {
     jobs.push(
       fetch(`/api/clients/${next.clientId}`)
         .then(async (res) => {
@@ -57,7 +84,15 @@ async function resolveExportMeta(meta: ExportMeta): Promise<ExportMeta> {
           if (!data || typeof data !== "object") return;
           const phone =
             "phone" in data && typeof data.phone === "string" ? data.phone.trim() : "";
-          if (phone) next = { ...next, clientPhone: phone };
+          const name =
+            "contactName" in data && typeof data.contactName === "string"
+              ? data.contactName.trim()
+              : "";
+          next = {
+            ...next,
+            clientPhone: next.clientPhone?.trim() || phone,
+            contactName: next.contactName?.trim() || name,
+          };
         })
         .catch(() => undefined),
     );

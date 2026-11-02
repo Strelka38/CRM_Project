@@ -197,7 +197,10 @@ export function RatesAdmin() {
   const [creating, setCreating] = useState(false);
 
   async function load() {
-    const res = await fetch("/api/specialties?active=0&services=1");
+    for (const id of Object.keys(saveTimers.current)) clearSaveTimer(id);
+    const res = await fetch("/api/specialties?active=0&services=1", {
+      cache: "no-store",
+    });
     if (!res.ok) {
       setError("Не удалось загрузить специальности");
       setSpecialties([]);
@@ -245,8 +248,32 @@ export function RatesAdmin() {
   }, [specialties, services, q]);
   const { sorted, sort, onSort } = useTableSort(filtered, specialtySortValue);
 
-  function isDirty(s: SpecialtyRow): boolean {
-    const d = drafts[s.id];
+  const draftsRef = useRef(drafts);
+  const specialtiesRef = useRef(specialties);
+  const saveGen = useRef<Record<string, number>>({});
+  const saveTimers = useRef<Record<string, number>>({});
+  const flushAllRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    draftsRef.current = drafts;
+    specialtiesRef.current = specialties;
+    flushAllRef.current = () => {
+      for (const row of specialtiesRef.current) {
+        const draft = draftsRef.current[row.id];
+        if (!draft || !rowIsDirty(row, draft)) continue;
+        clearSaveTimer(row.id);
+        void saveRow(row, draft, { keepalive: true });
+      }
+    };
+  });
+  useEffect(() => {
+    function onHide() {
+      flushAllRef.current();
+    }
+    window.addEventListener("pagehide", onHide);
+    return () => window.removeEventListener("pagehide", onHide);
+  }, []);
+
+  function rowIsDirty(s: SpecialtyRow, d: Draft | undefined): boolean {
     if (!d) return false;
     return (
       d.name.trim() !== s.name ||
@@ -258,36 +285,74 @@ export function RatesAdmin() {
     );
   }
 
-  function updateDraft(id: string, patch: Partial<Draft>) {
-    setDrafts((prev) => ({
-      ...prev,
-      [id]: { ...prev[id], ...patch },
-    }));
-    setOk("");
+  function isDirty(s: SpecialtyRow): boolean {
+    return rowIsDirty(s, drafts[s.id]);
   }
 
-  async function saveRow(s: SpecialtyRow) {
-    const d = drafts[s.id];
-    if (!d) return;
-    setError("");
+  function clearSaveTimer(id: string) {
+    const timer = saveTimers.current[id];
+    if (timer == null) return;
+    window.clearTimeout(timer);
+    delete saveTimers.current[id];
+  }
+
+  function updateDraft(id: string, patch: Partial<Draft>, immediate = false) {
+    const current = draftsRef.current[id];
+    if (!current) return;
+    const nextDraft = { ...current, ...patch };
+    const next = { ...draftsRef.current, [id]: nextDraft };
+    draftsRef.current = next;
+    setDrafts(next);
     setOk("");
-    const name = d.name.trim();
-    if (!name) {
-      setError("Название специальности не может быть пустым");
-      return;
+    if (immediate) flushRow(id);
+    else scheduleSave(id);
+  }
+
+  function scheduleSave(id: string) {
+    clearSaveTimer(id);
+    saveTimers.current[id] = window.setTimeout(() => flushRow(id), 400);
+  }
+
+  function flushRow(id: string, reportError = false) {
+    clearSaveTimer(id);
+    const row = specialtiesRef.current.find((s) => s.id === id);
+    const draft = draftsRef.current[id];
+    if (!row || !draft || !rowIsDirty(row, draft)) return;
+    void saveRow(row, draft, { reportError });
+  }
+
+  async function saveRow(
+    s: SpecialtyRow,
+    draftOverride?: Draft,
+    opts?: { keepalive?: boolean; reportError?: boolean; manual?: boolean },
+  ) {
+    const d = draftOverride ?? draftsRef.current[s.id];
+    if (!d || !rowIsDirty(s, d)) return;
+    const reportError = opts?.reportError ?? Boolean(opts?.manual);
+    if (opts?.manual) {
+      setError("");
+      setOk("");
     }
+    const name = d.name.trim();
     const sortOrder = Number.parseInt(d.sortOrder, 10);
     const hourlyRate = parseNonNeg(d.hourlyRate);
     const shiftRate = parseNonNeg(d.shiftRate);
-    if (!Number.isFinite(sortOrder)) {
-      setError("Порядок должен быть целым числом");
-      return;
-    }
-    if (hourlyRate == null || shiftRate == null) {
-      setError("Ставки должны быть неотрицательными числами");
+    if (!name || !Number.isFinite(sortOrder) || hourlyRate == null || shiftRate == null) {
+      if (reportError) {
+        setError(
+          !name
+            ? "Название специальности не может быть пустым"
+            : !Number.isFinite(sortOrder)
+              ? "Порядок должен быть целым числом"
+              : "Ставки должны быть неотрицательными числами",
+        );
+      }
       return;
     }
 
+    clearSaveTimer(s.id);
+    const gen = (saveGen.current[s.id] ?? 0) + 1;
+    saveGen.current[s.id] = gen;
     setSavingId(s.id);
     const res = await fetch(`/api/specialties/${s.id}`, {
       method: "PATCH",
@@ -300,7 +365,9 @@ export function RatesAdmin() {
         description: d.description.trim(),
         catalogItemIds: d.catalogItemIds,
       }),
+      keepalive: opts?.keepalive ?? false,
     });
+    if (saveGen.current[s.id] !== gen) return;
     setSavingId(null);
     if (!res.ok) {
       const payload = (await res.json().catch(() => null)) as {
@@ -310,16 +377,28 @@ export function RatesAdmin() {
       return;
     }
     const updated: SpecialtyRow = await res.json();
-    setSpecialties((prev) =>
-      prev
+    if (saveGen.current[s.id] !== gen) return;
+    setSpecialties((prev) => {
+      const next = prev
         .map((row) => (row.id === updated.id ? updated : row))
         .sort(
           (a, b) =>
             a.sortOrder - b.sortOrder || a.name.localeCompare(b.name, "ru"),
-        ),
-    );
-    setDrafts((prev) => ({ ...prev, [updated.id]: toDraft(updated) }));
-    setOk(`Сохранено: ${updated.name}`);
+        );
+      specialtiesRef.current = next;
+      return next;
+    });
+    setDrafts((prev) => {
+      const live = draftsRef.current[updated.id];
+      if (live && rowIsDirty(updated, live)) {
+        window.setTimeout(() => flushRow(updated.id), 0);
+        return prev;
+      }
+      const next = { ...prev, [updated.id]: toDraft(updated) };
+      draftsRef.current = next;
+      return next;
+    });
+    if (opts?.manual) setOk(`Сохранено: ${updated.name}`);
   }
 
   async function toggleActive(s: SpecialtyRow) {
@@ -654,6 +733,7 @@ export function RatesAdmin() {
                     className="field min-w-0 flex-1 font-medium"
                     value={d.name}
                     onChange={(e) => updateDraft(s.id, { name: e.target.value })}
+                    onBlur={() => flushRow(s.id, true)}
                     aria-label="Название специальности"
                   />
                 </div>
@@ -668,6 +748,7 @@ export function RatesAdmin() {
                       onChange={(e) =>
                         updateDraft(s.id, { sortOrder: e.target.value })
                       }
+                      onBlur={() => flushRow(s.id, true)}
                     />
                   </label>
                   <label className="text-caption uppercase tracking-[0.04em] text-[var(--muted)]">
@@ -681,6 +762,7 @@ export function RatesAdmin() {
                       onChange={(e) =>
                         updateDraft(s.id, { hourlyRate: e.target.value })
                       }
+                      onBlur={() => flushRow(s.id, true)}
                     />
                   </label>
                   <label className="text-caption uppercase tracking-[0.04em] text-[var(--muted)]">
@@ -694,6 +776,7 @@ export function RatesAdmin() {
                       onChange={(e) =>
                         updateDraft(s.id, { shiftRate: e.target.value })
                       }
+                      onBlur={() => flushRow(s.id, true)}
                     />
                   </label>
                 </div>
@@ -706,6 +789,7 @@ export function RatesAdmin() {
                     onChange={(e) =>
                       updateDraft(s.id, { description: e.target.value })
                     }
+                    onBlur={() => flushRow(s.id, true)}
                     placeholder="Описание…"
                   />
                 </label>
@@ -718,7 +802,7 @@ export function RatesAdmin() {
                     <ServicePicker
                       selectedIds={d.catalogItemIds}
                       onChange={(catalogItemIds) =>
-                        updateDraft(s.id, { catalogItemIds })
+                        updateDraft(s.id, { catalogItemIds }, true)
                       }
                       services={services}
                       takenIds={takenServiceIds(s.id)}
@@ -744,7 +828,7 @@ export function RatesAdmin() {
                     variant="secondary"
                     className="tap-target ml-auto"
                     disabled={!dirty || savingId === s.id}
-                    onClick={() => void saveRow(s)}
+                    onClick={() => void saveRow(s, undefined, { manual: true })}
                   >
                     {savingId === s.id ? "Сохраняем…" : "Сохранить"}
                   </Button>
@@ -850,6 +934,7 @@ export function RatesAdmin() {
                         onChange={(e) =>
                           updateDraft(s.id, { sortOrder: e.target.value })
                         }
+                        onBlur={() => flushRow(s.id, true)}
                       />
                     </td>
                     <td className="w-px whitespace-nowrap px-2 py-2 text-left align-middle">
@@ -859,13 +944,14 @@ export function RatesAdmin() {
                         onChange={(e) =>
                           updateDraft(s.id, { name: e.target.value })
                         }
+                        onBlur={() => flushRow(s.id, true)}
                       />
                     </td>
                     <td className="min-w-[16rem] px-2 py-2 text-left align-middle">
                       <ServicePicker
                         selectedIds={d.catalogItemIds}
                         onChange={(catalogItemIds) =>
-                          updateDraft(s.id, { catalogItemIds })
+                          updateDraft(s.id, { catalogItemIds }, true)
                         }
                         services={services}
                         takenIds={takenServiceIds(s.id)}
@@ -882,6 +968,7 @@ export function RatesAdmin() {
                         onChange={(e) =>
                           updateDraft(s.id, { hourlyRate: e.target.value })
                         }
+                        onBlur={() => flushRow(s.id, true)}
                       />
                     </td>
                     <td className="w-px whitespace-nowrap px-2 py-2 text-left align-middle">
@@ -894,6 +981,7 @@ export function RatesAdmin() {
                         onChange={(e) =>
                           updateDraft(s.id, { shiftRate: e.target.value })
                         }
+                        onBlur={() => flushRow(s.id, true)}
                       />
                     </td>
                     <td className="w-full min-w-[12rem] px-2 py-2 text-left align-middle">
@@ -903,6 +991,7 @@ export function RatesAdmin() {
                         onChange={(e) =>
                           updateDraft(s.id, { description: e.target.value })
                         }
+                        onBlur={() => flushRow(s.id, true)}
                         placeholder="Описание…"
                       />
                     </td>
@@ -923,7 +1012,7 @@ export function RatesAdmin() {
                       <DirectoryIconButton
                         title="Сохранить"
                         disabled={!dirty || savingId === s.id}
-                        onClick={() => void saveRow(s)}
+                        onClick={() => void saveRow(s, undefined, { manual: true })}
                       >
                         <IconSave />
                       </DirectoryIconButton>
